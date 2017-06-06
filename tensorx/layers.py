@@ -1,17 +1,19 @@
-# Copyright 2017 Davide Nunes
+""" Neural Network Layers.
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ======================================================================================================================
+All layers contain a certain number of units, its shape, name and a tensor member
+which gives us a handle for a TensorFlow tensor that can be evaluated.
+
+Types of layers:
+    inputs: wrap around TensorFlow placeholders.
+
+    dense:  a layer encapsulating a dense matrix of weights,
+            possibly including biases and an activation function.
+
+    sparse: a dense matrix of weights accessed through a list of indexes,
+            (e.g. by being connected to an IndexInput layer)
+
+"""
+
 import tensorflow as tf
 
 
@@ -32,6 +34,30 @@ class Layer:
 
 
 class Input(Layer):
-    def __init__(self, n_units, dtype=tf.float32, name="input"):
-        super().__init__(n_units, [None, n_units], dtype, name)
+    """ Input Layer:
+    creates placeholders to receive tensors with a given shape
+    [batch_size, n_units] and a given data type
+    """
+    def __init__(self, n_unsts, batch_size=None, dtype=tf.float32, name="input"):
+        shape = [batch_size, n_units]
+        super().__init__(n_units, shape, dtype, name)
         self.tensor = tf.placeholder(self.dtype, self.shape, self.name)
+
+
+class IndexInput(Layer):
+    """
+
+    """
+    def __init__(self, n_units, n_active, batch_size=None, name="index_input"):
+        shape = [batch_size, n_active]
+        super().__init__(n_units,shape,tf.int32,name)
+
+        self.n_active = n_active
+        self.tensor = tf.placeholder(self.dtype,self.shape,self.name)
+
+    def to_dense(self):
+        """Converts the output tensor
+        to a dense s with n_units
+        """
+        return tf.one_hot(self.tensor, self.n_units)
+
