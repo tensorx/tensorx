@@ -47,9 +47,9 @@ class Layer:
 
 
 class Input(Layer):
-    """ Input Layer:
-    creates a placeholder to receive tensors with a given shape
-    [batch_size, n_units] and a given data type
+    """ Input Layer
+
+    Creates a placeholder to receive tensors with a given shape and data type.
     """
 
     def __init__(self, n_units, batch_size=None, dtype=tf.float32, name="input"):

@@ -1,3 +1,9 @@
+""" Initialisation Functions
+
+Provides functions that return weight initialisation tensors for different use cases.
+
+"""
+
 import tensorflow as tf
 
 
