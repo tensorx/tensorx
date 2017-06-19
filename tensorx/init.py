@@ -1,4 +1,4 @@
-""" Initialisation Functions
+""" TensorX Initialisation Functions
 
 Provides functions that return weight initialisation tensors for different use cases.
 

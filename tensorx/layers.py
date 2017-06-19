@@ -24,10 +24,6 @@ import tensorflow as tf
 from tensorx.init import random_uniform
 
 
-
-
-
-
 class Layer:
     def __init__(self, n_units, shape, dtype=tf.float32, name="layer"):
         """
@@ -44,6 +40,8 @@ class Layer:
 
         if shape is None:
             self.shape = [None, n_units]
+        else:
+            self.shape = shape
 
 
 class Input(Layer):
@@ -61,7 +59,7 @@ class Input(Layer):
 class IndexInput(Layer):
     """ IndexInput Layer
     creates an int32 placeholder with n_active int elements
-    usually used with sparse layers to slice weight matrices
+    used with sparse layers to slice weight matrices
     """
 
     def __init__(self, n_units, n_active, batch_size=None, name="index_input"):
