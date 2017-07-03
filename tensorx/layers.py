@@ -25,23 +25,25 @@ from tensorx.init import random_uniform
 
 
 class Layer:
-    def __init__(self, n_units, shape, dtype=tf.float32, name="layer"):
+    def __init__(self, n_units, shape=None, dtype=tf.float32, name="layer"):
         """
-        :param n_units: dimension of input vector (dimension of columns in case batch_size != None
-        :param shape: [batch size, input dimension]
-        :param dtype: expected input TensorFlow data type
-        :param name: layer name (used to nam the placeholder)
+        Args:
+            n_units: dimension of input vector (dimension of columns in case batch_size != None
+            shape: [batch size, input dimension]
+            dtype: expected input TensorFlow data type
+            name: layer name (used to nam the placeholder)
         """
-
         self.n_units = n_units
         self.name = name
-        self.tensor = None
         self.dtype = dtype
 
         if shape is None:
             self.shape = [None, n_units]
         else:
             self.shape = shape
+
+        # has a y (tensor) member
+        self.y = None
 
 
 class Input(Layer):
@@ -53,7 +55,13 @@ class Input(Layer):
     def __init__(self, n_units, batch_size=None, dtype=tf.float32, name="input"):
         shape = [batch_size, n_units]
         super().__init__(n_units, shape, dtype, name)
-        self.tensor = tf.placeholder(self.dtype, self.shape, self.name)
+        self.y = tf.placeholder(self.dtype, self.shape, self.name)
+
+
+def input(n_units, batch_size=None, dtype=tf.float32, name="input"):
+    shape = [batch_size, n_units]
+    y = tf.placeholder(dtype, shape, name)
+    return y
 
 
 class IndexInput(Layer):
@@ -67,13 +75,19 @@ class IndexInput(Layer):
         super().__init__(n_units, shape, tf.int32, name)
 
         self.n_active = n_active
-        self.tensor = tf.placeholder(self.dtype, self.shape, self.name)
+        self.y = tf.placeholder(self.dtype, self.shape, self.name)
 
     def to_dense(self):
         """Converts the output tensor
         to a dense s with n_units
         """
-        return tf.one_hot(self.tensor, self.n_units)
+        return tf.one_hot(self.y, self.n_units)
+
+
+class SparseInput(Layer):
+    def __init__(self, n_units, n_active, batch_size=None, name="sparse_input"):
+        shape = [batch_size, n_active]
+        super().__init__(n_units, shape, tf.float32, self.name)
 
 
 class Dense(Layer):
@@ -88,7 +102,7 @@ class Dense(Layer):
                  name="dense"):
 
         shape = [layer.n_units, n_units]
-        super().__init__(n_units,shape,dtype,name)
+        super().__init__(n_units, shape, dtype, name)
 
         # if weights are passed, check that their shape matches the layer shape
         if weights is not None:
@@ -124,6 +138,7 @@ class Bias(Layer):
     A simple way to add a bias to a given layer, the dimensions of this variable
     are determined by the given layer and it is initialised with zeros
     """
+
     def __init__(self, layer, name="bias"):
         bias_name = layer.dtype, "{}_{}".format(layer.name, name)
         super().__init__(layer.n_units, layer.shape, bias_name)
