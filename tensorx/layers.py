@@ -23,9 +23,15 @@ import tensorflow as tf
 
 from tensorx.init import random_uniform
 
+""" 
+************************************************************************************************************************
+LAYERS
+************************************************************************************************************************
+"""
+
 
 class Layer:
-    def __init__(self, n_units, shape=None, dtype=tf.float32, name="layer"):
+    def __init__(self, n_units, shape=None, dense_shape=None, dtype=tf.float32, name="layer"):
         """
         Args:
             n_units: dimension of input vector (dimension of columns in case batch_size != None
@@ -42,8 +48,25 @@ class Layer:
         else:
             self.shape = shape
 
+        if dense_shape is None:
+            self.dense_sape = self.shape
+        else:
+            if dense_shape[1] < n_units:
+                raise Exception("Shape mismatch: dense_shape[1] < n_units")
+            elif dense_shape[0] != self.shape[0]:
+                raise Exception("Shape mismatch: dense_shape[0] != self.shape[0]")
+            else:
+                self.dense_sape = dense_shape
+
         # has a y (tensor) member
         self.y = None
+
+#TODO don't know if this works like this, check
+class SparseLayer(Layer):
+    def __init__(self, **kargs):
+        super().__init__(kargs)
+        self.indices = None
+        self.values = None
 
 
 class Input(Layer):
@@ -52,47 +75,62 @@ class Input(Layer):
     Creates a placeholder to receive tensors with a given shape and data type.
     """
 
-    def __init__(self, n_units, batch_size=None, dtype=tf.float32, name="input"):
-        shape = [batch_size, n_units]
-        super().__init__(n_units, shape, dtype, name)
+    def __init__(self, n_units, n_active=None, batch_size=None, dense_shape=None, dtype=tf.float32, name="input"):
+        if n_active is not None and n_active >= n_units:
+            dense_sape = [batch_size, n_units]
+            shape = [batch_size, n_active]
+        else:
+            shape = [batch_size, n_units]
+            dense_sape = shape
+
+        super().__init__(n_units, shape, dense_sape, dtype, name)
         self.y = tf.placeholder(self.dtype, self.shape, self.name)
 
 
-def input(n_units, batch_size=None, dtype=tf.float32, name="input"):
-    shape = [batch_size, n_units]
-    y = tf.placeholder(dtype, shape, name)
-    return y
+class SparseInput(SparseLayer):
+    """ Sparse Input Layer
+    creates an int32 placeholder with n_active int elements and
+    a float32 placeholder for values corresponding to each index
 
+    USE CASE:
+        used with sparse layers to slice weight matrices
+        alternatively each slice can be weighted by the given values
 
-class IndexInput(Layer):
-    """ IndexInput Layer
-    creates an int32 placeholder with n_active int elements
-    used with sparse layers to slice weight matrices
+    Args:
+        values - if true, creates a sparse placeholder with (indices, values)
+
+    Placeholders:
+        indices = instead of [[0],[2,5],...] -> SparseTensorValue([[0,0],[1,2],[1,5]],[0,2,5])
+        values = [0.2,0.0,2.0] -> SparseTensorValue([[0,0],[1,2],[1,5]],[0.2,0.0,2.0])
+
+    Note:
+        See the following utils:
+
+        tensorx.utils.data.index_list_to_sparse
+        tensorx.utils.data.value_list_to_sparse
     """
 
-    def __init__(self, n_units, n_active, batch_size=None, name="index_input"):
+    def __init__(self, n_units, n_active, values=False, batch_size=None, dtype=tf.float32, name="index_input"):
         shape = [batch_size, n_active]
-        super().__init__(n_units, shape, tf.int32, name)
+        dense_shape = [batch_size, n_units]
+        super().__init__(n_units, shape, dense_shape, dtype, name)
 
         self.n_active = n_active
-        self.y = tf.placeholder(self.dtype, self.shape, self.name)
+        self.values = values
 
-    def to_dense(self):
-        """Converts the output tensor
-        to a dense s with n_units
-        """
-        return tf.one_hot(self.y, self.n_units)
+        self.indices = tf.sparse_placeholder(tf.int64, self.shape, name)
 
+        if values:
+            self.values = tf.sparse_placeholder(dtype, self.shape, name=name + "_values")
+        else:
+            self.values = None
 
-class SparseInput(Layer):
-    def __init__(self, n_units, n_active, batch_size=None, name="sparse_input"):
-        shape = [batch_size, n_active]
-        super().__init__(n_units, shape, tf.float32, self.name)
+        self.y = tf.SparseTensor(self.indices, self.values, self.dense_sape)
 
 
 class Dense(Layer):
     def __init__(self,
-                 layer,
+                 input_layer,
                  n_units,
                  init=random_uniform,
                  weights=None,
@@ -101,7 +139,7 @@ class Dense(Layer):
                  dtype=tf.float32,
                  name="dense"):
 
-        shape = [layer.n_units, n_units]
+        shape = [input_layer.dense_shape[0], n_units]
         super().__init__(n_units, shape, dtype, name)
 
         # if weights are passed, check that their shape matches the layer shape
@@ -117,19 +155,34 @@ class Dense(Layer):
             else:
                 self.weights = tf.get_variable("w", initializer=init(self.shape))
 
+            x = input_layer.y
             # y = xW
-            y = tf.matmul(layer.tensor, self.weights)
+            if isinstance(input_layer, SparseLayer):
+                lookup_sum = tf.nn.embedding_lookup_sparse(params=self.weights,
+                                                       sp_ids=x.indices,
+                                                       sp_weights=x.values,
+                                                       combiner="sum",
+                                                       name=self.name + "_embeddings")
+                y = lookup_sum
+            else:
+                if input_layer.shape == input_layer.dense_shape:
+                    y = tf.matmul(x, self.weights)
+                else:
+                    lookup = tf.nn.embedding_lookup(params=self.weights,
+                                                    ids=x,
+                                                    name=self.name + "_embeddings")
+                    y = tf.reduce_sum(lookup, axis=1)
 
             # y = xW + [b]
             if bias:
-                layer.bias = tf.get_variable("b", initializer=tf.zeros([self.n_units]))
+                input_layer.bias = tf.get_variable("b", initializer=tf.zeros([self.n_units]))
                 y = tf.nn.bias_add(y, self.bias, name="a")
 
             # y = fn(xW + [b])
             if activation is not None:
                 y = activation(y, name="fn")
 
-            self.tensor = y
+            self.y = y
 
 
 class Bias(Layer):
