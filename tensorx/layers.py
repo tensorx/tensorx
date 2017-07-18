@@ -24,6 +24,7 @@ from tensorflow.python.ops import random_ops
 import numbers
 
 from tensorx.init import random_uniform
+from tensorx.utils.random import random_choice
 
 
 class Layer:
@@ -114,16 +115,15 @@ class SparseInput(Layer):
         self.y = tf.SparseTensor(self.indices, self.values, self.dense_sape)
 
 
-class Dense(Layer):
+class Linear(Layer):
     def __init__(self,
                  layer,
                  n_units,
                  init=random_uniform,
                  weights=None,
-                 act_fn=None,
                  bias=False,
                  dtype=tf.float32,
-                 name="dense"):
+                 name="linear"):
 
         shape = [layer.dense_shape[0], n_units]
         super().__init__(n_units, shape, dtype, name)
@@ -166,12 +166,6 @@ class Dense(Layer):
                 self.bias = tf.get_variable("b", initializer=tf.zeros([self.n_units]))
                 self.y = tf.nn.bias_add(self.y, self.bias, name="a")
 
-            self.logits = self.y
-            # y = fn(xW + [b])
-            if act_fn is not None:
-                self.act_fn = act_fn
-                self.y = act_fn(self.y, name="act_fn")
-
 
 class ToSparse(Layer):
     """ Transforms the previous layer into a sparse representation
@@ -199,35 +193,74 @@ class ToSparse(Layer):
             self.sp_values = tf.SparseTensor(indices, values, dense_shape)
 
 
-class GaussianNoise:
-    def __call__(self, layer,std):
-        def gaussian_noise_layer(input_layer, std):
-            noise = tf.random_normal(shape=input_layer.y, mean=0.0, stddev=std, dtype=tf.float32)
-            return input_layer + noise
-
-
-
-
-class Noise(Layer):
-    def __init__(self, layer, noise_type="gaussian", amount=0.5, seed=None, **kargs):
+class GaussianNoise(Layer):
+    def __init__(self, layer, noise_amount=0.1, stddev=0.2, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
-        with tf.name_scope(self.name):
-            if isinstance(amount, numbers.Real) and not 0 < amount <= 1:
-                raise ValueError("amount must be a scalar tensor or a float in the "
-                                 "range (0, 1], got %g" % amount)
+        if isinstance(noise_amount, numbers.Real) and not 0 < noise_amount <= 1:
+            raise ValueError("amount must be a scalar tensor or a float in the "
+                             "range (0, 1], got %g" % noise_amount)
+
+            self.noise_amount = noise_amount
+            self.stddev = stddev
+            self.seed = seed
 
             # do nothing if amount of noise is 0
             if amount == 0:
                 self.y = layer.y
             else:
-                random_ops.random_normal(tf.shape(layer.y))
+                noise = random_ops.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed, dtype=tf.float32)
+                self.y = tf.add(self.y, noise)
 
-                noise = tf.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=std, dtype=tf.float32)
-                return input_layer + noise
+class SaltPepper(Layer):
+    def __init__(self, layer, noise_amount=0.1, seed=None):
+        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
+        if isinstance(noise_amount, numbers.Real) and not 0 < noise_amount <= 1:
+            raise ValueError("amount must be a scalar tensor or a float in the "
+                             "range (0, 1], got %g" % noise_amount)
+
+            self.noise_amount = noise_amount
+            self.seed = seed
+
+            # do nothing if amount of noise is 0
+            if amount == 0:
+                self.y = layer.y
+            else:
+                # generate n indices
+                total_classes = layer.n_units
+                # we corrupt (totalclasses*noise_amount) for each training example
+                num_noise = int(total_classes * noise_amount)
+                samples = random_choice(layer.n_units,num_noise,unique=True,seed=seed)
+
+                batch_size = self.shape[1]
+                sample_tiles = tf.reshape(tf.tile(samples,[batch_size]),[batch_size,num_noise])
+
+                ## We need to create full indices like [[0, 0], [0, 1], [1, 2], [1, 1]]
+                #my_range = tf.expand_dims(tf.range(0, indices.get_shape()[0]), 1)  # will be [[0], [1]]
+                #my_range_repeated = tf.tile(my_range, [1, k])  # will be [[0, 0], [1, 1]]
 
 
 
+class Activation(Layer):
+    class Fn:
+        """
+        This was unnecessary but I wanted a place to organise things that can be considered activation functions
+        if I use a function that is not in the default TensorFlow distribution I will also include it here.
+        """
+        identity = tf.identity
+        sigmoid = tf.nn.sigmoid
+        tanh = tf.nn.tanh
+        relu = tf.nn.relu
+        relu6 = tf.nn.relu6
+        elu = tf.nn.elu
+        softplus = tf.nn.softplus
+        softsign = tf.nn.softsign
+        softmax = tf.nn.softmax
+        # TODO sparsemax
 
+    def __init__(self, layer, fn=Fn.identity):
+        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_activation")
+        self.fn = fn
+        self.y = self.fn(layer.y, name=self.name)
 
 
 class Bias(Layer):
@@ -287,5 +320,3 @@ class Merge(Layer):
                     layers[i] = tf.scalar_mul(weights[i], layers[i].output)
 
             self.y = merge_fn(layers)
-
-
