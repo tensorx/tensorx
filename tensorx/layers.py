@@ -19,12 +19,13 @@ Types of layers:
     activation: adds an activation function to a given layer with its own scope
 """
 
-import tensorflow as tf
-from tensorflow.python.ops import random_ops
 import numbers
 
+import tensorflow as tf
+from tensorflow.python.ops import random_ops
+
 from tensorx.init import random_uniform
-from tensorx.utils.random import random_choice
+from tensorx.random import random_choice
 
 
 class Layer:
