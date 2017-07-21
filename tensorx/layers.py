@@ -25,7 +25,7 @@ import tensorflow as tf
 from tensorflow.python.ops import random_ops
 
 from tensorx.init import random_uniform
-from tensorx.random import random_choice
+from tensorx.random import sample
 
 
 class Layer:
@@ -213,7 +213,7 @@ class GaussianNoise(Layer):
                 self.y = tf.add(self.y, noise)
 
 class SaltPepper(Layer):
-    def __init__(self, layer, noise_amount=0.1, seed=None):
+    def __init__(self, layer, noise_amount=0.1, min=0, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
         if isinstance(noise_amount, numbers.Real) and not 0 < noise_amount <= 1:
             raise ValueError("amount must be a scalar tensor or a float in the "
@@ -230,14 +230,14 @@ class SaltPepper(Layer):
                 total_classes = layer.n_units
                 # we corrupt (totalclasses*noise_amount) for each training example
                 num_noise = int(total_classes * noise_amount)
+                batch_size = self.shape[1]
+
+
                 samples = random_choice(layer.n_units,num_noise,unique=True,seed=seed)
 
-                batch_size = self.shape[1]
-                sample_tiles = tf.reshape(tf.tile(samples,[batch_size]),[batch_size,num_noise])
+                noise_cond = tf.greater_equal()
 
-                ## We need to create full indices like [[0, 0], [0, 1], [1, 2], [1, 1]]
-                #my_range = tf.expand_dims(tf.range(0, indices.get_shape()[0]), 1)  # will be [[0], [1]]
-                #my_range_repeated = tf.tile(my_range, [1, k])  # will be [[0, 0], [1, 1]]
+
 
 
 

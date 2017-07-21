@@ -1,9 +1,45 @@
-""" Transformations
-Utilities to convert between tensors of different formats
-
+""" TensorFlow tensor Transformation
+Utilities to convert between and combine tensors
 """
-import numpy as np
+
 import tensorflow as tf
+import numpy as np
+
+
+def sparse_mask(tensor, mask):
+    pass
+
+
+def pairs(tensor1, tensor2):
+    """
+    Returns a tensor resulting from the pairwise combination of the elements of each tensor
+
+    t1 = [0,1]
+    t2 = [2,3,4]
+    pairs(t1,t2) == [[[0,2],[0,3],[0,4]],[[1,2],[1,3],[1,4]],...]
+    """
+    return tf.squeeze(tf.stack(tf.meshgrid(tensor1, tensor2), axis=-1))
+
+
+def enum_row(tensor):
+    """
+    Converts
+    :param tensor:
+    :return:
+    """
+    tensor = tf.convert_to_tensor(tensor)
+    shape = tf.shape(tensor)
+
+    # for each coordinate
+    row_i = tf.range(0, shape[0])
+    enum = tf.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i)
+    return enum
+
+
+""" Prepare TensorFlow Inputs
+Utilities to prepare inputs for a TensorFlow graph
+    e.g. create sparse tensor values, etc
+"""
 
 
 def index_list_to_sparse(indices, shape):
@@ -59,5 +95,3 @@ def value_list_to_sparse(values, sp_indices, shape):
         raise Exception("Number of indices doesn't match number of values: " + len(sp_indices) + "!=" + len(values))
 
     return tf.SparseTensorValue(indices=sp_indices, values=values, dense_shape=shape)
-
-
