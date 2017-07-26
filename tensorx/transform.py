@@ -6,8 +6,91 @@ import tensorflow as tf
 import numpy as np
 
 
-def sparse_mask(tensor, mask):
-    pass
+def sparse_put(sp_tensor, sp_updates):
+    """Sparse Put
+    Changes a given SparseTensor according to the updates specified in a SparseTensor
+
+
+    Args:
+        sp_tensor: a sparse tensor we wich to set some indices to given values
+        sp_updates: a sparse tensor with the indices to be changed and the respective values
+
+    The resulting tensor will have the same values as the input tensor, except for the indices
+    overlapping with update tensor which will be getting the updates.
+    """
+
+    # 1 concat indices and establish final tensor shape
+    update_shape = tf.shape(sp_updates.values)
+    sp_zeros = tf.SparseTensor(sp_updates.indices,
+                               tf.zeros(update_shape, dtype=tf.float32),
+                               sp_updates.dense_shape)
+    concat_indices = tf.sparse_add(sp_tensor, sp_zeros)
+
+    # shape of resulting values tensor
+    value_shape = tf.shape(concat_indices.values)
+
+    # 2 get mask for input tensor
+    ones_values = tf.ones(value_shape, dtype=tf.float32)
+    sp_ones = tf.SparseTensor(concat_indices.indices,
+                              ones_values,
+                              concat_indices.dense_shape)
+    mask_ones = tf.scalar_mul(-1, tf.ones(update_shape))
+    sp_mask = tf.SparseTensor(sp_updates.indices, mask_ones, sp_updates.dense_shape)
+
+    to_retain = tf.sparse_add(sp_ones, sp_mask)
+    to_retain = tf.not_equal(to_retain.values, 0)
+
+    # get tensor with masked values
+    tensor_masked = tf.sparse_retain(concat_indices, to_retain)
+
+    # add values to entries previously set to 0
+    return tf.sparse_add(tensor_masked, sp_updates)
+
+
+
+def dense_put(tensor,sp_updates):
+    """ Dense Put
+
+    Changes a given tensor according to the updates specified in a SparseTensor
+
+    Args:
+        tensor: a dense tensor we want to change
+        sp_updates: a sparse tensor with the indices to be changed and the respective values
+
+    The resulting tensor will have the same values as the input tensor, except for the indices
+    overlapping with update tensor which will be getting the updates.
+    """
+    dense_values = tf.sparse_tensor_to_dense(sp_updates)
+    return tf.where(tf.not_equal(dense_values,0),dense_values,tensor)
+
+
+def to_sparse(tensor):
+    """
+    Returns a sparse representation for a given multi-dimensional tensor
+
+    Args:
+        tensor a dense tensor to be converted
+    Return:
+        (sp_indices,sp_values)
+        sp_indices is a sparse tensor with the values for the indices to be returned
+        sp_values is a sparse tensor with the values to be attributed to each index
+    """
+
+
+    indices = tf.where(tf.not_equal(tensor, 0))
+    dense_shape = tf.shape(tensor, out_type=tf.int64)
+
+    # Sparse Tensor for sp_indices
+    flat_layer = tf.reshape(tensor, [-1])
+    values = tf.mod(tf.squeeze(tf.where(tf.not_equal(flat_layer, 0))), dense_shape[1])
+
+    sp_indices = tf.SparseTensor(indices, values, dense_shape)
+
+    # Sparse Tensor for values
+    values = tf.gather_nd(tensor, indices)
+    sp_values = tf.SparseTensor(indices, values, dense_shape)
+
+    return (sp_indices, sp_values)
 
 
 def pairs(tensor1, tensor2):
