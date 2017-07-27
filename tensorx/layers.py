@@ -22,6 +22,7 @@ Types of layers:
 import numbers
 
 import tensorflow as tf
+from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import random_ops
 
 from tensorx.init import random_uniform
@@ -209,11 +210,13 @@ class GaussianNoise(Layer):
             if amount == 0:
                 self.y = layer.y
             else:
-                noise = random_ops.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed, dtype=tf.float32)
+                noise = random_ops.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed,
+                                                 dtype=tf.float32)
                 self.y = tf.add(self.y, noise)
 
+
 class SaltPepper(Layer):
-    def __init__(self, layer, noise_amount=0.1, min=0, seed=None):
+    def __init__(self, layer, noise_amount=0.1, salt=1, pepper=0, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
         if isinstance(noise_amount, numbers.Real) and not 0 < noise_amount <= 1:
             raise ValueError("amount must be a scalar tensor or a float in the "
@@ -226,19 +229,22 @@ class SaltPepper(Layer):
             if amount == 0:
                 self.y = layer.y
             else:
-                # generate n indices
-                total_classes = layer.n_units
-                # we corrupt (totalclasses*noise_amount) for each training example
-                num_noise = int(total_classes * noise_amount)
-                batch_size = self.shape[1]
 
+                # we corrupt (n_units * noise_amount) for each training example
+                num_noise = int(layer.n_units * noise_amount)
+                batch_size = self.shape[0]
+                samples = random_choice(layer.n_units, num_noise, unique=True, seed=seed)
 
-                samples = random_choice(layer.n_units,num_noise,unique=True,seed=seed)
+                # create corruption values
+                num_salt = num_noise / 2
+                num_pepper = num_noise - num_salt
+
+                type = dtypes.int32 if not (isinstance(salt, float) or isinstance(pepper, float)) else dtypes.float32
+                salt_tensor = tf.constant(salt, type,shape=[batch_size,num_salt])
+                pepper_tensor = tf.constant(pepper, type,shape=[batch_size,num_pepper])
+                noise_values = tf.concat(salt_tensor,pepper_tensor,axis=0)
 
                 noise_cond = tf.greater_equal()
-
-
-
 
 
 class Activation(Layer):

@@ -36,6 +36,14 @@ class TestTransform(unittest.TestCase):
 
         np.testing.assert_array_equal(expected, result)
 
+    def test_enum_row(self):
+        indices = tf.constant([[0,1],[1,2]])
+        result = tx.enum_row(indices)
+
+        ss = tf.Session()
+        print(ss.run(result))
+        print(ss.run(tf.shape(result)))
+
 
 if __name__ == '__main__':
     unittest.main()

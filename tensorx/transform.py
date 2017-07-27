@@ -2,8 +2,15 @@
 Utilities to convert between and combine tensors
 """
 
-import tensorflow as tf
-import numpy as np
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import sparse_ops as sp_ops
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
+from tensorflow.python.ops import functional_ops as fn_ops
+
+from numpy import array as np_array
 
 
 def sparse_put(sp_tensor, sp_updates):
@@ -20,35 +27,36 @@ def sparse_put(sp_tensor, sp_updates):
     """
 
     # 1 concat indices and establish final tensor shape
-    update_shape = tf.shape(sp_updates.values)
-    sp_zeros = tf.SparseTensor(sp_updates.indices,
-                               tf.zeros(update_shape, dtype=tf.float32),
-                               sp_updates.dense_shape)
-    concat_indices = tf.sparse_add(sp_tensor, sp_zeros)
+    update_shape = sp_updates.values.get_shape()
+    zero_updates = SparseTensor(sp_updates.indices,
+                                array_ops.zeros(update_shape, dtype=dtypes.float32),
+                                sp_updates.dense_shape)
+    proto_result = sp_ops.sparse_add(sp_tensor, zero_updates)
 
     # shape of resulting values tensor
-    value_shape = tf.shape(concat_indices.values)
+    proto_shape = array_ops.shape(proto_result.values)
 
     # 2 get mask for input tensor
-    ones_values = tf.ones(value_shape, dtype=tf.float32)
-    sp_ones = tf.SparseTensor(concat_indices.indices,
-                              ones_values,
-                              concat_indices.dense_shape)
-    mask_ones = tf.scalar_mul(-1, tf.ones(update_shape))
-    sp_mask = tf.SparseTensor(sp_updates.indices, mask_ones, sp_updates.dense_shape)
+    proto_ones = SparseTensor(proto_result.indices,
+                              array_ops.ones(proto_shape, dtypes.int8),
+                              proto_result.dense_shape)
 
-    to_retain = tf.sparse_add(sp_ones, sp_mask)
-    to_retain = tf.not_equal(to_retain.values, 0)
+    # mask_ones = math_ops.scalar_mul(-1, array_ops.ones(update_shape))
+    sp_mask = SparseTensor(sp_updates.indices,
+                           array_ops.constant(-1, dtypes.int8, update_shape),
+                           sp_updates.dense_shape)
+
+    to_retain = sp_ops.sparse_add(proto_ones, sp_mask)
+    to_retain = math_ops.not_equal(to_retain.values, 0)
 
     # get tensor with masked values
-    tensor_masked = tf.sparse_retain(concat_indices, to_retain)
+    tensor_masked = sp_ops.sparse_retain(proto_result, to_retain)
 
     # add values to entries previously set to 0
-    return tf.sparse_add(tensor_masked, sp_updates)
+    return sp_ops.sparse_add(tensor_masked, sp_updates)
 
 
-
-def dense_put(tensor,sp_updates):
+def dense_put(tensor, sp_updates):
     """ Dense Put
 
     Changes a given tensor according to the updates specified in a SparseTensor
@@ -60,8 +68,10 @@ def dense_put(tensor,sp_updates):
     The resulting tensor will have the same values as the input tensor, except for the indices
     overlapping with update tensor which will be getting the updates.
     """
-    dense_values = tf.sparse_tensor_to_dense(sp_updates)
-    return tf.where(tf.not_equal(dense_values,0),dense_values,tensor)
+    dense_values = sp_ops.sparse_tensor_to_dense(sp_updates)
+    return array_ops.where(math_ops.not_equal(dense_values, 0),
+                           dense_values,
+                           tensor)
 
 
 def to_sparse(tensor):
@@ -76,21 +86,20 @@ def to_sparse(tensor):
         sp_values is a sparse tensor with the values to be attributed to each index
     """
 
-
-    indices = tf.where(tf.not_equal(tensor, 0))
-    dense_shape = tf.shape(tensor, out_type=tf.int64)
+    indices = array_ops.where(math_ops.not_equal(tensor, 0))
+    dense_shape = tensor.get_shape()
 
     # Sparse Tensor for sp_indices
-    flat_layer = tf.reshape(tensor, [-1])
-    values = tf.mod(tf.squeeze(tf.where(tf.not_equal(flat_layer, 0))), dense_shape[1])
+    flat_layer = array_ops.reshape(tensor, [-1])
+    values = math_ops.mod(array_ops.squeeze(array_ops.where(math_ops.not_equal(flat_layer, 0))), dense_shape[1])
 
-    sp_indices = tf.SparseTensor(indices, values, dense_shape)
+    sp_indices = SparseTensor(indices, values, dense_shape)
 
     # Sparse Tensor for values
-    values = tf.gather_nd(tensor, indices)
-    sp_values = tf.SparseTensor(indices, values, dense_shape)
+    values = array_ops.gather_nd(tensor, indices)
+    sp_values = SparseTensor(indices, values, dense_shape)
 
-    return (sp_indices, sp_values)
+    return sp_indices, sp_values
 
 
 def pairs(tensor1, tensor2):
@@ -101,22 +110,38 @@ def pairs(tensor1, tensor2):
     t2 = [2,3,4]
     pairs(t1,t2) == [[[0,2],[0,3],[0,4]],[[1,2],[1,3],[1,4]],...]
     """
-    return tf.squeeze(tf.stack(tf.meshgrid(tensor1, tensor2), axis=-1))
+    return array_ops.squeeze(array_ops.stack(array_ops.meshgrid(tensor1, tensor2), axis=-1))
 
 
-def enum_row(tensor):
-    """
-    Converts
-    :param tensor:
-    :return:
-    """
-    tensor = tf.convert_to_tensor(tensor)
-    shape = tf.shape(tensor)
+def enum_row(tensor,name="row_enum",dtype=dtypes.int64):
+    with ops.name_scope(name):
+        """ Converts a tensor with an equal amount of values per row
+        e.g. [[1,2],
+              [2,5]] to a rank 2 tensor with the enumeration of
+        (row index, value) pairs
+    
+        e.g. [[0,1],[0,2],
+              [1,2],[1,5]]
+    
+        Args:
+            tensor: the tensor to be converted
+    
+        Returns:
+            a rank-2 tensor with (row index,value) for each element in the given tensor
+    
+        """
+        tensor = ops.convert_to_tensor(tensor)
+        shape = tensor.get_shape()
 
-    # for each coordinate
-    row_i = tf.range(0, shape[0])
-    enum = tf.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i)
-    return enum
+
+
+        # for each coordinate
+        row_i = math_ops.range(0, shape[0])
+        enum = fn_ops.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i)
+
+        enum = array_ops.reshape(enum, shape=[-1, 2],name="ids")
+
+        return enum
 
 
 """ Prepare TensorFlow Inputs
@@ -154,10 +179,10 @@ def index_list_to_sparse(indices, shape):
             if i >= shape[1]:
                 raise Exception("Invalid shape: index value " + i + " >= ", shape[1])
             idx.append([row, i])
-    idx = np.array(idx)
-    values = np.array(sum(indices, []))
+    idx = np_array(idx)
+    values = np_array(sum(indices, []))
 
-    return tf.SparseTensorValue(indices=idx, values=values, dense_shape=shape)
+    return SparseTensorValue(indices=idx, values=values, dense_shape=shape)
 
 
 def value_list_to_sparse(values, sp_indices, shape):
@@ -175,6 +200,7 @@ def value_list_to_sparse(values, sp_indices, shape):
         A sparse tensor value with each index mapping to the given values
     """
     if len(sp_indices) != len(values):
-        raise Exception("Number of indices doesn't match number of values: " + len(sp_indices) + "!=" + len(values))
+        raise Exception(
+            "Number of indices doesn't match number of values: %d != %d".format(len(sp_indices), len(values)))
 
-    return tf.SparseTensorValue(indices=sp_indices, values=values, dense_shape=shape)
+    return SparseTensorValue(indices=sp_indices, values=values, dense_shape=shape)

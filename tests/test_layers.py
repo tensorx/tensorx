@@ -1,7 +1,8 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, IndexInput
+from tensorx.layers import Input
+from tensorx.layers import Activation as Act
 
 
 class TestLayers(TestCase):
@@ -46,4 +47,14 @@ class TestLayers(TestCase):
 
             s = np.shape(result)
             self.assertEqual(s[1], 1)
+
+
+    def test_activation(self):
+        pass
+        #Act.Fn.sigmoid
+
+
+        #fn = Act(None,sg)
+
+
 
