@@ -110,10 +110,10 @@ def pairs(tensor1, tensor2):
     t2 = [2,3,4]
     pairs(t1,t2) == [[[0,2],[0,3],[0,4]],[[1,2],[1,3],[1,4]],...]
     """
-    return array_ops.squeeze(array_ops.stack(array_ops.meshgrid(tensor1, tensor2), axis=-1))
+    return array_ops.squeeze(array_ops.stack(array_ops.meshgrid(tensor1, tensor2), axis=-1),name="pairs")
 
 
-def enum_row(tensor,name="row_enum",dtype=dtypes.int64):
+def enum_row(tensor,name="row_enum", dtype=dtypes.int64):
     with ops.name_scope(name):
         """ Converts a tensor with an equal amount of values per row
         e.g. [[1,2],
@@ -133,11 +133,9 @@ def enum_row(tensor,name="row_enum",dtype=dtypes.int64):
         tensor = ops.convert_to_tensor(tensor)
         shape = tensor.get_shape()
 
-
-
         # for each coordinate
-        row_i = math_ops.range(0, shape[0])
-        enum = fn_ops.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i)
+        row_i = math_ops.range(0, shape[0],dtype=dtype)
+        enum = fn_ops.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i,dtype=dtype)
 
         enum = array_ops.reshape(enum, shape=[-1, 2],name="ids")
 

@@ -35,7 +35,6 @@ class TestRandom(unittest.TestCase):
         range_max = 10
         num_sampled = 11
 
-
         try:
             sample = tr.sample(range_max, [num_sampled], unique=True)
             sample.eval()
@@ -48,14 +47,31 @@ class TestRandom(unittest.TestCase):
         except Exception:
             self.fail("should have not raised an exception since the number of samples > range_max but unique == False")
 
-
     def test_salt_pepper_noise(self):
+        batch_size = 8
+        dim = 12
+        noise_amount = 0.5
 
-        some_tensor = tf.constant(0.5,shape=[4,4])
-        indices,values = tr.salt_pepper_noise([4,4],dtype=tf.float32)
+        noise_tensor = tr.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=0,
+                                            dtype=tf.float32)
+        sum_tensor = tf.sparse_reduce_sum(noise_tensor)
+        self.assertEqual(sum_tensor.eval(), (dim * noise_amount // 2) * batch_size)
 
-        print(indices.eval())
+        # use negative pepper
+        noise_tensor = tr.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
+                                            dtype=tf.float32)
+        sum_tensor = tf.sparse_reduce_sum(noise_tensor)
+        self.assertEqual(sum_tensor.eval(), 0)
 
+        # diff number of salt and pepper
+        # 10 // 2 == 5
+        # 5 // 2 == 2
+        # num_pepper = 5 - 2 == 3
+        dim = 10
+        noise_tensor = tr.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
+                                            dtype=tf.float32)
+        sum_tensor = tf.sparse_reduce_sum(noise_tensor)
+        self.assertEqual(sum_tensor.eval(), -1 * batch_size)
 
 
 if __name__ == '__main__':

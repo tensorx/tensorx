@@ -87,23 +87,28 @@ def salt_pepper_noise(shape, noise_amount=0.5, max_value=1, min_value=0, seed=No
     num_salt = num_noise // 2
     num_pepper = num_noise - num_salt
 
-    print(num_salt)
-
     noise_shape = [shape[0], num_noise]
     samples = sample(shape[1], shape=noise_shape, unique=True, seed=seed)
 
-
-
+    # constant values to attribute to salt or pepper
     salt_tensor = array_ops.constant(max_value, dtype, shape=[noise_shape[0], num_salt])
     pepper_tensor = array_ops.constant(min_value, dtype, shape=[noise_shape[0], num_pepper])
+    """
+    [
+        [1,1,-1,-1],
+        [1,1,-1,-1]
+    ]
+    ===================== 
+    [1,1,-1,-1,1,1,-1,-1]
+    """
+    values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
+    values = array_ops.reshape(values,[-1])
 
-    values = array_ops.concat([salt_tensor, pepper_tensor], axis=0)
-    indices = enum_row(samples,dtype=dtypes.int32)
-    indices = math_ops.to_int64(indices)
+    indices = enum_row(samples,dtype=dtypes.int64)
 
-    shape = math_ops.to_int64(ops.convert_to_tensor(indices))
+    dense_shape = ops.convert_to_tensor(shape,dtype=dtypes.int64)
 
-    return indices, values
-    #return SparseTensor(indices=indices,
-    #                    values=values,
-    #                    dense_shape=shape)
+    #return indices, values
+    return SparseTensor(indices=indices,
+                        values=values,
+                        dense_shape=dense_shape)
