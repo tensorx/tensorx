@@ -6,8 +6,12 @@ from tensorx.layers import Activation as Act
 
 
 class TestLayers(TestCase):
+    # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
     def setUp(self):
-        pass
+        self.ss = tf.InteractiveSession()
+
+    def tearDown(self):
+        self.ss.close()
 
     def test_input(self):
         """ Test Input layer - creates a TensorFlow Placeholder

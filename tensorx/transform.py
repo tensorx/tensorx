@@ -68,9 +68,16 @@ def dense_put(tensor, sp_updates):
     The resulting tensor will have the same values as the input tensor, except for the indices
     overlapping with update tensor which will be getting the updates.
     """
-    dense_values = sp_ops.sparse_tensor_to_dense(sp_updates)
-    return array_ops.where(math_ops.not_equal(dense_values, 0),
-                           dense_values,
+    tensor = ops.convert_to_tensor(tensor)
+    if sp_updates.dtype != tensor.dtype:
+        sp_updates = math_ops.cast(sp_updates,tensor.dtype)
+
+    markers = array_ops.ones(shape=array_ops.shape(sp_updates.values))
+    sparse_marker_tensor = SparseTensor(indices=sp_updates.indices,values=markers,dense_shape=sp_updates.dense_shape)
+    dense_update_marker = sp_ops.sparse_tensor_to_dense(sparse_marker_tensor)
+    dense_updates = sp_ops.sparse_tensor_to_dense(sp_updates)
+    return array_ops.where(math_ops.not_equal(dense_update_marker, 0),
+                           dense_updates,
                            tensor)
 
 
@@ -110,10 +117,10 @@ def pairs(tensor1, tensor2):
     t2 = [2,3,4]
     pairs(t1,t2) == [[[0,2],[0,3],[0,4]],[[1,2],[1,3],[1,4]],...]
     """
-    return array_ops.squeeze(array_ops.stack(array_ops.meshgrid(tensor1, tensor2), axis=-1),name="pairs")
+    return array_ops.squeeze(array_ops.stack(array_ops.meshgrid(tensor1, tensor2), axis=-1), name="pairs")
 
 
-def enum_row(tensor,name="row_enum", dtype=dtypes.int64):
+def enum_row(tensor, name="row_enum", dtype=dtypes.int64):
     with ops.name_scope(name):
         """ Converts a tensor with an equal amount of values per row
         e.g. [[1,2],
@@ -134,10 +141,10 @@ def enum_row(tensor,name="row_enum", dtype=dtypes.int64):
         shape = tensor.get_shape()
 
         # for each coordinate
-        row_i = math_ops.range(0, shape[0],dtype=dtype)
-        enum = fn_ops.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i,dtype=dtype)
+        row_i = math_ops.range(0, shape[0], dtype=dtype)
+        enum = fn_ops.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i, dtype=dtype)
 
-        enum = array_ops.reshape(enum, shape=[-1, 2],name="ids")
+        enum = array_ops.reshape(enum, shape=[-1, 2], name="ids")
 
         return enum
 

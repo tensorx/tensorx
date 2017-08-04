@@ -12,8 +12,6 @@ class TestRandom(unittest.TestCase):
         self.ss.close()
 
     def test_sample(self):
-        ss = tf.Session()
-
         range_max = 10
         num_sampled = 2
         batch_size = 2
@@ -31,7 +29,6 @@ class TestRandom(unittest.TestCase):
             self.assertEqual(len(unique_set), num_sampled)
 
     def test_sample_range_max(self):
-        ss = tf.Session()
         range_max = 10
         num_sampled = 11
 
