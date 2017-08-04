@@ -16,12 +16,12 @@ class TestTransform(unittest.TestCase):
 
     def test_sparse_put(self):
         tensor = tf.SparseTensor([[0, 0], [1, 0]], [2, 0.2], [2, 2])
-        sp_values = tf.SparseTensor([[0, 0], [0, 1]], [3.0, 32.0], [2, 2])
+        sp_values = tf.SparseTensor([[0, 0], [0, 1]], [3.0, 0], [2, 2])
 
-        expected = tf.constant([[3., 32.], [0.2, 0.]])
+        expected = tf.constant([[3., 0], [0.2, 0.]])
 
         result = tx.sparse_put(tensor, sp_values)
-        result = tf.sparse_tensor_to_dense(result)
+        result = tf.sparse_tensor_to_densse(result)
 
         np.testing.assert_array_equal(expected.eval(), result.eval())
 
