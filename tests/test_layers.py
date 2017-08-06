@@ -41,10 +41,10 @@ class TestLayers(TestCase):
         keeps track of original shape so it can be linked with other layers
         """
         dim = 10
-        index = np.random.randint(0,10)
+        index = np.random.randint(0, 10)
         index = [[index]]
 
-        input_layer = IndexInput(n_units=dim,n_active=1)
+        input_layer = IndexInput(n_units=dim, n_active=1)
 
         with tf.Session() as ss:
             result = ss.run(input_layer.tensor, feed_dict={input_layer.tensor: index})
@@ -52,13 +52,9 @@ class TestLayers(TestCase):
             s = np.shape(result)
             self.assertEqual(s[1], 1)
 
-
     def test_activation(self):
         pass
-        #Act.Fn.sigmoid
+        # Act.Fn.sigmoid
 
 
-        #fn = Act(None,sg)
-
-
-
+        # fn = Act(None,sg)

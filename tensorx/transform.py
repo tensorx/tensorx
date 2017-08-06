@@ -91,16 +91,25 @@ def to_sparse(tensor):
         (sp_indices,sp_values)
         sp_indices is a sparse tensor with the values for the indices to be returned
         sp_values is a sparse tensor with the values to be attributed to each index
+
+    Example:
+
+        tensor = [[1,0],
+                  [2,3]]
+
+        indices = [[0,0],
+                   [1,0],
+                  [1,1]]
+
+        flat_indices = [0,0,1]
+        values = [1,2,3]
     """
 
     indices = array_ops.where(math_ops.not_equal(tensor, 0))
-    dense_shape = tensor.get_shape()
+    _, flat_indices = array_ops.unstack(indices,axis=-1)
+    dense_shape = array_ops.shape(tensor,out_type=dtypes.int64)
 
-    # Sparse Tensor for sp_indices
-    flat_layer = array_ops.reshape(tensor, [-1])
-    values = math_ops.mod(array_ops.squeeze(array_ops.where(math_ops.not_equal(flat_layer, 0))), dense_shape[1])
-
-    sp_indices = SparseTensor(indices, values, dense_shape)
+    sp_indices = SparseTensor(indices, flat_indices, dense_shape)
 
     # Sparse Tensor for values
     values = array_ops.gather_nd(tensor, indices)

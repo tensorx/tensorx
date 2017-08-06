@@ -26,7 +26,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import random_ops
 
 from tensorx.init import random_uniform
-from tensorx.random import sample
+from tensorx.transform import to_sparse
 
 
 class Layer:
@@ -181,18 +181,10 @@ class ToSparse(Layer):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sparse")
 
         with tf.name_scope(self.name):
-            indices = tf.where(tf.not_equal(layer.y, 0))
-            dense_shape = tf.shape(layer.y, out_type=tf.int64)
+            sp_indices, sp_values = to_sparse(layer.y)
 
-            # Sparse Tensor for sp_indices
-            flat_layer = tf.reshape(layer.y, [-1])
-            values = tf.mod(tf.squeeze(tf.where(tf.not_equal(flat_layer, 0))), layer.n_units)
-
-            self.sp_indices = tf.SparseTensor(indices, values, dense_shape)
-
-            # Sparse Tensor for values
-            values = tf.gather_nd(layer.y, indices)
-            self.sp_values = tf.SparseTensor(indices, values, dense_shape)
+            self.sp_indices = sp_indices
+            self.sp_values = sp_values
 
 
 class GaussianNoise(Layer):
@@ -240,9 +232,9 @@ class SaltPepper(Layer):
                 num_pepper = num_noise - num_salt
 
                 type = dtypes.int32 if not (isinstance(salt, float) or isinstance(pepper, float)) else dtypes.float32
-                salt_tensor = tf.constant(salt, type,shape=[batch_size,num_salt])
-                pepper_tensor = tf.constant(pepper, type,shape=[batch_size,num_pepper])
-                noise_values = tf.concat(salt_tensor,pepper_tensor,axis=0)
+                salt_tensor = tf.constant(salt, type, shape=[batch_size, num_salt])
+                pepper_tensor = tf.constant(pepper, type, shape=[batch_size, num_pepper])
+                noise_values = tf.concat(salt_tensor, pepper_tensor, axis=0)
 
                 noise_cond = tf.greater_equal()
 

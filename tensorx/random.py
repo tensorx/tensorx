@@ -58,7 +58,7 @@ def sample(range_max, shape=[1], unique=True, seed=None, name="sample"):
 
             i = tf.range(0, batch_size)
             fn = lambda _: _sample(range_max, num_sampled)
-            return tf.map_fn(fn, i,dtypes.int64)
+            return tf.map_fn(fn, i, dtypes.int64)
         else:
             raise ValueError("Invalid Shape: expect a shape with rank 1 or 2 with positive dimensions")
 
@@ -94,21 +94,18 @@ def salt_pepper_noise(shape, noise_amount=0.5, max_value=1, min_value=0, seed=No
     salt_tensor = array_ops.constant(max_value, dtype, shape=[noise_shape[0], num_salt])
     pepper_tensor = array_ops.constant(min_value, dtype, shape=[noise_shape[0], num_pepper])
     """
-    [
-        [1,1,-1,-1],
-        [1,1,-1,-1]
-    ]
+    [[1,1,-1,-1],
+     [1,1,-1,-1]]
     ===================== 
     [1,1,-1,-1,1,1,-1,-1]
     """
     values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
-    values = array_ops.reshape(values,[-1])
+    values = array_ops.reshape(values, [-1])
 
-    indices = enum_row(samples,dtype=dtypes.int64)
+    indices = enum_row(samples, dtype=dtypes.int64)
 
-    dense_shape = ops.convert_to_tensor(shape,dtype=dtypes.int64)
+    dense_shape = ops.convert_to_tensor(shape, dtype=dtypes.int64)
 
-    #return indices, values
     return SparseTensor(indices=indices,
                         values=values,
                         dense_shape=dense_shape)
