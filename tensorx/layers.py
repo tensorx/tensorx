@@ -67,12 +67,15 @@ class Input(Layer):
     Creates a placeholder to receive tensors with a given shape and data type.
     """
 
-    def __init__(self, n_units, n_active=None, batch_size=None, dense_shape=None, dtype=tf.float32, name="input"):
-        if n_active is not None and n_active >= n_units:
-            dense_shape = [batch_size, n_units]
-            shape = [batch_size, n_active]
+    def __init__(self, n_units, n_active=None, batch_size=None, dtype=tf.float32, name="input"):
+        dense_shape = [batch_size, n_units]
 
-        super().__init__(n_units, shape, dense_shape, batch_size, dtype, name)
+        if n_active is not None and n_active <= n_units:
+            shape = [batch_size, n_active]
+        else:
+            shape = [batch_size, n_units]
+
+        super().__init__(n_units, shape, dense_shape, dtype, name)
         self.y = tf.placeholder(self.dtype, self.shape, self.name)
 
 

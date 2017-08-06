@@ -20,37 +20,36 @@ class TestLayers(TestCase):
         and a shape corresponding to [batch_size, n_units]
         """
         in_layer = Input(n_units=10)
-        self.assertIsInstance(in_layer.tensor, tf.Tensor)
+        self.assertIsInstance(in_layer.y, tf.Tensor)
 
-        with tf.Session() as sess:
-            ones = np.ones(shape=(2, 10))
 
-            result = sess.run(in_layer.tensor, feed_dict={in_layer.tensor: ones})
-            np.testing.assert_array_equal(ones, result)
+        ones = np.ones(shape=(2, 10))
+        result = self.ss.run(in_layer.y, feed_dict={in_layer.y: ones})
 
-            ones_wrong_shape = np.ones(shape=(2, 11))
-            try:
-                sess.run(in_layer.tensor, feed_dict={in_layer.tensor: ones_wrong_shape})
-                self.fail("Input can only receive a tensor with the shape: ", in_layer.shape)
-            except ValueError:
-                pass
+        np.testing.assert_array_equal(ones, result)
+
+        ones_wrong_shape = np.ones(shape=(2, 11))
+        try:
+            self.ss.run(in_layer.y, feed_dict={in_layer.y: ones_wrong_shape})
+            self.fail("Should have raised an exception since shapes don't match")
+        except ValueError:
+            pass
 
     def test_index_input(self):
-        """ Test IndexInput layer - creates TensorFlow int placeholder
+        """ Create a Sparse Input by providing
+        a n_active parameter
 
-        keeps track of original shape so it can be linked with other layers
+
         """
         dim = 10
         index = np.random.randint(0, 10)
         index = [[index]]
 
-        input_layer = IndexInput(n_units=dim, n_active=1)
+        input_layer = Input(n_units=dim, n_active=1)
 
-        with tf.Session() as ss:
-            result = ss.run(input_layer.tensor, feed_dict={input_layer.tensor: index})
-
-            s = np.shape(result)
-            self.assertEqual(s[1], 1)
+        result = self.ss.run(input_layer.y, feed_dict={input_layer.y: index})
+        s = np.shape(result)
+        self.assertEqual(s[1], 1)
 
     def test_activation(self):
         pass
