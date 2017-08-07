@@ -4,10 +4,12 @@ Provides functions that return weight initialisation tensors for different use c
 
 """
 
-import tensorflow as tf
+from tensorflow.python.framework import dtypes as dt
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import random_ops
 
 
-def random_uniform(shape, dtype=tf.float32):
+def random_uniform(shape, dtype=dt.float32):
     """ Random Uniform Initialisation
 
     Wrapper around TensorFlow random_uniform function between -1 and 1
@@ -19,10 +21,10 @@ def random_uniform(shape, dtype=tf.float32):
     Returns:
         Tensor: a TensorFlow tensor used to initialise variable
     """
-    return tf.random_uniform(shape, minval=-1, maxval=1, dtype=dtype)
+    return random_ops.random_uniform(shape, minval=-1, maxval=1, dtype=dtype)
 
 
-def xavier_init(shape, dtype=tf.float32):
+def xavier_init(shape, dtype=dt.float32):
     """ "Xavier Initialisation" - Normalised Weight Initialisation
 
     This initialisation keeps the scale of the gradients roughly the same in all layers.
@@ -49,14 +51,13 @@ def xavier_init(shape, dtype=tf.float32):
         Tensor: a TensorFlow tensor used to initialise variable
     """
     [fan_in, fan_out] = shape
-    # TODO needs testing: not sure if tf.sqrt works here or if I need to use np.sqrt as the original
-    low = -tf.sqrt(6.0 / (fan_in + fan_out))
-    high = tf.sqrt(6.0 / (fan_in + fan_out))
+    low = -math_ops.sqrt(6.0 / (fan_in + fan_out))
+    high = math_ops.sqrt(6.0 / (fan_in + fan_out))
 
-    return tf.random_uniform((fan_in, fan_out), low, high, dtype)
+    return random_ops.random_uniform((fan_in, fan_out), low, high, dtype)
 
 
-def relu_init(shape, dtype=tf.float32):
+def relu_init(shape, dtype=dt.float32):
     """ ReLU Weight Initialisation
 
     Initialiser tensor for weights to be used as inputs to ReLU activations. Initialises the weights with
@@ -84,6 +85,5 @@ def relu_init(shape, dtype=tf.float32):
     """
     [fan_in, fan_out] = shape
     mu = 0
-    # TODO needs testing: not sure if tf.sqrt works here or if I need to use np.sqrt as the original
-    sigma = tf.sqrt(2.0 / fan_in)
-    return tf.random_normal((fan_in, fan_out), mu, sigma, dtype)
+    sigma = math_ops.sqrt(2.0 / fan_in)
+    return random_ops.random_normal((fan_in, fan_out), mu, sigma, dtype)

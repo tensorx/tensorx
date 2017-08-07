@@ -19,12 +19,11 @@ Types of layers:
     activation: adds an activation function to a given layer with its own scope
 """
 
-import numbers
-
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import random_ops
 
+from tensorx.activation import sparsemax as sparsemax_op
 from tensorx.init import random_uniform
 from tensorx.transform import to_sparse
 
@@ -68,9 +67,33 @@ class Input(Layer):
     """
 
     def __init__(self, n_units, n_active=None, batch_size=None, dtype=tf.float32, name="input"):
+        """
+        if n_active is not None:
+            when connected to a Linear layer, this is interpreted
+            as a binary sparse input layer and the linear layer is constructed using the
+            Embedding Lookup operator.
+
+            expects: int64 as inputs
+
+        Note on sparse inputs:
+            if you want to feed a batch of sparse binary features with weights, use SparseInput instead
+
+        Args:
+            n_units: number of units in the output of this layer
+            n_active: number of active units <= n_units
+            batch_size: number of samples to be fed to this layer
+            dtype: type of tensor values
+            name: name for the tensor
+        """
+        if n_active >= n_units:
+            raise ValueError("n_active must be < n_units")
+
         dense_shape = [batch_size, n_units]
 
-        if n_active is not None and n_active <= n_units:
+        if n_active is not None:
+            if dtype != dtypes.int64:
+                raise TypeError("If n_active is not None, dtype must be set to dt.int64")
+
             shape = [batch_size, n_active]
         else:
             shape = [batch_size, n_units]
@@ -104,20 +127,21 @@ class SparseInput(Layer):
 
     def __init__(self, n_units, n_active, values=False, batch_size=None, dtype=tf.float32, name="index_input"):
         shape = [batch_size, n_active]
-        dense_shape = [batch_size, n_units]
-        super().__init__(n_units, shape, dense_shape, batch_size, dtype, name)
+        dense_shape = tf.convert_to_tensor([batch_size, n_units], dtype=dtypes.int64)
+        super().__init__(n_units, shape, dense_shape, dtype, name)
 
         self.n_active = n_active
         self.values = values
 
-        self.indices = tf.sparse_placeholder(tf.int64, self.shape, name)
+        with tf.name_scope(name):
+            self.indices = tf.sparse_placeholder(tf.int64, self.dense_sape, name)
 
-        if values:
-            self.values = tf.sparse_placeholder(dtype, self.shape, name=name + "_values")
-        else:
-            self.values = None
+            if values:
+                self.values = tf.sparse_placeholder(dtype, self.dense_sape, name=name + "_values")
+            else:
+                self.values = None
 
-        self.y = tf.SparseTensor(self.indices, self.values, self.dense_sape)
+            self.y = tf.SparseTensor(self.indices, self.values, self.dense_sape)
 
 
 class Linear(Layer):
@@ -193,53 +217,34 @@ class ToSparse(Layer):
 class GaussianNoise(Layer):
     def __init__(self, layer, noise_amount=0.1, stddev=0.2, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
-        if isinstance(noise_amount, numbers.Real) and not 0 < noise_amount <= 1:
-            raise ValueError("amount must be a scalar tensor or a float in the "
-                             "range (0, 1], got %g" % noise_amount)
 
-            self.noise_amount = noise_amount
-            self.stddev = stddev
-            self.seed = seed
+        self.noise_amount = noise_amount
+        self.stddev = stddev
+        self.seed = seed
 
-            # do nothing if amount of noise is 0
-            if amount == 0:
-                self.y = layer.y
-            else:
-                noise = random_ops.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed,
-                                                 dtype=tf.float32)
-                self.y = tf.add(self.y, noise)
+        # do nothing if amount of noise is 0
+        if noise_amount == 0.0:
+            self.y = layer.y
+        else:
+            noise = random_ops.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed,
+                                             dtype=tf.float32)
+            self.y = tf.add(self.y, noise)
 
 
-class SaltPepper(Layer):
+class SaltPepperNoise(Layer):
     def __init__(self, layer, noise_amount=0.1, salt=1, pepper=0, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
-        if isinstance(noise_amount, numbers.Real) and not 0 < noise_amount <= 1:
-            raise ValueError("amount must be a scalar tensor or a float in the "
-                             "range (0, 1], got %g" % noise_amount)
 
-            self.noise_amount = noise_amount
-            self.seed = seed
+        self.noise_amount = noise_amount
+        self.seed = seed
 
-            # do nothing if amount of noise is 0
-            if amount == 0:
-                self.y = layer.y
-            else:
-
-                # we corrupt (n_units * noise_amount) for each training example
-                num_noise = int(layer.n_units * noise_amount)
-                batch_size = self.shape[0]
-                samples = random_choice(layer.n_units, num_noise, unique=True, seed=seed)
-
-                # create corruption values
-                num_salt = num_noise / 2
-                num_pepper = num_noise - num_salt
-
-                type = dtypes.int32 if not (isinstance(salt, float) or isinstance(pepper, float)) else dtypes.float32
-                salt_tensor = tf.constant(salt, type, shape=[batch_size, num_salt])
-                pepper_tensor = tf.constant(pepper, type, shape=[batch_size, num_pepper])
-                noise_values = tf.concat(salt_tensor, pepper_tensor, axis=0)
-
-                noise_cond = tf.greater_equal()
+        # do nothing if amount of noise is 0
+        if noise_amount == 0.0:
+            self.y = layer.y
+        else:
+            # we corrupt (n_units * noise_amount) for each training example
+            num_noise = int(layer.n_units * noise_amount)
+            batch_size = self.shape[0]
 
 
 class Activation(Layer):
@@ -257,7 +262,7 @@ class Activation(Layer):
         softplus = tf.nn.softplus
         softsign = tf.nn.softsign
         softmax = tf.nn.softmax
-        # TODO sparsemax
+        sparsemax = sparsemax_op
 
     def __init__(self, layer, fn=Fn.identity):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_activation")

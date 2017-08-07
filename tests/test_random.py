@@ -1,5 +1,7 @@
 import unittest
+
 import tensorflow as tf
+
 from tensorx import random as tr
 
 
