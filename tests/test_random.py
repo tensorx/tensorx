@@ -1,3 +1,4 @@
+""" Tests for TensorX random ops"""
 import unittest
 
 import tensorflow as tf

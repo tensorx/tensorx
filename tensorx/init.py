@@ -60,7 +60,7 @@ def xavier_init(shape, dtype=dt.float32):
 def relu_init(shape, dtype=dt.float32):
     """ ReLU Weight Initialisation
 
-    Initialiser tensor for weights to be used as inputs to ReLU activations. Initialises the weights with
+    Initialisation tensor for weights used as inputs to ReLU activations. Initialises the weights with
     a Gaussian distribution:
         mu: 0
         sigma: sqrt(2/fan_in)

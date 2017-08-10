@@ -2,7 +2,6 @@ from unittest import TestCase
 import tensorflow as tf
 import numpy as np
 from tensorx.layers import Input
-from tensorx.layers import Activation as Act
 
 
 class TestLayers(TestCase):
@@ -45,7 +44,7 @@ class TestLayers(TestCase):
         index = np.random.randint(0, 10)
         index = [[index]]
 
-        input_layer = Input(n_units=dim, n_active=1)
+        input_layer = Input(n_units=dim, n_active=1, dtype=tf.int64)
 
         result = self.ss.run(input_layer.y, feed_dict={input_layer.y: index})
         s = np.shape(result)

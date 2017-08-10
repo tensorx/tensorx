@@ -2,7 +2,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn
+from tensorflow.python.ops.nn import top_k
 
 
 def sparsemax(logits, name=None):
@@ -31,7 +31,7 @@ def sparsemax(logits, name=None):
         z = logits - math_ops.reduce_mean(logits, axis=1)[:, array_ops.newaxis]
 
         # sort z
-        z_sorted, _ = nn.top_k(z, k=dims)
+        z_sorted, _ = top_k(z, k=dims)
 
         # calculate k(z)
         z_cumsum = math_ops.cumsum(z_sorted, axis=1)

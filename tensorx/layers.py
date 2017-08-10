@@ -19,17 +19,23 @@ Types of layers:
     activation: adds an activation function to a given layer with its own scope
 """
 
-import tensorflow as tf
-from tensorflow.python.framework import dtypes
-from tensorflow.python.ops import random_ops
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import variable_scope as vscope
+from tensorflow.python.framework.ops import name_scope
 
-from tensorx.activation import sparsemax as sparsemax_op
+from tensorflow.python.ops import random_ops
+from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework.sparse_tensor import SparseTensor
+
 from tensorx.init import random_uniform
 from tensorx.transform import to_sparse
 
 
 class Layer:
-    def __init__(self, n_units, shape=None, dense_shape=None, dtype=tf.float32, name="layer"):
+    def __init__(self, n_units, shape=None, dense_shape=None, dtype=dtypes.float32, name="layer"):
         """
         Args:
             n_units: dimension of input vector (dimension of columns in case batch_size != None
@@ -66,7 +72,7 @@ class Input(Layer):
     Creates a placeholder to receive tensors with a given shape and data type.
     """
 
-    def __init__(self, n_units, n_active=None, batch_size=None, dtype=tf.float32, name="input"):
+    def __init__(self, n_units, n_active=None, batch_size=None, dtype=dtypes.float32, name="input"):
         """
         if n_active is not None:
             when connected to a Linear layer, this is interpreted
@@ -85,7 +91,7 @@ class Input(Layer):
             dtype: type of tensor values
             name: name for the tensor
         """
-        if n_active >= n_units:
+        if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
         dense_shape = [batch_size, n_units]
@@ -99,7 +105,7 @@ class Input(Layer):
             shape = [batch_size, n_units]
 
         super().__init__(n_units, shape, dense_shape, dtype, name)
-        self.y = tf.placeholder(self.dtype, self.shape, self.name)
+        self.y = array_ops.placeholder(self.dtype, self.shape, self.name)
 
 
 class SparseInput(Layer):
@@ -125,23 +131,23 @@ class SparseInput(Layer):
         tensorx.utils.data.value_list_to_sparse
     """
 
-    def __init__(self, n_units, n_active, values=False, batch_size=None, dtype=tf.float32, name="index_input"):
+    def __init__(self, n_units, n_active, values=False, batch_size=None, dtype=dtypes.float32, name="index_input"):
         shape = [batch_size, n_active]
-        dense_shape = tf.convert_to_tensor([batch_size, n_units], dtype=dtypes.int64)
+        dense_shape = ops.convert_to_tensor([batch_size, n_units], dtype=dtypes.int64)
         super().__init__(n_units, shape, dense_shape, dtype, name)
 
         self.n_active = n_active
         self.values = values
 
-        with tf.name_scope(name):
-            self.indices = tf.sparse_placeholder(tf.int64, self.dense_sape, name)
+        with ops.name_scope(name):
+            self.indices = array_ops.sparse_placeholder(dtypes.int64, self.dense_sape, name)
 
             if values:
-                self.values = tf.sparse_placeholder(dtype, self.dense_sape, name=name + "_values")
+                self.values = array_ops.sparse_placeholder(dtype, self.dense_sape, name=name + "_values")
             else:
                 self.values = None
 
-            self.y = tf.SparseTensor(self.indices, self.values, self.dense_sape)
+            self.y = SparseTensor(self.indices, self.values, self.dense_sape)
 
 
 class Linear(Layer):
@@ -151,7 +157,7 @@ class Linear(Layer):
                  init=random_uniform,
                  weights=None,
                  bias=False,
-                 dtype=tf.float32,
+                 dtype=dtypes.float32,
                  name="linear"):
 
         shape = [layer.dense_shape[0], n_units]
@@ -163,37 +169,37 @@ class Linear(Layer):
             if s != n_units:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
-        with tf.variable_scope(name):
+        with vscope.variable_scope(name):
             # init weights
             if weights is not None:
                 self.weights = weights
             else:
-                self.weights = tf.get_variable("w", initializer=init(self.shape))
+                self.weights = vscope.get_variable("w", initializer=init(self.shape))
 
             # y = xW
             if hasattr(layer, "sp_indices"):
                 indices = getattr(layer, "sp_indices")
                 values = getattr(layer, "sp_values", default=None)
 
-                lookup_sum = tf.nn.embedding_lookup_sparse(params=self.weights,
-                                                           sp_ids=indices,
-                                                           sp_weights=values,
-                                                           combiner="sum",
-                                                           name=self.name + "_embeddings")
+                lookup_sum = embedding_lookup_sparse(params=self.weights,
+                                                     sp_ids=indices,
+                                                     sp_weights=values,
+                                                     combiner="sum",
+                                                     name=self.name + "_embeddings")
                 self.y = lookup_sum
             else:
                 if layer.shape == layer.dense_shape:
-                    self.y = tf.matmul(layer.y, self.weights)
+                    self.y = math_ops.matmul(layer.y, self.weights)
                 else:
-                    lookup = tf.nn.embedding_lookup(params=self.weights,
-                                                    ids=layer.y,
-                                                    name=self.name + "_embeddings")
-                    self.y = tf.reduce_sum(lookup, axis=1)
+                    lookup = embedding_lookup(params=self.weights,
+                                              ids=layer.y,
+                                              name=self.name + "_embeddings")
+                    self.y = math_ops.reduce_sum(lookup, axis=1)
 
             # y = xW + [b]
             if bias:
-                self.bias = tf.get_variable("b", initializer=tf.zeros([self.n_units]))
-                self.y = tf.nn.bias_add(self.y, self.bias, name="a")
+                self.bias = vscope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
+                self.y = bias_add(self.y, self.bias, name="a")
 
 
 class ToSparse(Layer):
@@ -207,7 +213,7 @@ class ToSparse(Layer):
     def __init__(self, layer):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sparse")
 
-        with tf.name_scope(self.name):
+        with name_scope(self.name):
             sp_indices, sp_values = to_sparse(layer.y)
 
             self.sp_indices = sp_indices
@@ -226,13 +232,13 @@ class GaussianNoise(Layer):
         if noise_amount == 0.0:
             self.y = layer.y
         else:
-            noise = random_ops.random_normal(shape=tf.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed,
-                                             dtype=tf.float32)
-            self.y = tf.add(self.y, noise)
+            noise = random_ops.random_normal(shape=array_ops.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed,
+                                             dtype=dtypes.float32)
+            self.y = math_ops.add(self.y, noise)
 
 
 class SaltPepperNoise(Layer):
-    def __init__(self, layer, noise_amount=0.1, salt=1, pepper=0, seed=None):
+    def __init__(self, layer, noise_amount=0.1, max_value=1, min_value=0, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
 
         self.noise_amount = noise_amount
@@ -242,29 +248,26 @@ class SaltPepperNoise(Layer):
         if noise_amount == 0.0:
             self.y = layer.y
         else:
+            # TODO finish this
             # we corrupt (n_units * noise_amount) for each training example
             num_noise = int(layer.n_units * noise_amount)
             batch_size = self.shape[0]
 
+            if hasattr(layer, "sp_indices"):
+                indices = getattr(layer, "sp_indices")
+                values = getattr(layer, "sp_values", default=None)
+
+                # TODO complete
+                self.y = None
+            else:
+                if layer.shape == layer.dense_shape:
+                    pass
+                else:
+                    pass
+
 
 class Activation(Layer):
-    class Fn:
-        """
-        This was unnecessary but I wanted a place to organise things that can be considered activation functions
-        if I use a function that is not in the default TensorFlow distribution I will also include it here.
-        """
-        identity = tf.identity
-        sigmoid = tf.nn.sigmoid
-        tanh = tf.nn.tanh
-        relu = tf.nn.relu
-        relu6 = tf.nn.relu6
-        elu = tf.nn.elu
-        softplus = tf.nn.softplus
-        softsign = tf.nn.softsign
-        softmax = tf.nn.softmax
-        sparsemax = sparsemax_op
-
-    def __init__(self, layer, fn=Fn.identity):
+    def __init__(self, layer, fn=array_ops.identity):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_activation")
         self.fn = fn
         self.y = self.fn(layer.y, name=self.name)
@@ -281,9 +284,9 @@ class Bias(Layer):
         bias_name = layer.dtype, "{}_{}".format(layer.name, name)
         super().__init__(layer.n_units, layer.shape, bias_name)
 
-        with tf.variable_scope(self.name):
-            self.bias = tf.get_variable("b", initializer=tf.zeros([self.n_units]))
-            self.tensor = tf.nn.bias_add(layer.tensor, self.bias, name="output")
+        with vscope.variable_scope(self.name):
+            self.bias = vscope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
+            self.tensor = bias_add(layer.tensor, self.bias, name="output")
 
 
 class Merge(Layer):
@@ -299,7 +302,7 @@ class Merge(Layer):
     def __init__(self,
                  layers,
                  weights=None,
-                 merge_fn=tf.add_n,
+                 merge_fn=math_ops.add_n,
                  name="merge"):
         """
         Args:
@@ -321,9 +324,9 @@ class Merge(Layer):
 
         super().__init__(layers[0].n_units, layers[0].shape, layers[0].dense_shape, layers[0].dtype, name)
 
-        with tf.name_scope(name):
+        with name_scope(name):
             if weights is not None:
                 for i in range(len(layers)):
-                    layers[i] = tf.scalar_mul(weights[i], layers[i].output)
+                    layers[i] = math_ops.scalar_mul(weights[i], layers[i].output)
 
             self.y = merge_fn(layers)

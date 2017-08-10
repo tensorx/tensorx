@@ -1,3 +1,4 @@
+"""Tests for tensor transformations module"""
 import unittest
 
 import tensorflow as tf
@@ -21,7 +22,7 @@ class TestTransform(unittest.TestCase):
         expected = tf.constant([[3., 0], [0.2, 0.]])
 
         result = trans.sparse_put(tensor, sp_values)
-        result = tf.sparse_tensor_to_densse(result)
+        result = tf.sparse_tensor_to_dense(result)
 
         np.testing.assert_array_equal(expected.eval(), result.eval())
 
@@ -48,16 +49,15 @@ class TestTransform(unittest.TestCase):
         indices = tf.constant([[0, 1], [1, 2]], dtype=tf.int64)
         result = trans.enum_row(indices)
 
-        ss = tf.Session()
-        print(ss.run(result))
-        print(ss.run(tf.shape(result)))
+        # print(result.eval())
+        # print(tf.shape(result).eval())
 
     def test_to_sparse(self):
         c = [[1, 0], [2, 3]]
 
         sparse_indices, sparse_values = trans.to_sparse(c)
 
-        dense_shape = tf.shape(c,out_type=tf.int64)
+        dense_shape = tf.shape(c, out_type=tf.int64)
         indices = tf.where(tf.not_equal(c, 0))
 
         flat_values = tf.reshape(c, [-1])
