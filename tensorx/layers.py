@@ -31,7 +31,8 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform
-from tensorx.transform import to_sparse
+from tensorx.random import salt_pepper_noise, sample
+from tensorx.transform import to_sparse, to_dense, flat_indices_to_dense, enum_row, sparse_put, dense_put
 
 
 class Layer:
@@ -140,14 +141,14 @@ class SparseInput(Layer):
         self.values = values
 
         with ops.name_scope(name):
-            self.indices = array_ops.sparse_placeholder(dtypes.int64, self.dense_sape, name)
+            self.sp_indices = array_ops.sparse_placeholder(dtypes.int64, self.dense_sape, name)
 
             if values:
-                self.values = array_ops.sparse_placeholder(dtype, self.dense_sape, name=name + "_values")
+                self.sp_values = array_ops.sparse_placeholder(dtype, self.dense_sape, name=name + "_values")
             else:
-                self.values = None
+                self.sp_values = None
 
-            self.y = SparseTensor(self.indices, self.values, self.dense_sape)
+            self.y = self.sp_indices, self.sp_values
 
 
 class Linear(Layer):
@@ -220,8 +221,39 @@ class ToSparse(Layer):
             self.sp_values = sp_values
 
 
+def _is_sparse_layer(layer):
+    return hasattr(layer, "sp_indices") or (layer.shape != layer.dense_shape and layer.dtype == dtypes.int64)
+
+
+def _sparse_layer_to_dense_tensor(layer):
+    dense = None
+    if hasattr(layer, "sp_indices"):
+        """Converts Sparse Layer to Dense """
+        dense = to_dense(layer.sp_indices, layer.sp_values)
+    elif layer.shape != layer.dense_shape and layer.dtype == dtypes.int64:
+        """Converts Sparse Index Layer to Dense """
+        dense = flat_indices_to_dense(layer.y, layer.dense_shape)
+
+    return dense
+
+
+class ToDense(Layer):
+    """ Transforms the previous layer into a dense representation
+
+        meaning the input layer provides:
+            sp_indices
+            [sp_values] if sp_values is None, the values are set to 1.0
+    """
+
+    def __init__(self, layer):
+        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sparse")
+
+        with name_scope(self.name):
+            self.y = _sparse_layer_to_dense_tensor(layer)
+
+
 class GaussianNoise(Layer):
-    def __init__(self, layer, noise_amount=0.1, stddev=0.2, seed=None):
+    def __init__(self, layer, noise_amount=0.1, mean=0.0, stddev=0.2, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_noise")
 
         self.noise_amount = noise_amount
@@ -232,8 +264,10 @@ class GaussianNoise(Layer):
         if noise_amount == 0.0:
             self.y = layer.y
         else:
-            noise = random_ops.random_normal(shape=array_ops.shape(layer.y), mean=0.0, stddev=self.stddev, seed=seed,
-                                             dtype=dtypes.float32)
+            if _is_sparse_layer(layer):
+                self.y = _sparse_layer_to_dense_tensor(layer)
+
+            noise = random_ops.random_normal(array_ops.shape(self.y), mean, stddev, seed=seed, dtype=dtypes.float32)
             self.y = math_ops.add(self.y, noise)
 
 
@@ -248,22 +282,58 @@ class SaltPepperNoise(Layer):
         if noise_amount == 0.0:
             self.y = layer.y
         else:
-            # TODO finish this
-            # we corrupt (n_units * noise_amount) for each training example
             num_noise = int(layer.n_units * noise_amount)
             batch_size = self.shape[0]
 
             if hasattr(layer, "sp_indices"):
-                indices = getattr(layer, "sp_indices")
-                values = getattr(layer, "sp_values", default=None)
+                """corrupt sparse layer"""
+                sp_indices = getattr(layer, "sp_indices")
+                sp_values = getattr(layer, "sp_values", default=None)
 
-                # TODO complete
-                self.y = None
+                if sp_values is None:
+                    values = array_ops.constant(1.0, dtypes.float32, shape=array_ops.shape(sp_indices.values))
+                    indices = sp_indices.indices
+                    sp_values = SparseTensor(indices, values)
+
+                noise = salt_pepper_noise(layer.dense_shape, noise_amount, max_value, min_value, seed)
+                sp_values = sparse_put(sp_values, noise)
+
+                indices = sp_values.indices
+                _, flat_indices = array_ops.unstack(indices, axis=-1)
+                sp_indices = SparseTensor(indices, flat_indices, sp_values.dense_shape)
+
+                self.sp_indices = sp_indices
+                self.sp_values = sp_values
+
+                self.y = self.sp_indices, self.sp_values
+            elif layer.shape != layer.dense_shape and layer.dtype == dtypes.int64:
+                """corrupt sparse index layer
+                converts the original layer to a sparse layer
+                the input layer is a batch of flat indices: the indices correspond to each sample, not to the indices
+                of a sparse matrix
+                """
+                indices = enum_row(layer.y)
+                values = array_ops.constant(1.0, dtypes.float32, shape=[array_ops.shape(indices)[0]])
+                dense_shape = layer.dense_shape
+                sp_values = SparseTensor(indices, values, dense_shape)
+
+                noise = salt_pepper_noise(dense_shape, noise_amount, max_value, min_value, seed)
+                sp_values = sparse_put(sp_values, noise)
+
+                flat_indices = array_ops.reshape(layer.y, [-1])
+                sp_indices = SparseTensor(indices, flat_indices, dense_shape)
+
+                self.sp_indices = sp_indices
+                self.sp_values = sp_values
+
+                self.y = self.sp_indices, self.sp_values
+
+            elif layer.shape == layer.dense_shape:
+                """corrupt dense layer"""
+                noise = salt_pepper_noise(layer.dense_shape, noise_amount, max_value, min_value, seed)
+                self.y = dense_put(layer.y, noise)
             else:
-                if layer.shape == layer.dense_shape:
-                    pass
-                else:
-                    pass
+                raise ValueError("Invalid Layer Error: could not be corrupted")
 
 
 class Activation(Layer):

@@ -70,15 +70,36 @@ def dense_put(tensor, sp_updates):
     """
     tensor = ops.convert_to_tensor(tensor)
     if sp_updates.dtype != tensor.dtype:
-        sp_updates = math_ops.cast(sp_updates,tensor.dtype)
+        sp_updates = math_ops.cast(sp_updates, tensor.dtype)
 
     markers = array_ops.ones(shape=array_ops.shape(sp_updates.values))
-    sparse_marker_tensor = SparseTensor(indices=sp_updates.indices,values=markers,dense_shape=sp_updates.dense_shape)
+    sparse_marker_tensor = SparseTensor(indices=sp_updates.indices, values=markers, dense_shape=sp_updates.dense_shape)
     dense_update_marker = sp_ops.sparse_tensor_to_dense(sparse_marker_tensor)
     dense_updates = sp_ops.sparse_tensor_to_dense(sp_updates)
     return array_ops.where(math_ops.not_equal(dense_update_marker, 0),
                            dense_updates,
                            tensor)
+
+
+# TODO test this
+def to_dense(sp_indices, sp_values):
+    if not isinstance(sp_indices, SparseTensor):
+        raise TypeError("Expected sp_indices to be a SparseTensor {} received instead.".format(type(sp_indices)))
+
+    if sp_values is None:
+        indices = sp_indices.indices
+        values = array_ops.constant(1.0, dtypes.float32, shape=array_ops.shape(sp_indices.values))
+        sp_values = SparseTensor(indices, values, sp_indices.dense_shape)
+
+    return sp_ops.sparse_tensor_to_dense(sp_values, name="to_dense")
+
+
+def flat_indices_to_dense(indices, dense_shape):
+    indices = enum_row(indices)
+    values = array_ops.constant(1.0, dtypes.float32, shape=[array_ops.shape(indices)[0]])
+    sp_tensor = SparseTensor(indices, values, dense_shape)
+
+    return sp_ops.sparse_tensor_to_dense(sp_tensor)
 
 
 def to_sparse(tensor):
@@ -106,8 +127,8 @@ def to_sparse(tensor):
     """
 
     indices = array_ops.where(math_ops.not_equal(tensor, 0))
-    _, flat_indices = array_ops.unstack(indices,axis=-1)
-    dense_shape = array_ops.shape(tensor,out_type=dtypes.int64)
+    _, flat_indices = array_ops.unstack(indices, axis=-1)
+    dense_shape = array_ops.shape(tensor, out_type=dtypes.int64)
 
     sp_indices = SparseTensor(indices, flat_indices, dense_shape)
 
