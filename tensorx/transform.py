@@ -81,25 +81,43 @@ def dense_put(tensor, sp_updates):
                            tensor)
 
 
-# TODO test this
+def default_sp_values(sp_indices, value=1.0, dtype=dtypes.float32):
+    """ Creates a sparse tensor with default values based on a sparse tensor with the indices
+
+    Use Case: sparse layers have two fields: sp_indices, sp_values
+    sp_indices is a SparseTensor with the active indices in the tensor, its values contain the flat indices for each
+    sample in a batch.
+
+    sp_values contain the values associated with each index, this is optional and can be None
+
+    This function creates a new SparseTensor with the given default values based on a given
+    sp_indices argument.
+
+    """
+    indices = sp_indices.indices
+    values = array_ops.constant(value, dtype, shape=array_ops.shape(sp_indices.values))
+    return SparseTensor(indices, values, sp_indices.dense_shape)
+
+
 def to_dense(sp_indices, sp_values):
     if not isinstance(sp_indices, SparseTensor):
         raise TypeError("Expected sp_indices to be a SparseTensor {} received instead.".format(type(sp_indices)))
 
     if sp_values is None:
-        indices = sp_indices.indices
-        values = array_ops.constant(1.0, dtypes.float32, shape=array_ops.shape(sp_indices.values))
-        sp_values = SparseTensor(indices, values, sp_indices.dense_shape)
+        sp_values = default_sp_values(sp_indices)
 
     return sp_ops.sparse_tensor_to_dense(sp_values, name="to_dense")
 
 
 def flat_indices_to_dense(indices, dense_shape):
+    sp_tensor = flat_indices_to_sparse(indices,dense_shape)
+    return sp_ops.sparse_tensor_to_dense(sp_tensor)
+
+
+def flat_indices_to_sparse(indices, dense_shape):
     indices = enum_row(indices)
     values = array_ops.constant(1.0, dtypes.float32, shape=[array_ops.shape(indices)[0]])
-    sp_tensor = SparseTensor(indices, values, dense_shape)
-
-    return sp_ops.sparse_tensor_to_dense(sp_tensor)
+    return SparseTensor(indices, values, dense_shape)
 
 
 def to_sparse(tensor):
