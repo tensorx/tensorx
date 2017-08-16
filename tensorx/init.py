@@ -21,7 +21,7 @@ def random_uniform(shape, dtype=dt.float32):
     Returns:
         Tensor: a TensorFlow tensor used to initialise variable
     """
-    return random_ops.random_uniform(shape, minval=-1, maxval=1, dtype=dtype)
+    return random_ops.random_uniform(shape=shape, minval=-1, maxval=1, dtype=dtype)
 
 
 def xavier_init(shape, dtype=dt.float32):

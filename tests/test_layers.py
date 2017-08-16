@@ -1,7 +1,7 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input
+from tensorx.layers import Input, Linear
 
 
 class TestLayers(TestCase):
@@ -20,7 +20,6 @@ class TestLayers(TestCase):
         """
         in_layer = Input(n_units=10)
         self.assertIsInstance(in_layer.y, tf.Tensor)
-
 
         ones = np.ones(shape=(2, 10))
         result = self.ss.run(in_layer.y, feed_dict={in_layer.y: ones})
@@ -50,9 +49,25 @@ class TestLayers(TestCase):
         s = np.shape(result)
         self.assertEqual(s[1], 1)
 
-    def test_activation(self):
-        pass
-        # Act.Fn.sigmoid
+    def test_linear_matmul_equals_sparse_index(self):
+        index = 0
+
+        # sparse input
+        x1 = Input(10, n_active=1, dtype=tf.int64)
+
+        # dense input
+        x2 = Input(10)
 
 
-        # fn = Act(None,sg)
+        # linear layer without biases y = xW
+        y1 = Linear(x1, 4)
+
+        y2 = Linear(x2, 4, weights=y1.weights)
+
+        self.assertEqual(y1.weights, y2.weights)
+
+        varinit = tf.global_variables_initializer()
+        self.ss.run(varinit)
+        print(y1.y.eval({x1.y: [[index]]}))
+
+

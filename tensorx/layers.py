@@ -20,6 +20,7 @@ Types of layers:
 """
 
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variable_scope as vscope
@@ -54,14 +55,19 @@ class Layer:
             self.shape = shape
 
         if dense_shape is None:
-            self.dense_sape = self.shape
+            self.dense_shape = self.shape
         else:
             if dense_shape[1] < n_units:
                 raise Exception("Shape mismatch: dense_shape[1] < n_units")
             elif dense_shape[0] != self.shape[0]:
                 raise Exception("Shape mismatch: dense_shape[0] != self.shape[0]")
             else:
-                self.dense_sape = dense_shape
+                self.dense_shape = dense_shape
+
+        # convert shapes to TensorShapes
+        # this allows us to init shapes with lists and tuples with None
+        self.shape = TensorShape(self.shape)
+        self.dense_shape = TensorShape(self.dense_shape)
 
         # has a y (tensor) attribute
         self.y = None
@@ -97,13 +103,13 @@ class Input(Layer):
 
         dense_shape = [batch_size, n_units]
 
-        if n_active is not None:
+        if n_active is None:
+            shape = [batch_size, n_units]
+        else:
             if dtype != dtypes.int64:
                 raise TypeError("If n_active is not None, dtype must be set to dt.int64")
 
             shape = [batch_size, n_active]
-        else:
-            shape = [batch_size, n_units]
 
         super().__init__(n_units, shape, dense_shape, dtype, name)
         self.y = array_ops.placeholder(self.dtype, self.shape, self.name)
@@ -141,10 +147,10 @@ class SparseInput(Layer):
         self.values = values
 
         with ops.name_scope(name):
-            self.sp_indices = array_ops.sparse_placeholder(dtypes.int64, self.dense_sape, name)
+            self.sp_indices = array_ops.sparse_placeholder(dtypes.int64, self.dense_shape, name)
 
             if values:
-                self.sp_values = array_ops.sparse_placeholder(dtype, self.dense_sape, name=name + "_values")
+                self.sp_values = array_ops.sparse_placeholder(dtype, self.dense_shape, name=name + "_values")
             else:
                 self.sp_values = None
 
@@ -161,8 +167,11 @@ class Linear(Layer):
                  dtype=dtypes.float32,
                  name="linear"):
 
-        shape = [layer.dense_shape[0], n_units]
-        super().__init__(n_units, shape, dtype, name)
+        shape = [layer.dense_shape[1], n_units]
+        super().__init__(n_units, shape=shape,
+                         dense_shape=shape,
+                         dtype=dtype,
+                         name=name)
 
         # if weights are passed, check that their shape matches the layer shape
         if weights is not None:
@@ -189,7 +198,7 @@ class Linear(Layer):
                                                      name=self.name + "_embeddings")
                 self.y = lookup_sum
             else:
-                if layer.shape == layer.dense_shape:
+                if layer.shape.is_compatible_with(layer.dense_shape):
                     self.y = math_ops.matmul(layer.y, self.weights)
                 else:
                     lookup = embedding_lookup(params=self.weights,
@@ -222,7 +231,7 @@ class ToSparse(Layer):
 
 
 def _is_sparse_layer(layer):
-    return hasattr(layer, "sp_indices") or (layer.shape != layer.dense_shape and layer.dtype == dtypes.int64)
+    return hasattr(layer, "sp_indices") or (not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64)
 
 
 def _sparse_layer_to_dense_tensor(layer):
@@ -230,7 +239,7 @@ def _sparse_layer_to_dense_tensor(layer):
     if hasattr(layer, "sp_indices"):
         """Converts Sparse Layer to Dense """
         dense = transform.to_dense(layer.sp_indices, layer.sp_values)
-    elif layer.shape != layer.dense_shape and layer.dtype == dtypes.int64:
+    elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
         """Converts Sparse Index Layer to Dense """
         dense = transform.flat_indices_to_dense(layer.y, layer.dense_shape)
 
@@ -281,15 +290,15 @@ class Dropout(Layer):
 
                     indices = array_ops.gather(sp_indices, not_zero_indices)
                     _, flat_indices = array_ops.unstack(indices, axis=-1)
-                    sp_indices = SparseTensor(indices, flat_indices, self.dense_sape)
-                    sp_values = SparseTensor(indices, values, self.dense_sape)
+                    sp_indices = SparseTensor(indices, flat_indices, self.dense_shape)
+                    sp_values = SparseTensor(indices, values, self.dense_shape)
 
                 self.sp_indices = sp_indices
                 self.sp_values = sp_values
 
                 self.y = self.sp_indices, self.sp_values
 
-            elif layer.shape != layer.dense_shape and layer.dtype == dtypes.int64:
+            elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
                 indices = transform.enum_row(layer.y)
 
                 default_values = array_ops.constant(1.0, dtypes.float32, shape=[layer.shape[0]])
@@ -300,8 +309,8 @@ class Dropout(Layer):
 
                 indices = array_ops.gather(indices, not_zero_indices)
                 _, flat_indices = array_ops.unstack(indices, axis=-1)
-                sp_indices = SparseTensor(indices, flat_indices, self.dense_sape)
-                sp_values = SparseTensor(indices, values, self.dense_sape)
+                sp_indices = SparseTensor(indices, flat_indices, self.dense_shape)
+                sp_values = SparseTensor(indices, values, self.dense_shape)
 
                 self.sp_indices = sp_indices
                 self.sp_values = sp_values
@@ -365,7 +374,7 @@ class SaltPepperNoise(Layer):
                 self.sp_values = sp_values
 
                 self.y = self.sp_indices, self.sp_values
-            elif layer.shape != layer.dense_shape and layer.dtype == dtypes.int64:
+            elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
                 """corrupt sparse index layer
                 converts the original layer to a sparse layer
                 the input layer is a batch of flat indices: the indices correspond to each sample, not to the indices
@@ -387,7 +396,7 @@ class SaltPepperNoise(Layer):
 
                 self.y = self.sp_indices, self.sp_values
 
-            elif layer.shape == layer.dense_shape:
+            elif layer.shape.is_compatible_with(layer.dense_shape):
                 """corrupt dense layer"""
                 noise = salt_pepper_noise(layer.dense_shape, noise_amount, max_value, min_value, seed)
                 self.y = transform.dense_put(layer.y, noise)

@@ -10,9 +10,8 @@ def sparsemax_loss(logits, sparsemax, labels, name=None):
         [1]: https://arxiv.org/abs/1602.02068
 
     Args:
-      logits: A `Tensor`. Must be one of the following types: `half`, `float32`,
-        `float64`.
-      sparsemax: A `Tensor`. Must have the same type as `logits`.
+      logits: A `Tensor`, before sparsemax is applied
+      sparsemax: A `Tensor` resulting from applying a sparsemax activation. Must have the same type as `logits`.
       labels: A `Tensor`. Must have the same type as `logits`.
       name: A name for the operation (optional).
 

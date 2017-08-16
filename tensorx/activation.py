@@ -111,6 +111,27 @@ def relu(x, alpha=0., max_value=None):
     return x
 
 
+def elu(x, alpha=1.):
+    """Exponential Linear Unit
+
+    Reference:
+
+        (Clevert et al. 2015) Fast and accurate deep network learning by exponential linear units (ELUs).
+
+    Args:
+        x: A tenor or variable to compute the activation function for.
+        alpha: A scalar, slope of positive section.
+
+    Returns:
+        A tensor
+    """
+    y = nn.elu(x)
+    if alpha == 1:
+        return y
+    else:
+        return array_ops.where(x > 0, y, x * y)
+
+
 def softmax(x):
     """Softmax activation function
 

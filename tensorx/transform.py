@@ -13,7 +13,7 @@ from tensorflow.python.ops import functional_ops as fn_ops
 from numpy import array as np_array
 
 
-def to_tensor_cast(x,dtype):
+def to_tensor_cast(x, dtype):
     """ Converts to tensor and casts to a given type if possible
 
     Args:
@@ -25,8 +25,9 @@ def to_tensor_cast(x,dtype):
     """
     x = ops.convert_to_tensor(x)
     if x.dtype != dtype:
-       x = math_ops.cast(x,dtype)
+        x = math_ops.cast(x, dtype)
     return x
+
 
 def sparse_put(sp_tensor, sp_updates):
     """Sparse Put
@@ -125,7 +126,7 @@ def to_dense(sp_indices, sp_values):
 
 
 def flat_indices_to_dense(indices, dense_shape):
-    sp_tensor = flat_indices_to_sparse(indices,dense_shape)
+    sp_tensor = flat_indices_to_sparse(indices, dense_shape)
     return sp_ops.sparse_tensor_to_dense(sp_tensor)
 
 
