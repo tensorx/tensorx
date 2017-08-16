@@ -13,6 +13,21 @@ from tensorflow.python.ops import functional_ops as fn_ops
 from numpy import array as np_array
 
 
+def to_tensor_cast(x,dtype):
+    """ Converts to tensor and casts to a given type if possible
+
+    Args:
+        x: an input Tensor.
+        dtype: the type we wich to cast the input tensor into
+
+    Returns:
+        a tensor of type dtype
+    """
+    x = ops.convert_to_tensor(x)
+    if x.dtype != dtype:
+       x = math_ops.cast(x,dtype)
+    return x
+
 def sparse_put(sp_tensor, sp_updates):
     """Sparse Put
     Changes a given SparseTensor according to the updates specified in a SparseTensor

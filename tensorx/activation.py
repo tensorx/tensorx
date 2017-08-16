@@ -1,8 +1,129 @@
+""" Activation Functions
+
+To be used by the layers, some of these are just forward methods from the TensorFlow ops, others add some parameters
+to existing TensorFlow ops. (Like the ability to modify the threshold of a ReLU. I forwarded only the most common
+activations.
+"""
+
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops.nn import top_k
+from tensorflow.python.ops import nn
+from tensorflow.python.ops import clip_ops
+
+from tensorx.transform import to_tensor_cast
+
+
+def identity(x):
+    """ Returns a tensor with the same content as the input tensor.
+
+    Args:
+        x: The input tensor.
+
+    Returns:
+        A tensor of the same shape, type and content of the input tensor.
+    """
+    return array_ops.identity(x)
+
+
+def sigmoid(x):
+    """Element-wise sigmoid.
+
+        Args
+            x: A tensor or variable.
+
+        Returns:
+            A tensor.
+    """
+    return nn.sigmoid(x)
+
+
+def hard_sigmoid(x):
+    """Segment-wise linear approximation of sigmoid.
+    Faster than sigmoid.
+
+    Note: Approximates in 3 parts: 0, scaled linear, 1.
+
+    returns `0.` if `x < -2.5`, `1.` if `x > 2.5`.
+    In `-2.5 <= x <= 2.5`, returns `0.2 * x + 0.5`.
+
+    Args:
+        x: A tensor or variable.
+
+    Returns:
+        a float32 tensor resulting in an approximated element-wise sigmoid applied to x
+
+    """
+    x = ops.convert_to_tensor(x)
+
+    slope = to_tensor_cast(0.2, x.dtype)
+    shift = to_tensor_cast(0.5, x.dtype)
+    x = (slope * x) + shift
+    zero = to_tensor_cast(0., x.dtype)
+    one = to_tensor_cast(1., x.dtype)
+    x = clip_ops.clip_by_value(x, zero, one)
+
+    return x
+
+
+def tanh(x):
+    """Element-wise hyperbolic tangent (tanh).
+
+    Args:
+        x: A tensor or variable.
+
+
+    Returns: A tensor.
+
+    """
+    return nn.tanh(x)
+
+
+def relu(x, alpha=0., max_value=None):
+    """ Rectified linear unit.
+
+    References:
+        (Vinod & Hinton, 2010) "Rectified linear units improve restricted boltzmann machines."
+
+    Args:
+        x: Tensor or variable to compute the activation function for.
+        alpha: Slope for negative input, usually between 0 and 1. The default value of 0 will lead to the standard
+        rectifier, 1 will lead to a linear activation function, and any value in between will give a leaky rectifier
+        max_value: Saturation threshold.
+
+    Returns:
+        A tensor that results in element-wise rectifier applied to x.
+    """
+    x = ops.convert_to_tensor(x)
+    if alpha != 0.:
+        negative_part = nn.relu(-x)
+    x = nn.relu(x)
+    if max_value is not None:
+        max_value = to_tensor_cast(max_value, x.dtype)
+        zero = to_tensor_cast(0., x.dtype)
+        x = clip_ops.clip_by_value(x, zero, max_value)
+    if alpha != 0.:
+        alpha = to_tensor_cast(alpha, x.dtype)
+        x -= alpha * negative_part
+
+    return x
+
+
+def softmax(x):
+    """Softmax activation function
+
+    applies the softmax function to the input tensor last dimension
+
+    Args:
+        x: a 2D Tensor of variable
+
+    Returns:
+        a 2D tensor whose ijth element is computed from the softmax function
+
+    """
+    return nn.softmax(x)
 
 
 def sparsemax(logits, name=None):
