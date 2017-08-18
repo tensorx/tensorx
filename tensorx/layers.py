@@ -284,6 +284,7 @@ class ToDense(Layer):
             self.output = _sparse_layer_to_dense_tensor(layer)
 
 
+# TODO test this, probably cant use constant here, if I have unknown dynamic shapes
 class Dropout(Layer):
     def __init__(self, layer, keep_prob, seed):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_dropout")
@@ -382,9 +383,7 @@ class SaltPepperNoise(Layer):
                 sp_values = getattr(layer, "sp_values", default=None)
 
                 if sp_values is None:
-                    values = array_ops.constant(1.0, dtypes.float32, shape=array_ops.shape(sp_indices.values))
-                    indices = sp_indices.indices
-                    sp_values = SparseTensor(indices, values)
+                    sp_values = transform.default_sp_values(sp_indices)
 
                 noise = salt_pepper_noise(layer.dense_shape, noise_amount, max_value, min_value, seed)
                 sp_values = transform.sparse_put(sp_values, noise)
@@ -403,16 +402,16 @@ class SaltPepperNoise(Layer):
                 the input layer is a batch of flat indices: the indices correspond to each sample, not to the indices
                 of a sparse matrix
                 """
-                indices = transform.enum_row(layer.output)
-                values = array_ops.constant(1.0, dtypes.float32, shape=[array_ops.shape(indices)[0]])
+                sp_indices = transform.flat_indices_to_sparse(layer.output)
+                sp_values = transform.default_sp_values(sp_indices)
                 dense_shape = layer.dense_shape
-                sp_values = SparseTensor(indices, values, dense_shape)
 
                 noise = salt_pepper_noise(dense_shape, noise_amount, max_value, min_value, seed)
                 sp_values = transform.sparse_put(sp_values, noise)
 
-                flat_indices = array_ops.reshape(layer.output, [-1])
-                sp_indices = SparseTensor(indices, flat_indices, dense_shape)
+                # new sparse indices after put
+                _, flat_indices = array_ops.unstack(sp_values.indices, axis=-1)
+                sp_indices = SparseTensor(sp_values.indices, flat_indices, dense_shape)
 
                 self.sp_indices = sp_indices
                 self.sp_values = sp_values
