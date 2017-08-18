@@ -45,12 +45,27 @@ class TestTransform(unittest.TestCase):
         result = trans.dense_put(tensor, sp_values)
         np.testing.assert_array_equal(expected.eval(), result.eval())
 
-    def test_enum_row(self):
-        indices = tf.constant([[0, 1], [1, 2]], dtype=tf.int64)
-        result = trans.enum_row(indices)
+        # test with unknown input batch dimension
+        ph = tf.placeholder(dtype=tf.int32, shape=[None, 2])
+        data = np.ones([2, 2])
 
-        # print(result.eval())
-        # print(tf.shape(result).eval())
+        sp_values = tf.SparseTensor(indices=[[0, 0]], values=[0], dense_shape=[2, 2])
+        result = trans.dense_put(ph, sp_values)
+        np.testing.assert_array_equal(expected.eval(), result.eval({ph: data}))
+
+    def test_enum_row(self):
+        ph = tf.placeholder(dtype=tf.int64, shape=[2, 2])
+        data = [[0, 1], [1, 2]]
+        expected = [[0, 0], [0, 1], [1, 1], [1, 2]]
+
+        result = trans.enum_row(ph)
+        result = result.eval({ph: data})
+        np.testing.assert_array_equal(expected, result)
+
+        ph = tf.placeholder(dtype=tf.int64, shape=[None, 2])
+        result = trans.enum_row(ph)
+        result = result.eval({ph: data})
+        np.testing.assert_array_equal(expected, result)
 
     def test_to_sparse(self):
         c = [[1, 0], [2, 3]]

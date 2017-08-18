@@ -1,7 +1,8 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, Linear
+from tensorx.layers import Input, SparseInput, Linear, ToSparse
+from tensorx.transform import index_list_to_sparse
 
 
 class TestLayers(TestCase):
@@ -19,16 +20,16 @@ class TestLayers(TestCase):
         and a shape corresponding to [batch_size, n_units]
         """
         in_layer = Input(n_units=10)
-        self.assertIsInstance(in_layer.y, tf.Tensor)
+        self.assertIsInstance(in_layer.output, tf.Tensor)
 
         ones = np.ones(shape=(2, 10))
-        result = self.ss.run(in_layer.y, feed_dict={in_layer.y: ones})
+        result = self.ss.run(in_layer.output, feed_dict={in_layer.output: ones})
 
         np.testing.assert_array_equal(ones, result)
 
         ones_wrong_shape = np.ones(shape=(2, 11))
         try:
-            self.ss.run(in_layer.y, feed_dict={in_layer.y: ones_wrong_shape})
+            self.ss.run(in_layer.output, feed_dict={in_layer.output: ones_wrong_shape})
             self.fail("Should have raised an exception since shapes don't match")
         except ValueError:
             pass
@@ -45,7 +46,7 @@ class TestLayers(TestCase):
 
         input_layer = Input(n_units=dim, n_active=1, dtype=tf.int64)
 
-        result = self.ss.run(input_layer.y, feed_dict={input_layer.y: index})
+        result = self.ss.run(input_layer.output, feed_dict={input_layer.output: index})
         s = np.shape(result)
         self.assertEqual(s[1], 1)
 
@@ -53,23 +54,69 @@ class TestLayers(TestCase):
         index = 0
         dim = 10
 
-        # x1 = sparse input / x2 = dense input
-        x1 = Input(n_units=dim, n_active=1, dtype=tf.int64,name="x1")
-        x2 = Input(n_units=dim,name="x2")
+        # x1 = dense input / x2 = sparse input / x3 = sparse input (explicit)
+        x1 = Input(n_units=dim)
+        x2 = Input(n_units=dim, n_active=1, dtype=tf.int64)
+        x3 = SparseInput(10, n_active=1)
 
         # two layers with shared weights, one uses a sparse input layer, the other the dense one
         y1 = Linear(x1, 4)
         y2 = Linear(x2, 4, weights=y1.weights)
+        y3 = Linear(x3, 4, weights=y1.weights)
 
         self.ss.run(tf.global_variables_initializer())
 
-        input1 = [[index]]
-        input2 = np.zeros([1, dim])
-        input2[0, index] = 1
+        # dummy input data
+        input1 = np.zeros([1, dim])
+        input1[0, index] = 1
+        input2 = [[index]]
+        input3 = index_list_to_sparse(input2, [1, dim])
+        self.assertIsInstance(input3, tf.SparseTensorValue)
 
         # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
-        y1_output = y1.y.eval({x1.y: input1})
-        y2_output = y2.y.eval({x2.y: input2})
+        y1_output = y1.output.eval({x1.key: input1})
+        y2_output = y2.output.eval({x2.key: input2})
+        y3_output = y3.output.eval({x3.key[0]: input3})
 
         # the result should be the same
         np.testing.assert_array_equal(y1_output, y2_output)
+        np.testing.assert_array_equal(y2_output, y3_output)
+
+    def test_to_sparse(self):
+        index = 0
+        dim = 10
+
+        # dense input
+        x1 = Input(n_units=dim)
+        x2 = Input(n_units=dim, n_active=1, dtype=tf.int64)
+        x3 = SparseInput(10, n_active=1)
+
+        # dummy input data
+        input1 = np.zeros([1, dim])
+        input1[0, index] = 1
+        input2 = [[index]]
+        input3 = index_list_to_sparse(input2, [1, dim])
+
+        s1 = ToSparse(x1)
+        s2 = ToSparse(x2)
+        s3 = ToSparse(x3)
+
+        y1_sp_indices, y1_sp_values = self.ss.run(s1.output, {x1.key: input1})
+
+        self.assertEqual(len(y1_sp_indices.values), 1)
+        self.assertEqual(len(y1_sp_values.values), 1)
+        self.assertEqual(y1_sp_values.values, 1)
+
+        y2_sp_indices, y2_sp_values = self.ss.run(s2.output, {x2.key: input2})
+        self.assertEqual(len(y1_sp_indices.values), 1)
+        self.assertEqual(len(y1_sp_values.values), 1)
+        self.assertEqual(y1_sp_values.values, 1)
+        np.testing.assert_array_equal(y1_sp_indices.indices,y2_sp_indices.indices)
+        np.testing.assert_array_equal(y1_sp_indices.values,y2_sp_indices.values)
+
+        y3_sp_indices, y3_sp_values = self.ss.run(s3.output, {x3.key[0]: input3})
+        self.assertEqual(len(y3_sp_indices.values), 1)
+        self.assertEqual(len(y3_sp_values.values), 1)
+        self.assertEqual(y3_sp_values.values, 1)
+        np.testing.assert_array_equal(y1_sp_indices.indices, y3_sp_indices.indices)
+        np.testing.assert_array_equal(y1_sp_indices.values, y3_sp_indices.values)

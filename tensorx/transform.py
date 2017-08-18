@@ -97,22 +97,17 @@ def dense_put(tensor, sp_updates):
                            tensor)
 
 
-def default_sp_values(sp_indices, value=1.0, dtype=dtypes.float32):
-    """ Creates a sparse tensor with default values based on a sparse tensor with the indices
+"""
+TODO this caused a problem with the constant because the shape of the input was unknown
+in these cases I can use broadcasting or fill to create a tensor with dynamic shape
+I need to test all of these operations with inputs of unknown shape, meaning the shape will be dynamic
+another option is to use fill
+"""
 
-    Use Case: sparse layers have two fields: sp_indices, sp_values
-    sp_indices is a SparseTensor with the active indices in the tensor, its values contain the flat indices for each
-    sample in a batch.
 
-    sp_values contain the values associated with each index, this is optional and can be None
-
-    This function creates a new SparseTensor with the given default values based on a given
-    sp_indices argument.
-
-    """
-    indices = sp_indices.indices
-    values = array_ops.constant(value, dtype, shape=array_ops.shape(sp_indices.values))
-    return SparseTensor(indices, values, sp_indices.dense_shape)
+def default_sp_values(sp_indices, dtype=dtypes.float32):
+    values = array_ops.ones_like(sp_indices.values, dtype=dtype)
+    return SparseTensor(sp_indices.indices, values, sp_indices.dense_shape)
 
 
 def to_dense(sp_indices, sp_values):
@@ -126,14 +121,38 @@ def to_dense(sp_indices, sp_values):
 
 
 def flat_indices_to_dense(indices, dense_shape):
-    sp_tensor = flat_indices_to_sparse(indices, dense_shape)
-    return sp_ops.sparse_tensor_to_dense(sp_tensor)
+    indices = ops.convert_to_tensor(indices)
+    if indices.dtype != dtypes.int64:
+        indices = math_ops.cast(indices, dtypes.int64)
+
+    dense_shape = ops.convert_to_tensor(dense_shape)
+
+    encoding = array_ops.one_hot(indices, depth=dense_shape[1])
+    one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
+
+    return one_hot_dense
 
 
 def flat_indices_to_sparse(indices, dense_shape):
-    indices = enum_row(indices)
-    values = array_ops.constant(1.0, dtypes.float32, shape=[array_ops.shape(indices)[0]])
-    return SparseTensor(indices, values, dense_shape)
+    """Transforms a batch of flat indices to a sparse tensor with the same indices
+
+    Example:
+        [[0,1],[1,2]] -> SparseTensor(indices=[[0,0],[0,1],[1,1],[1,2]], values=[0,1,1,2], dense_shape=dense_shape)
+    Args:
+        indices:
+        dense_shape: a list or tensor with the desired dense shape for the flat indices
+
+    Returns:
+        a `SparseTensor`
+    """
+    indices = ops.convert_to_tensor(indices)
+    if indices.dtype != dtypes.int64:
+        indices = math_ops.cast(indices, dtypes.int64)
+    sp_indices = enum_row(indices)
+
+    dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int64)
+
+    return SparseTensor(sp_indices, array_ops.reshape(indices, shape=[-1]), dense_shape)
 
 
 def to_sparse(tensor):
@@ -202,7 +221,7 @@ def enum_row(tensor, name="row_enum", dtype=dtypes.int64):
     
         """
         tensor = ops.convert_to_tensor(tensor)
-        shape = tensor.get_shape()
+        shape = array_ops.shape(tensor, out_type=dtypes.int64)
 
         # for each coordinate
         row_i = math_ops.range(0, shape[0], dtype=dtype)
@@ -219,7 +238,7 @@ Utilities to prepare inputs for a TensorFlow graph
 """
 
 
-def index_list_to_sparse(indices, shape):
+def index_list_to_sparse(indices, dense_shape):
     """
     Converts a list of lists of indexes to a sparse tensor value with the given shape
 
@@ -239,19 +258,19 @@ def index_list_to_sparse(indices, shape):
 
     Args:
         indices: list of lists of indexes
-        shape: the given shape, typically [BATCH_SIZE, MAX_INDEX]
+        dense_shape: the given shape, typically [BATCH_SIZE, MAX_INDEX]
         a sparse tensor with the sparse indexes
     """
     idx = []
     for row, indexes in enumerate(indices):
         for i in indexes:
-            if i >= shape[1]:
-                raise Exception("Invalid shape: index value " + i + " >= ", shape[1])
+            if i >= dense_shape[1]:
+                raise Exception("Invalid shape: index value {} >= {}".format(i, dense_shape[1]))
             idx.append([row, i])
     idx = np_array(idx)
     values = np_array(sum(indices, []))
 
-    return SparseTensorValue(indices=idx, values=values, dense_shape=shape)
+    return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
 
 
 def value_list_to_sparse(values, sp_indices, shape):
