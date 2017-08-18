@@ -49,25 +49,27 @@ class TestLayers(TestCase):
         s = np.shape(result)
         self.assertEqual(s[1], 1)
 
-    def test_linear_matmul_equals_sparse_index(self):
+    def test_linear_equal_sparse_dense(self):
         index = 0
+        dim = 10
 
-        # sparse input
-        x1 = Input(10, n_active=1, dtype=tf.int64)
+        # x1 = sparse input / x2 = dense input
+        x1 = Input(n_units=dim, n_active=1, dtype=tf.int64,name="x1")
+        x2 = Input(n_units=dim,name="x2")
 
-        # dense input
-        x2 = Input(10)
-
-
-        # linear layer without biases y = xW
+        # two layers with shared weights, one uses a sparse input layer, the other the dense one
         y1 = Linear(x1, 4)
-
         y2 = Linear(x2, 4, weights=y1.weights)
 
-        self.assertEqual(y1.weights, y2.weights)
+        self.ss.run(tf.global_variables_initializer())
 
-        varinit = tf.global_variables_initializer()
-        self.ss.run(varinit)
-        print(y1.y.eval({x1.y: [[index]]}))
+        input1 = [[index]]
+        input2 = np.zeros([1, dim])
+        input2[0, index] = 1
 
+        # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
+        y1_output = y1.y.eval({x1.y: input1})
+        y2_output = y2.y.eval({x2.y: input2})
 
+        # the result should be the same
+        np.testing.assert_array_equal(y1_output, y2_output)

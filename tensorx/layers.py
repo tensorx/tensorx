@@ -103,16 +103,15 @@ class Input(Layer):
 
         dense_shape = [batch_size, n_units]
 
-        if n_active is None:
-            shape = [batch_size, n_units]
-        else:
+        if n_active is not None:
             if dtype != dtypes.int64:
                 raise TypeError("If n_active is not None, dtype must be set to dt.int64")
-
             shape = [batch_size, n_active]
+        else:
+            shape = [batch_size, n_units]
 
         super().__init__(n_units, shape, dense_shape, dtype, name)
-        self.y = array_ops.placeholder(self.dtype, self.shape, self.name)
+        self.y = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
 
 
 class SparseInput(Layer):
