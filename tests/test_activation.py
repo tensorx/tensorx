@@ -22,7 +22,6 @@ class TestActivations(unittest.TestCase):
 
         value = 1
         result = relu(value, max_value=0)
-        print(result.eval())
         self.assertEqual(type(result.eval()), np.int32)
 
     def test_relu(self):

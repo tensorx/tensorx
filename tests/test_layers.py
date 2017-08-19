@@ -1,7 +1,7 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, SparseInput, Linear, ToSparse
+from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense
 from tensorx.transform import index_list_to_sparse
 
 
@@ -37,8 +37,6 @@ class TestLayers(TestCase):
     def test_index_input(self):
         """ Create a Sparse Input by providing
         a n_active parameter
-
-
         """
         dim = 10
         index = np.random.randint(0, 10)
@@ -111,8 +109,8 @@ class TestLayers(TestCase):
         self.assertEqual(len(y1_sp_indices.values), 1)
         self.assertEqual(len(y1_sp_values.values), 1)
         self.assertEqual(y1_sp_values.values, 1)
-        np.testing.assert_array_equal(y1_sp_indices.indices,y2_sp_indices.indices)
-        np.testing.assert_array_equal(y1_sp_indices.values,y2_sp_indices.values)
+        np.testing.assert_array_equal(y1_sp_indices.indices, y2_sp_indices.indices)
+        np.testing.assert_array_equal(y1_sp_indices.values, y2_sp_indices.values)
 
         y3_sp_indices, y3_sp_values = self.ss.run(s3.output, {x3.key[0]: input3})
         self.assertEqual(len(y3_sp_indices.values), 1)
@@ -120,3 +118,26 @@ class TestLayers(TestCase):
         self.assertEqual(y3_sp_values.values, 1)
         np.testing.assert_array_equal(y1_sp_indices.indices, y3_sp_indices.indices)
         np.testing.assert_array_equal(y1_sp_indices.values, y3_sp_indices.values)
+
+    def test_to_dense(self):
+        dim = 10
+        n_active = 1
+        index = 0
+
+        x1 = Input(n_units=dim, n_active=n_active, dtype=tf.int64)
+        x2 = SparseInput(10, n_active=1)
+
+        data1 = [[index]]
+        data2 = index_list_to_sparse(data1, [1, dim])
+
+        expected = np.zeros([1, dim])
+        expected[0, index] = 1
+
+        to_dense1 = ToDense(x1)
+        to_dense2 = ToDense(x2)
+
+        result1 = to_dense1.output.eval({x1.key: data1})
+        result2 = to_dense2.output.eval({x2.key[0]: data2})
+
+        np.testing.assert_array_equal(expected, result1)
+        np.testing.assert_array_equal(expected, result2)

@@ -4,6 +4,7 @@ Utilities to convert between and combine tensors
 
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.ops import sparse_ops as sp_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
@@ -121,13 +122,25 @@ def to_dense(sp_indices, sp_values):
 
 
 def flat_indices_to_dense(indices, dense_shape):
+    """Converts a batch of flat indexes to a dense tensor
+    Args:
+        indices: a batch of indices (flat indices, each row has the indices up to a given dense_shape[1])
+        dense_shape: a `TensorShape` or Tensor with the desired shape for the conversion.
+
+    Returns:
+        A tensor (one hot encoding for the given indices on each row)
+    """
     indices = ops.convert_to_tensor(indices)
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
 
-    dense_shape = ops.convert_to_tensor(dense_shape)
+    if isinstance(dense_shape,TensorShape):
+        depth = dense_shape.as_list()[1]
+    else:
+        dense_shape = ops.convert_to_tensor(dense_shape)
+        depth = dense_shape[1]
 
-    encoding = array_ops.one_hot(indices, depth=dense_shape[1])
+    encoding = array_ops.one_hot(indices, depth=depth)
     one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
 
     return one_hot_dense
