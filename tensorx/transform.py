@@ -10,6 +10,7 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops import functional_ops as fn_ops
+from tensorflow.python.ops.nn import dropout
 
 from numpy import array as np_array
 
@@ -98,6 +99,37 @@ def dense_put(tensor, sp_updates):
                            tensor)
 
 
+# TODO refactor? is this a transformation ? or a custom op (should I create a module for this?)
+def sparse_dropout(sp_indices, sp_values, keep_prob=0.2, seed=None):
+    """Performs a dropout computation on sparse tensors
+
+    Implementation Note:
+        if sp_indices comes from a sparse_placeholder, and the batch_size is unknown
+        the values in this sparse tensor have a dynamic shape that is only computed once
+        the values are fed, this means we have to supply unstack with num, otherwise this cannot be inferred
+    """
+    if sp_values is None:
+        sp_values = default_sp_values(sp_indices)
+
+    dense_shape = sp_indices.dense_shape
+
+
+    drop_values = dropout(sp_values.values, keep_prob, seed=seed)
+    not_zero = math_ops.not_equal(drop_values, 0)
+
+    # new indices (after dropout)
+    # not_zero_indices = array_ops.where(not_zero)
+    # indices = array_ops.gather_nd(sp_indices.indices, not_zero_indices)
+
+    values = array_ops.boolean_mask(drop_values, not_zero)
+    indices = array_ops.boolean_mask(sp_indices.indices, not_zero)
+    _, flat_indices = array_ops.unstack(indices,num=2, axis=-1)
+    sp_indices = SparseTensor(indices, flat_indices, dense_shape)
+    sp_values = SparseTensor(indices, values, dense_shape)
+
+    return sp_indices, sp_values
+
+
 """
 TODO this caused a problem with the constant because the shape of the input was unknown
 in these cases I can use broadcasting or fill to create a tensor with dynamic shape
@@ -134,7 +166,7 @@ def flat_indices_to_dense(indices, dense_shape):
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
 
-    if isinstance(dense_shape,TensorShape):
+    if isinstance(dense_shape, TensorShape):
         depth = dense_shape.as_list()[1]
     else:
         dense_shape = ops.convert_to_tensor(dense_shape)
@@ -144,6 +176,22 @@ def flat_indices_to_dense(indices, dense_shape):
     one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
 
     return one_hot_dense
+
+
+def complete_shape(tensor, shape, dtype=dtypes.int64):
+    """ Completes a given shape if not fully defined
+
+    Use Case:
+        Sometimes we have networks with an unknown batch size at the time of graph creation,
+        this method can be used to complete that same shape based on the first dimension
+        of the given tensor and the second dimension of the given shape
+    """
+    if shape.is_fully_defined():
+        return shape
+    else:
+        dim = shape.as_list()[1]
+        batch_size = array_ops.shape(tensor)[0]
+        return math_ops.cast([batch_size, dim], dtype)
 
 
 def flat_indices_to_sparse(indices, dense_shape):
@@ -163,7 +211,10 @@ def flat_indices_to_sparse(indices, dense_shape):
         indices = math_ops.cast(indices, dtypes.int64)
     sp_indices = enum_row(indices)
 
-    dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int64)
+    if isinstance(dense_shape, TensorShape):
+        dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
+    else:
+        dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int64)
 
     return SparseTensor(sp_indices, array_ops.reshape(indices, shape=[-1]), dense_shape)
 

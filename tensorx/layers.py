@@ -19,12 +19,14 @@ Types of layers:
     activation: adds an activation function to a given layer with its own scope
 """
 
-from tensorflow.python.framework import ops
+import numbers
+from tensorflow.python.framework import ops,tensor_util,tensor_shape
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variable_scope as vscope
 from tensorflow.python.framework.ops import name_scope
+
 
 from tensorflow.python.ops import random_ops
 from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add, dropout
@@ -34,6 +36,7 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor
 from tensorx.init import random_uniform
 from tensorx.random import salt_pepper_noise
 import tensorx.transform as transform
+
 
 
 class Layer:
@@ -237,13 +240,8 @@ class ToSparse(Layer):
                     self.sp_values = layer.sp_values
             elif not layer.shape.is_compatible_with(layer.dense_shape):
                 """flat index sparse layer"""
-                dim = layer.dense_shape.as_list()[1]
-                # possibly unknown at __init__ time, so compute it
-                batch_size = array_ops.shape(layer.output)[0]
-                dense_shape = [batch_size, dim]
-                dense_shape = math_ops.cast(dense_shape, dtypes.int64)
-
-                self.sp_indices = transform.flat_indices_to_sparse(layer.output, dense_shape)
+                # auto-completes the shape if batch size is unknown
+                self.sp_indices = transform.flat_indices_to_sparse(layer.output, layer.dense_shape)
                 self.sp_values = transform.default_sp_values(self.sp_indices)
             else:
                 """dense Layer"""
@@ -284,61 +282,52 @@ class ToDense(Layer):
             self.output = _sparse_layer_to_dense_tensor(layer)
 
 
-# TODO test this, probably cant use constant here, if I have unknown dynamic shapes
 class Dropout(Layer):
-    def __init__(self, layer, keep_prob, seed):
+    def __init__(self, layer, keep_prob=0.2, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_dropout")
 
         self.seed = seed
         self.keep_prob = keep_prob
 
+        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
+            raise ValueError("keep_prob must be a scalar tensor or a float in the "
+                             "range (0, 1], got %g" % keep_prob)
+        keep_prob = ops.convert_to_tensor(keep_prob,dtype=dtypes.float32,name="keep_prob")
+        keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
+
+
+
         if not _is_sparse_layer(layer):
             """Apply dropout to Dense Layer"""
-            self.output = dropout(layer.output, keep_prob=keep_prob)
+            # Do nothing if we know keep_prob == 1
+            if tensor_util.constant_value(keep_prob) == 1:
+                self.output = layer.output
+            else:
+                self.output = dropout(layer.output, self.keep_prob, seed=seed)
         else:
             if hasattr(layer, "sp_indices"):
                 """Apply dropout to SparseLayer
                     by applying dropout to values tensor
                 """
-                sp_indices = layer.sp_indices
-                sp_values = layer.sp_values
-
-                if sp_values is None:
-                    default_values = array_ops.constant(1.0, dtypes.float32, shape=array_ops.shape(sp_indices.values))
-
-                    drop_values = dropout(default_values, keep_prob, seed=seed)
-                    not_zero = math_ops.not_equal(drop_values, 0)
-                    not_zero_indices = array_ops.where(not_zero)
-                    values = array_ops.boolean_mask(drop_values, not_zero)
-
-                    indices = array_ops.gather(sp_indices, not_zero_indices)
-                    _, flat_indices = array_ops.unstack(indices, axis=-1)
-                    sp_indices = SparseTensor(indices, flat_indices, self.dense_shape)
-                    sp_values = SparseTensor(indices, values, self.dense_shape)
-
-                self.sp_indices = sp_indices
-                self.sp_values = sp_values
-
+                if tensor_util.constant_value(keep_prob) == 1:
+                    self.sp_indices, self.sp_values = layer.sp_indices, layer.sp_values
+                else:
+                    self.sp_indices, self.sp_values = transform.sparse_dropout(layer.sp_indices,
+                                                                               layer.sp_values,
+                                                                               keep_prob, seed)
                 self.output = self.sp_indices, self.sp_values
 
             elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
-                indices = transform.enum_row(layer.output)
+                if tensor_util.constant_value(keep_prob) == 1:
+                    self.output = layer.output
+                else:
+                    sp_indices = transform.flat_indices_to_sparse(layer.output, self.dense_shape)
+                    sp_values = transform.default_sp_values(sp_indices)
 
-                default_values = array_ops.constant(1.0, dtypes.float32, shape=[layer.shape[0]])
-                drop_values = dropout(default_values, keep_prob, seed=seed)
-                not_zero = math_ops.not_equal(drop_values, 0)
-                not_zero_indices = array_ops.where(not_zero)
-                values = array_ops.boolean_mask(drop_values, not_zero)
-
-                indices = array_ops.gather(indices, not_zero_indices)
-                _, flat_indices = array_ops.unstack(indices, axis=-1)
-                sp_indices = SparseTensor(indices, flat_indices, self.dense_shape)
-                sp_values = SparseTensor(indices, values, self.dense_shape)
-
-                self.sp_indices = sp_indices
-                self.sp_values = sp_values
-
-                self.output = self.sp_indices, self.sp_values
+                    self.sp_indices, self.sp_values = transform.sparse_dropout(sp_indices,
+                                                                               sp_values,
+                                                                               keep_prob, seed)
+                    self.output = self.sp_indices, self.sp_values
             else:
                 raise TypeError("Invalid Layer, could not be corrupted with dropout")
 
