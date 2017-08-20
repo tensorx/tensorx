@@ -1,13 +1,10 @@
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import control_flow_ops as flow_ops
-from tensorflow.python.ops import check_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.transform import enum_row
+from tensorx.transform import enum_row_v2
 
 
 def _sample(range_max, num_sampled, unique=True, seed=None):
@@ -102,7 +99,7 @@ def salt_pepper_noise(shape, noise_amount=0.5, max_value=1, min_value=0, seed=No
     values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
     values = array_ops.reshape(values, [-1])
 
-    indices = enum_row(samples, dtype=dtypes.int64)
+    indices = enum_row_v2(samples, dtype=dtypes.int64)
 
     dense_shape = ops.convert_to_tensor(shape, dtype=dtypes.int64)
 

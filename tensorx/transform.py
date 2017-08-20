@@ -99,7 +99,6 @@ def dense_put(tensor, sp_updates):
                            tensor)
 
 
-# TODO refactor? is this a transformation ? or a custom op (should I create a module for this?)
 def sparse_dropout(sp_indices, sp_values, keep_prob=0.2, seed=None):
     """Performs a dropout computation on sparse tensors
 
@@ -113,7 +112,6 @@ def sparse_dropout(sp_indices, sp_values, keep_prob=0.2, seed=None):
 
     dense_shape = sp_indices.dense_shape
 
-
     drop_values = dropout(sp_values.values, keep_prob, seed=seed)
     not_zero = math_ops.not_equal(drop_values, 0)
 
@@ -123,7 +121,7 @@ def sparse_dropout(sp_indices, sp_values, keep_prob=0.2, seed=None):
 
     values = array_ops.boolean_mask(drop_values, not_zero)
     indices = array_ops.boolean_mask(sp_indices.indices, not_zero)
-    _, flat_indices = array_ops.unstack(indices,num=2, axis=-1)
+    _, flat_indices = array_ops.unstack(indices, num=2, axis=-1)
     sp_indices = SparseTensor(indices, flat_indices, dense_shape)
     sp_values = SparseTensor(indices, values, dense_shape)
 
@@ -209,7 +207,7 @@ def flat_indices_to_sparse(indices, dense_shape):
     indices = ops.convert_to_tensor(indices)
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
-    sp_indices = enum_row(indices)
+    sp_indices = enum_row_v2(indices,dtype=dtypes.int64)
 
     if isinstance(dense_shape, TensorShape):
         dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
@@ -262,28 +260,65 @@ def pairs(tensor1, tensor2):
 
     t1 = [0,1]
     t2 = [2,3,4]
-    pairs(t1,t2) == [[[0,2],[0,3],[0,4]],[[1,2],[1,3],[1,4]],...]
+    pairs(t1,t2) == [[0,2],[1,2],[0,3],[1,3],...]
     """
-    return array_ops.squeeze(array_ops.stack(array_ops.meshgrid(tensor1, tensor2), axis=-1), name="pairs")
+    x, y = array_ops.meshgrid(tensor1, tensor2)
+    result = array_ops.stack([x, y], axis=-1)
+    return array_ops.reshape(result, [-1, 2], name="pairs")
+
+
+def enum_row_v2(tensor, name="enum_row_v2", dtype=dtypes.int64):
+    """ Converts a tensor with an equal amount of values per row
+
+        To be used with a tensor of type int32 or int64
+
+            e.g. [[1,2],
+                  [2,5]] to a rank 2 tensor with the enumeration of
+            (row index, value) pairs
+
+            e.g. [[0,1],[0,2],
+                  [1,2],[1,5]]
+
+            Args:
+                dtype: output type
+                name: tensor name to create a scope for the op
+                tensor: the tensor to be converted
+
+            Returns:
+                a rank-2 tensor with (row index,value) for each element in the given tensor
+
+            """
+    with ops.name_scope(name):
+        tensor = ops.convert_to_tensor(tensor, dtype=dtype)
+        shape = array_ops.shape(tensor)
+
+        rows = math_ops.range(math_ops.cast(shape[0], dtype))
+        rows = array_ops.expand_dims(rows, 1)
+        multiples = array_ops.stack([1, shape[1]])
+        rows = array_ops.tile(rows, multiples)
+
+        enum = array_ops.stack([rows, tensor], axis=-1)
+        enum = array_ops.reshape(enum, shape=[-1, 2])
+        return enum
 
 
 def enum_row(tensor, name="row_enum", dtype=dtypes.int64):
+    """ Converts a tensor with an equal amount of values per row
+            e.g. [[1,2],
+                  [2,5]] to a rank 2 tensor with the enumeration of
+            (row index, value) pairs
+
+            e.g. [[0,1],[0,2],
+                  [1,2],[1,5]]
+
+            Args:
+                tensor: the tensor to be converted
+
+            Returns:
+                a rank-2 tensor with (row index,value) for each element in the given tensor
+
+            """
     with ops.name_scope(name):
-        """ Converts a tensor with an equal amount of values per row
-        e.g. [[1,2],
-              [2,5]] to a rank 2 tensor with the enumeration of
-        (row index, value) pairs
-    
-        e.g. [[0,1],[0,2],
-              [1,2],[1,5]]
-    
-        Args:
-            tensor: the tensor to be converted
-    
-        Returns:
-            a rank-2 tensor with (row index,value) for each element in the given tensor
-    
-        """
         tensor = ops.convert_to_tensor(tensor)
         shape = array_ops.shape(tensor, out_type=dtypes.int64)
 
