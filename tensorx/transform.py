@@ -9,7 +9,6 @@ from tensorflow.python.ops import sparse_ops as sp_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
-from tensorflow.python.ops import functional_ops as fn_ops
 from tensorflow.python.ops.nn import dropout
 
 from numpy import array as np_array
@@ -20,7 +19,7 @@ def to_tensor_cast(x, dtype):
 
     Args:
         x: an input Tensor.
-        dtype: the type we wich to cast the input tensor into
+        dtype: the type we which to cast the input tensor into
 
     Returns:
         a tensor of type dtype
@@ -207,7 +206,7 @@ def flat_indices_to_sparse(indices, dense_shape):
     indices = ops.convert_to_tensor(indices)
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
-    sp_indices = enum_row_v2(indices,dtype=dtypes.int64)
+    sp_indices = enum_row(indices, dtype=dtypes.int64)
 
     if isinstance(dense_shape, TensorShape):
         dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
@@ -267,27 +266,35 @@ def pairs(tensor1, tensor2):
     return array_ops.reshape(result, [-1, 2], name="pairs")
 
 
-def enum_row_v2(tensor, name="enum_row_v2", dtype=dtypes.int64):
-    """ Converts a tensor with an equal amount of values per row
+def enum_row(tensor, name="enum_row", dtype=dtypes.int64):
+    """ Converts a tensor of int32 or int64 to a 2-D tensor with row-value pairs.
 
-        To be used with a tensor of type int32 or int64
+    For each row `r` with `d` columns, each value `i` is considered an index for a 1-D tensor
+    and converted to pairs [[r,i1],[r,i2],[r,id]].
 
-            e.g. [[1,2],
-                  [2,5]] to a rank 2 tensor with the enumeration of
-            (row index, value) pairs
+    Example:
 
-            e.g. [[0,1],[0,2],
-                  [1,2],[1,5]]
+            [[1,2],
+             [2,5]] is converted to a `SparseTensor` with
 
-            Args:
-                dtype: output type
-                name: tensor name to create a scope for the op
-                tensor: the tensor to be converted
+             indices = [[0,1],
+                        [0,2],
+                        [1,2],
+                        [1,5]]
 
-            Returns:
-                a rank-2 tensor with (row index,value) for each element in the given tensor
+    Use Case:
+        Convert a batch of indices (used to slice another tensor with embedding lookup or gather)
+        to be used in a SparseTensor, so that we can change the weights of each slice.
 
-            """
+    Args:
+        dtype: output type
+        name: tensor name to create a scope for the op
+        tensor: the tensor to be converted
+
+        Returns:
+            a 2-D tensor with (row index,value) for each element in the given tensor
+
+    """
     with ops.name_scope(name):
         tensor = ops.convert_to_tensor(tensor, dtype=dtype)
         shape = array_ops.shape(tensor)
@@ -299,35 +306,6 @@ def enum_row_v2(tensor, name="enum_row_v2", dtype=dtypes.int64):
 
         enum = array_ops.stack([rows, tensor], axis=-1)
         enum = array_ops.reshape(enum, shape=[-1, 2])
-        return enum
-
-
-def enum_row(tensor, name="row_enum", dtype=dtypes.int64):
-    """ Converts a tensor with an equal amount of values per row
-            e.g. [[1,2],
-                  [2,5]] to a rank 2 tensor with the enumeration of
-            (row index, value) pairs
-
-            e.g. [[0,1],[0,2],
-                  [1,2],[1,5]]
-
-            Args:
-                tensor: the tensor to be converted
-
-            Returns:
-                a rank-2 tensor with (row index,value) for each element in the given tensor
-
-            """
-    with ops.name_scope(name):
-        tensor = ops.convert_to_tensor(tensor)
-        shape = array_ops.shape(tensor, out_type=dtypes.int64)
-
-        # for each coordinate
-        row_i = math_ops.range(0, shape[0], dtype=dtype)
-        enum = fn_ops.map_fn(lambda i: pairs(i, tensor[i]), elems=row_i, dtype=dtype)
-
-        enum = array_ops.reshape(enum, shape=[-1, 2], name="ids")
-
         return enum
 
 

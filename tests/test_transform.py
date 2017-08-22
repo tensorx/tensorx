@@ -54,30 +54,16 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(expected.eval(), result.eval({ph: data}))
 
     def test_enum_row(self):
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 2])
-        data = [[0, 1], [1, 2]]
-        expected = [[0, 0], [0, 1], [1, 1], [1, 2]]
-
-        result = transform.enum_row(ph)
-        result = result.eval({ph: data})
-        np.testing.assert_array_equal(expected, result)
-
-        ph = tf.placeholder(dtype=tf.int64, shape=[None, 2])
-        result = transform.enum_row(ph)
-        result = result.eval({ph: data})
-        np.testing.assert_array_equal(expected, result)
-
-    def test_enum_row_v2(self):
         ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
         data = [[0, 1, 3], [1, 2, 3]]
         expected = [[0, 0], [0, 1], [0, 3], [1, 1], [1, 2], [1, 3]]
 
-        result = transform.enum_row_v2(ph)
+        result = transform.enum_row(ph)
         result = result.eval({ph: data})
         np.testing.assert_array_equal(expected, result)
 
         ph = tf.placeholder(dtype=tf.int64, shape=[None, 3])
-        result = transform.enum_row_v2(ph)
+        result = transform.enum_row(ph)
         result = result.eval({ph: data})
         np.testing.assert_array_equal(expected, result)
 

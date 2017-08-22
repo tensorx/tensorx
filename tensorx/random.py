@@ -4,7 +4,7 @@ from tensorflow.python.ops import array_ops, random_ops, math_ops
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.transform import enum_row_v2
+from tensorx.transform import enum_row
 
 
 def _shape_tensor(shape, dtype=dtypes.int32):
@@ -19,6 +19,26 @@ def _shape_tensor(shape, dtype=dtypes.int32):
 
 
 def _sample(range_max, num_sampled, unique=True, seed=None):
+    """
+    Samples using a uni
+    Args:
+        range_max:
+        num_sampled:
+        unique:
+        seed:
+
+    Returns:
+
+    """
+    if tensor_util.is_tensor(range_max):
+        range_max = tensor_util.constant_value(range_max)
+
+    if tensor_util.is_tensor(num_sampled):
+        num_sampled = tensor_util.constant_value(num_sampled)
+
+    if tensor_util.is_tensor(seed):
+        seed = tensor_util.constant_value(seed)
+
     candidates, _, _ = tf.nn.uniform_candidate_sampler(
         [[0]],  # this used just for its shape     (num columns must match next arg)
         1,  # this is not used either (minimum 1 required)
@@ -30,34 +50,29 @@ def _sample(range_max, num_sampled, unique=True, seed=None):
     return candidates
 
 
-def sample(range_max, shape=[1], unique=True, seed=None, name="sample"):
+def sample(range_max, shape, unique=True, seed=None, name="sample"):
     """
-    Samples a set of integers from [0,range_max) using the uniform distribution
-    if unique is True, it samples without replacement.
-
-    None:
-        although the true class parameter is not used, its shape is used
-        so if we want to provide
 
     Args:
+        range_max: an int32 or int64 scalar with the maximum range for the int samples
+        shape: a 1-D integer Tensor or Python array. The shape of the output tensor
+        unique: boolean
+        seed: a python integer. Used to create a random seed for the distribution.
+        See @{tf.set_random_seed} for behaviour
 
-        dtype: type for values generated (default: int32) (change to int64 if needed)
-        range_max: ints are sampled from [0,max_range)
-        shape shape: A 1-D integer Tensor or Python array. The shape of the output tensor:
-            note that if unique == True, n must be <= range_max
-        unique: if True, samples without replacement
-        seed: optional seed to be used with the uniform candidate sampler
-
-    #TODO shape should be a tensor?
-
+        name: a name for the operation (optional)
     Returns:
-        a tensor with the shape [num_sampled] of type
-
+        A tensor of the specified shape filled with int values between 0 and max_range from the
+        uniform distribution. If unique=True, samples values without repetition
     """
     with ops.name_scope(name):
+        if tensor_util.is_tensor(shape):
+            shape = tensor_util.constant_value(shape)
+            if shape is None:
+                raise ValueError("Shape could not be converted to constant array")
+
         if len(shape) == 1 and shape[0] > 0:
-            num_sampled = shape[0]
-            return _sample(range_max, num_sampled, unique, seed)
+            return _sample(range_max, shape[0], unique, seed)
         elif len(shape) == 2 and shape[0] > 0 and shape[1] > 0:
             num_sampled = shape[1]
             batch_size = shape[0]
@@ -66,7 +81,7 @@ def sample(range_max, shape=[1], unique=True, seed=None, name="sample"):
             fn = lambda _: _sample(range_max, num_sampled)
             return tf.map_fn(fn, i, dtypes.int64)
         else:
-            raise ValueError("Invalid Shape: expect a shape with rank 1 or 2 with positive dimensions")
+            raise ValueError("Invalid Shape: expect 1-D tensor or array with positive dimensions")
 
 
 def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dtypes.float32, seed=None):
@@ -90,7 +105,7 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
     noise_shape = [dense_shape[0], num_noise]
 
     flat_indices = sample(range_max=dense_shape[1], shape=noise_shape, unique=True, seed=seed)
-    indices = enum_row_v2(flat_indices, dtype=dtypes.int64)
+    indices = enum_row(flat_indices, dtype=dtypes.int64)
 
     value_shape = tensor_shape.as_shape([dense_shape[0] * num_noise])
 
@@ -139,7 +154,7 @@ def salt_pepper_noise(shape, noise_amount=0.5, max_value=1, min_value=-1, seed=N
     values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
     values = array_ops.reshape(values, [-1])
 
-    indices = enum_row_v2(samples, dtype=dtypes.int64)
+    indices = enum_row(samples, dtype=dtypes.int64)
 
     dense_shape = ops.convert_to_tensor(shape, dtype=dtypes.int64)
 

@@ -32,6 +32,23 @@ class TestRandom(unittest.TestCase):
             unique_set = y.eval()
             self.assertEqual(len(unique_set), num_sampled)
 
+    def test_sample(self):
+        range_max = 10
+        num_sampled = 2
+        batch_size = 2
+
+        samples = tr.sample(range_max, [num_sampled], unique=True)
+
+        y, _ = tf.unique(samples)
+        unique_set = y.eval()
+        self.assertEqual(len(unique_set), num_sampled)
+
+        samples = tr.sample(range_max, [batch_size, num_sampled], unique=True)
+        for i in range(batch_size):
+            y, _ = tf.unique(tf.squeeze(tf.gather(samples, [i])))
+            unique_set = y.eval()
+            self.assertEqual(len(unique_set), num_sampled)
+
     def test_sample_range_max(self):
         range_max = 10
         num_sampled = 11
@@ -82,7 +99,7 @@ class TestRandom(unittest.TestCase):
         sp_random = tr.sparse_random_normal(dense_shape=[batch_size, dim], density=density)
         result = sp_random.eval()
 
-        self.assertEqual(len(result.indices), int(density * dim)*batch_size)
+        self.assertEqual(len(result.indices), int(density * dim) * batch_size)
         self.assertAlmostEqual(np.mean(result.values), 0, places=1)
 
 
