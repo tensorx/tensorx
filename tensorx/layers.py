@@ -20,13 +20,12 @@ Types of layers:
 """
 
 import numbers
-from tensorflow.python.framework import ops,tensor_util,tensor_shape
+from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variable_scope as vscope
 from tensorflow.python.framework.ops import name_scope
-
 
 from tensorflow.python.ops import random_ops
 from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add, dropout
@@ -36,7 +35,6 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor
 from tensorx.init import random_uniform
 from tensorx.random import salt_pepper_noise
 import tensorx.transform as transform
-
 
 
 class Layer:
@@ -292,10 +290,8 @@ class Dropout(Layer):
         if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
             raise ValueError("keep_prob must be a scalar tensor or a float in the "
                              "range (0, 1], got %g" % keep_prob)
-        keep_prob = ops.convert_to_tensor(keep_prob,dtype=dtypes.float32,name="keep_prob")
+        keep_prob = ops.convert_to_tensor(keep_prob, dtype=dtypes.float32, name="keep_prob")
         keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
-
-
 
         if not _is_sparse_layer(layer):
             """Apply dropout to Dense Layer"""
@@ -332,18 +328,19 @@ class Dropout(Layer):
                 raise TypeError("Invalid Layer, could not be corrupted with dropout")
 
 
+# TODO add sparse random normal of noise ammount < 1.0
 class GaussianNoise(Layer):
-    def __init__(self, layer, noise_amount=0.1, mean=0.0, stddev=0.2, seed=None):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_gaussian_noise")
+    def __init__(self, layer, mean=0.0, stddev=0.2, seed=None):
+        super().__init__(n_units=layer.n_units,
+                         shape=layer.dense_shape,
+                         dense_shape=layer.dense_shape,
+                         dtype=layer.dtype,
+                         name=layer.name + "_gaussian_noise")
 
-        self.noise_amount = noise_amount
         self.stddev = stddev
         self.seed = seed
-
-        # do nothing if amount of noise is 0
-        if noise_amount == 0.0:
+        with name_scope(self.name):
             self.output = layer.output
-        else:
             if _is_sparse_layer(layer):
                 self.output = _sparse_layer_to_dense_tensor(layer)
 

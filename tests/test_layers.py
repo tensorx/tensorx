@@ -1,7 +1,7 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout
+from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise
 from tensorx.transform import index_list_to_sparse
 import math
 
@@ -166,7 +166,6 @@ class TestLayers(TestCase):
                 np.testing.assert_allclose(1 / keep_prob, sorted_result[1])
 
         # Check that we are in the 10% error range
-        # TODO this is now how you test probability distributions but I'm trusting tensorflow dropout on this one
         expected_count = dim * keep_prob * num_iter
         rel_error = math.fabs(math.fabs(final_count - expected_count) / expected_count)
         self.assertLess(rel_error, 0.1)
@@ -208,3 +207,37 @@ class TestLayers(TestCase):
         result = self.ss.run(drop_sparse.sp_indices, {sparse_input.key[0]: sparse_data})
         np.testing.assert_array_equal(result.indices, sparse_data.indices)
         np.testing.assert_array_equal(result.values, sparse_data.values)
+
+    def test_gaussian_noise(self):
+        dim = 1000
+        # for sparse inputs
+        n_active = 10
+
+        dense_input = Input(dim)
+        dense_data = np.ones([1, dim], dtype=np.float32)
+        noise_layer = GaussianNoise(dense_input)
+
+        # test that expected average output is approximately the same
+        result = noise_layer.output.eval({dense_input.key: dense_data})
+        mean_result = np.mean(result)
+        mean_data = np.mean(dense_data)
+        self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
+
+        # sparse input with flat indices
+        flat_indices = [list(range(0, n_active, 1))]
+        flat_input = Input(dim, n_active, dtype=tf.int64)
+        noise_layer = GaussianNoise(flat_input)
+        result = noise_layer.output.eval({flat_input.key: flat_indices})
+
+        dense_input = np.zeros([1, dim])
+        dense_input[0, flat_indices[0]] = 1
+        mean_data = np.mean(dense_input)
+        mean_result = np.mean(result)
+        self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
+
+        sparse_input = SparseInput(dim, n_active)
+        noise_layer = GaussianNoise(sparse_input)
+        sparse_data = index_list_to_sparse(flat_indices, [1, dim])
+        result = noise_layer.output.eval({sparse_input.key[0]: sparse_data})
+        mean_result = np.mean(result)
+        self.assertAlmostEqual(mean_data, mean_result, delta=0.1)

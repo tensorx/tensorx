@@ -4,6 +4,7 @@ import unittest
 import tensorflow as tf
 
 from tensorx import random as tr
+import numpy as np
 
 
 class TestRandom(unittest.TestCase):
@@ -72,6 +73,17 @@ class TestRandom(unittest.TestCase):
                                             dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), -1 * batch_size)
+
+    def test_sparse_random_normal(self):
+        batch_size = 1000
+        dim = 103
+        density = 0.1
+
+        sp_random = tr.sparse_random_normal(dense_shape=[batch_size, dim], density=density)
+        result = sp_random.eval()
+
+        self.assertEqual(len(result.indices), int(density * dim)*batch_size)
+        self.assertAlmostEqual(np.mean(result.values), 0, places=1)
 
 
 if __name__ == '__main__':
