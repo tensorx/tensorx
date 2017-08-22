@@ -3,7 +3,7 @@ import unittest
 
 import tensorflow as tf
 
-from tensorx import random as tr
+from tensorx import random as random
 import numpy as np
 
 
@@ -20,13 +20,13 @@ class TestRandom(unittest.TestCase):
         num_sampled = 2
         batch_size = 2
 
-        samples = tr.sample(range_max, [num_sampled], unique=True)
+        samples = random.sample(range_max, [num_sampled], unique=True)
 
         y, _ = tf.unique(samples)
         unique_set = y.eval()
         self.assertEqual(len(unique_set), num_sampled)
 
-        samples = tr.sample(range_max, [batch_size, num_sampled], unique=True)
+        samples = random.sample(range_max, [batch_size, num_sampled], unique=True)
         for i in range(batch_size):
             y, _ = tf.unique(tf.squeeze(tf.gather(samples, [i])))
             unique_set = y.eval()
@@ -37,30 +37,50 @@ class TestRandom(unittest.TestCase):
         num_sampled = 2
         batch_size = 2
 
-        samples = tr.sample(range_max, [num_sampled], unique=True)
+        samples = random.sample(range_max, [num_sampled], unique=True)
 
         y, _ = tf.unique(samples)
         unique_set = y.eval()
         self.assertEqual(len(unique_set), num_sampled)
 
-        samples = tr.sample(range_max, [batch_size, num_sampled], unique=True)
+        samples = random.sample(range_max, [batch_size, num_sampled], unique=True)
         for i in range(batch_size):
             y, _ = tf.unique(tf.squeeze(tf.gather(samples, [i])))
             unique_set = y.eval()
             self.assertEqual(len(unique_set), num_sampled)
+
+    def test_dynamic_sample(self):
+
+        shape = [2]
+        input_ph = tf.placeholder(tf.int32, shape=shape)
+
+        random.sample2(range_max=10, shape=input_ph, unique=True)
+
+
+        # THIS FAILS
+        with self.assertRaises(ValueError):
+            random.sample(range_max=10, shape=input_ph, unique=True)
+
+        # THIS SUCCEEDS
+        samples = random.sample(range_max=10, shape=shape, unique=True)
+        np.testing.assert_array_equal(tf.shape(samples).eval(), shape)
+
+
+
+
 
     def test_sample_range_max(self):
         range_max = 10
         num_sampled = 11
 
         try:
-            sample = tr.sample(range_max, [num_sampled], unique=True)
+            sample = random.sample(range_max, [num_sampled], unique=True)
             sample.eval()
         except:
             pass
 
         try:
-            sample = tr.sample(range_max, [num_sampled], unique=False)
+            sample = random.sample(range_max, [num_sampled], unique=False)
             sample.eval()
         except Exception:
             self.fail("should have not raised an exception since the number of samples > range_max but unique == False")
@@ -70,14 +90,14 @@ class TestRandom(unittest.TestCase):
         dim = 12
         noise_amount = 0.5
 
-        noise_tensor = tr.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=0,
-                                            dtype=tf.float32)
+        noise_tensor = random.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=0,
+                                                dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), (dim * noise_amount // 2) * batch_size)
 
         # use negative pepper
-        noise_tensor = tr.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
-                                            dtype=tf.float32)
+        noise_tensor = random.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
+                                                dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), 0)
 
@@ -86,8 +106,8 @@ class TestRandom(unittest.TestCase):
         # 5 // 2 == 2
         # num_pepper = 5 - 2 == 3
         dim = 10
-        noise_tensor = tr.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
-                                            dtype=tf.float32)
+        noise_tensor = random.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
+                                                dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), -1 * batch_size)
 
@@ -96,7 +116,7 @@ class TestRandom(unittest.TestCase):
         dim = 103
         density = 0.1
 
-        sp_random = tr.sparse_random_normal(dense_shape=[batch_size, dim], density=density)
+        sp_random = random.sparse_random_normal(dense_shape=[batch_size, dim], density=density)
         result = sp_random.eval()
 
         self.assertEqual(len(result.indices), int(density * dim) * batch_size)

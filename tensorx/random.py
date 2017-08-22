@@ -67,6 +67,7 @@ def sample(range_max, shape, unique=True, seed=None, name="sample"):
     """
     with ops.name_scope(name):
         if tensor_util.is_tensor(shape):
+            print(shape)
             shape = tensor_util.constant_value(shape)
             if shape is None:
                 raise ValueError("Shape could not be converted to constant array")
@@ -82,6 +83,30 @@ def sample(range_max, shape, unique=True, seed=None, name="sample"):
             return tf.map_fn(fn, i, dtypes.int64)
         else:
             raise ValueError("Invalid Shape: expect 1-D tensor or array with positive dimensions")
+
+def sample2(range_max, shape, unique=True, seed=None, name="sample"):
+    """
+
+    Args:
+        range_max: an int32 or int64 scalar with the maximum range for the int samples
+        shape: a 1-D integer Tensor or Python array. The shape of the output tensor
+        unique: boolean
+        seed: a python integer. Used to create a random seed for the distribution.
+        See @{tf.set_random_seed} for behaviour
+
+        name: a name for the operation (optional)
+    Returns:
+        A tensor of the specified shape filled with int values between 0 and max_range from the
+        uniform distribution. If unique=True, samples values without repetition
+    """
+    with ops.name_scope(name):
+        num_sampled = shape[1]
+        batch_size = shape[0]
+
+        i = tf.range(0, batch_size)
+        fn = lambda _: _sample(range_max, num_sampled)
+        return tf.map_fn(fn, i, dtypes.int64)
+
 
 
 def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dtypes.float32, seed=None):
