@@ -144,7 +144,7 @@ def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=
         num_noise = 0
 
     if num_noise == 0:
-        return None
+        raise ValueError("This tensor will not produce any noise because the given dimensions x density are too low")
     else:
         num_salt = num_noise // 2
         num_pepper = num_salt
