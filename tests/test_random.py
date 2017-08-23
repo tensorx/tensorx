@@ -102,12 +102,19 @@ class TestRandom(unittest.TestCase):
     def test_sparse_random_mask(self):
         batch_size = 2
         dim = 10
-        density = 0.25
+        density = 0.3
         mask_values = [1, -1]
 
-        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values)
-        dense_mask = tf.sparse_tensor_to_dense(sp_mask)
-        #print(dense_mask.eval())
+        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values, symmetrical=False)
+        dense_mask = tf.sparse_tensor_to_dense(sp_mask, validate_indices=False)
+        dense_result = dense_mask.eval()
+        self.assertNotEqual(np.sum(dense_result), 0)
+
+        density = 0.5
+        mask_values = [1, -1, 2]
+        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values, symmetrical=False)
+        dense_mask = tf.sparse_tensor_to_dense(sp_mask, validate_indices=False)
+        print(dense_mask.eval())
 
 
 if __name__ == '__main__':

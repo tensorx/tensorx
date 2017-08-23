@@ -5,7 +5,7 @@ from tensorflow.python.ops import check_ops as check
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.transform import enum_row
+from tensorx.transform import enum_row, empty_sparse_tensor
 
 
 def _shape_tensor(shape, dtype=dtypes.int32):
@@ -101,24 +101,28 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
         A `SparseTensor` with a given density with values sampled from the normal distribution
     """
     num_noise = int(density * dense_shape[1])
-    num_noise = max(num_noise, 1)
 
-    flat_indices = sample(range_max=dense_shape[1], num_sampled=num_noise, batch_size=dense_shape[0], unique=True,
-                          seed=seed)
-    indices = enum_row(flat_indices, dtype=dtypes.int64)
+    if num_noise == 0:
+        return empty_sparse_tensor(dense_shape)
+    else:
+        flat_indices = sample(range_max=dense_shape[1], num_sampled=num_noise, batch_size=dense_shape[0], unique=True,
+                              seed=seed)
+        indices = enum_row(flat_indices, dtype=dtypes.int64)
 
-    value_shape = tensor_shape.as_shape([dense_shape[0] * num_noise])
+        value_shape = tensor_shape.as_shape([dense_shape[0] * num_noise])
 
-    values = random_ops.random_normal(shape=value_shape, mean=mean, stddev=stddev, dtype=dtype, seed=seed)
+        values = random_ops.random_normal(shape=value_shape, mean=mean, stddev=stddev, dtype=dtype, seed=seed)
 
-    # dense_shape = tensor_shape.as_shape(dense_shape)
-    sp_tensor = SparseTensor(indices, values, dense_shape)
-    sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
-    return sp_tensor
+        # dense_shape = tensor_shape.as_shape(dense_shape)
+        sp_tensor = SparseTensor(indices, values, dense_shape)
+        sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
+        return sp_tensor
 
 
 def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
     """ Creates a noise tensor with a given shape [N,M]
+
+    TODO: make this work for dense_shapes with shape [1]
 
     Note:
         Always generates a symmetrical noise tensor
@@ -126,7 +130,7 @@ def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=
     Args:
         seed:
         dtype:
-        dense_shape: a 1-D int64 tensor with the output shape for the salt and pepper noise
+        dense_shape: a 1-D int64 tensor with shape [2] with the output shape for the salt and pepper noise
         density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
         one of two values: `max_value` or `min_value`.
 
@@ -140,11 +144,9 @@ def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=
 
     """
     num_noise = int(density * dense_shape[1])
-    if num_noise < 2:
-        num_noise = 0
 
-    if num_noise == 0:
-        raise ValueError("This tensor will not produce any noise because the given dimensions x density are too low")
+    if num_noise < 2:
+        return empty_sparse_tensor(dense_shape)
     else:
         num_salt = num_noise // 2
         num_pepper = num_salt
@@ -184,48 +186,79 @@ def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=
         return sp_tensor
 
 
-def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], dtype=dtypes.float32, seed=None):
-    """
-    Uses values to create a sparse random mask according to a given density
-    a density of 0 returns an empty
+def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32, seed=None):
+    """Uses values to create a sparse random mask according to a given density
+    a density of 0 returns an empty sparse tensor
+
+    TODO: make this work for dense-shapes with shape [2]
+
+    Note:
+        if symmetrical the mask has always the same number of mask_values per row
+        which means that if density * dense_shape[1] < len(mask_values), the mask will be an empty SparseTensor
+        it also means that if dense_shape[1] % len(mask_values) != 0 and density = 1.0, not all values will be corrupted
+
+        if not symmetrical the number of mask_values will not be the same per row, if we need to fill 2 extra entries
+        with values 2 masked values are picked at random to set these two mask values
+
+        Example:
+            if not symmetrical
+            shape = [1,10]]
+            density = 0.5
+            mask_values = [1,2,3]
+
+            returns for example:
+
+            [[1. 1.  2.  3.  0.  0.  0.  2.  0.  0.]]
+
     Args:
         seed: int32 to te used as seed
         dtype: output tensor value type
-        dense_shape: output tensor shape
-        density: desired density, 1 fills all the indices
-        values:
+        dense_shape: a 1-D output tensor with shape [2]
+        density: desired density
+        mask_values: the values to be used to generate the random mask
 
-    TODO problems if dense_shape[1] % len(values) != 0
+
     Returns:
-
+        A sparse random mask with a density of the original shape corrupted using the mask values
     """
     # total number of corrupted indices
     num_values = len(mask_values)
-    total_corrupted = int(density * dense_shape[1])
+    num_corrupted = int(density * dense_shape[1])
+    num_mask_values = num_corrupted // num_values * num_values
 
-    # num corrupted indices per value
-    mask_values = random_ops.random_shuffle(mask_values, seed)
-    samples = sample(dense_shape[1], total_corrupted, dense_shape[0], unique=True, seed=seed)
-    indices = enum_row(samples, dtype=dtypes.int64)
+    if num_mask_values == 0:
+        return empty_sparse_tensor(dense_shape)
+    else:
+        # num corrupted indices per value
+        if not symmetrical:
+            mask_values = random_ops.random_shuffle(mask_values, seed)
+            extra_corrupted = num_corrupted - num_mask_values
 
-    value_tensors = []
-    for i in range(num_values):
-        num_vi_corrupted = total_corrupted // num_values
-        # if last value and dim_corrupted % len(values) != 0 the last value corrupts more indices
-        if i == num_values - 1:
-            num_vi_corrupted = total_corrupted - (num_vi_corrupted * (num_values - 1))
-        vi_shape = math_ops.cast([dense_shape[0], num_vi_corrupted], dtypes.int32)
-        vi_tensor = array_ops.fill(vi_shape, mask_values[i])
-        value_tensors.append(vi_tensor)
+        if not symmetrical:
+            num_mask_values = num_corrupted
 
-    values = array_ops.concat(value_tensors, axis=-1)
-    values = array_ops.reshape(values, [-1])
+        samples = sample(dense_shape[1], num_mask_values, dense_shape[0], unique=True, seed=seed)
+        indices = enum_row(samples, dtype=dtypes.int64)
 
-    if values.dtype != dtype:
-        values = math_ops.cast(values, dtype)
+        value_tensors = []
+        for i in range(num_values):
+            num_vi = num_mask_values // num_values
+            # spread the extra to be corrupted by n mask_values
+            if not symmetrical and i < extra_corrupted:
+                num_vi = num_vi + 1
+            vi_shape = math_ops.cast([dense_shape[0], num_vi], dtypes.int32)
+            vi_tensor = array_ops.fill(vi_shape, mask_values[i])
+            value_tensors.append(vi_tensor)
 
-    dense_shape = math_ops.cast([dense_shape[0], dense_shape[1]], dtypes.int64)
-    sp_tensor = SparseTensor(indices, values, dense_shape)
+        values = array_ops.concat(value_tensors, axis=-1)
+        values = array_ops.reshape(values, [-1])
 
-    sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
-    return sp_tensor
+        if values.dtype != dtype:
+            values = math_ops.cast(values, dtype)
+
+        dense_shape = math_ops.cast([dense_shape[0], dense_shape[1]], dtypes.int64)
+        sp_tensor = SparseTensor(indices, values, dense_shape)
+        # the indices were generated at random so
+        sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
+
+        return sp_tensor

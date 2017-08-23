@@ -33,7 +33,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform
-from tensorx.random import salt_pepper_noise
+from tensorx.random import salt_pepper_noise, sparse_random_mask, sparse_random_normal
 import tensorx.transform as transform
 
 
@@ -365,16 +365,55 @@ class GaussianNoise(Layer):
                          dtype=layer.dtype,
                          name=layer.name + "_gaussian_noise")
 
+        self.mean = mean
         self.stddev = stddev
         self.seed = seed
+
         with name_scope(self.name):
-            self.output = layer.output
             if _is_sparse(layer) or _is_flat_sparse(layer):
                 self.output = _sparse_layer_to_dense_tensor(layer)
+            else:
+                self.output = layer.output
 
             noise = random_ops.random_normal(array_ops.shape(self.output), mean, stddev, seed=seed,
                                              dtype=dtypes.float32)
             self.output = math_ops.add(self.output, noise)
+
+
+class SparseGaussianNoise(Layer):
+    def __init__(self, layer, density=0.1, mean=0.0, stddev=0.2, dtype=None, seed=None):
+        self.dtype = layer.dtype
+        if dtype is not None:
+            self.dtype = dtype
+        super().__init__(n_units=layer.n_units,
+                         shape=layer.dense_shape,
+                         dense_shape=layer.dense_shape,
+                         dtype=self.dtype,
+                         name=layer.name + "_sparse_gaussian_noise")
+        self.density = density
+        self.mean = mean
+        self.stddev = stddev
+        self.seed = seed
+
+        with name_scope(self.name):
+            if _is_sparse(layer):
+                # get sp_values and sp_indices
+                sp_indices = layer.sp_indices
+                if layer.sp_values is None:
+                    sp_values = transform.default_sp_values(sp_indices, self.dtype)
+                else:
+                    sp_values = layer.sp_values
+                    if layer.dtype != self.dtype:
+                        sp_values = math_ops.cast(sp_values, self.dtype)
+
+                # corrupt values
+                noise_shape = self.sp_indices.dense_shape
+                noise = sparse_random_normal(noise_shape, density, mean, stddev, self.dtype, seed)
+                self.sp_values = transform.sparse_put(sp_values, noise)
+                self.sp_indices = transform.sp_values_to_sp_indices(sp_values)
+                self.output = self.sp_indices, self.sp_values
+            elif _is_flat_sparse(layer):
+                raise NotImplementedError()
 
 
 class SaltPepperNoise(Layer):
@@ -392,8 +431,10 @@ class SaltPepperNoise(Layer):
     def __init__(self, layer, density=0.1, salt_value=1, pepper_value=-1, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sp_noise")
 
-        self.noise_amount = density
+        self.density = density
         self.seed = seed
+        self.salt_value = salt_value
+        self.pepper_value = pepper_value
 
         # do nothing if amount of noise is 0
         if density == 0.0:
@@ -413,65 +454,50 @@ class SaltPepperNoise(Layer):
                 noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
 
             # transform or forward according to the type of the previous layer
-            if hasattr(layer, "sp_indices"):
-                """corrupt sparse layer"""
-                sp_indices = getattr(layer, "sp_indices")
-                sp_values = getattr(layer, "sp_values", default=None)
-
+            if _is_sparse(layer):
+                # CORRUPT SPARSE LAYER
                 if self.num_corrupted() > 0:
+                    sp_indices = layer.sp_indices
+                    sp_values = layer.sp_values
+
                     # corrupt
                     if sp_values is None:
                         sp_values = transform.default_sp_values(sp_indices)
-                    sp_values = transform.sparse_put(sp_values, noise)
 
-                    indices = sp_values.indices
-                    _, flat_indices = array_ops.unstack(indices, axis=-1)
-                    sp_indices = SparseTensor(indices, flat_indices, sp_values.dense_shape)
-
-                    self.sp_indices = sp_indices
-                    self.sp_values = sp_values
+                    self.sp_values = transform.sparse_put(sp_values, noise)
+                    self.sp_indices = transform.sp_values_to_sp_indices(sp_values)
                     self.output = self.sp_indices, self.sp_values
                 else:
                     self._forward(layer, self)
 
-            elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
-                """corrupt sparse index layer
-                converts the original layer to a sparse layer
-                the input layer is a batch of flat indices: the indices correspond to each sample, not to the indices
-                of a sparse matrix
-                """
+            elif _is_flat_sparse(layer):
+                # CORRUPT FLAT SPARSE LAYER
                 if self.num_corrupted() > 0:
+                    self.shape = self.dense_shape
                     # corrupt
                     sp_indices = transform.flat_indices_to_sparse(layer.output)
                     sp_values = transform.default_sp_values(sp_indices)
 
                     sp_values = transform.sparse_put(sp_values, noise)
+                    sp_indices = transform.sp_values_to_sp_indices(sp_values)
 
-                    # new sparse indices after put
-                    _, flat_indices = array_ops.unstack(sp_values.indices, axis=-1)
-                    sp_indices = SparseTensor(sp_values.indices, flat_indices, dense_shape)
-
-                    self.shape = self.dense_shape
                     self.sp_indices = sp_indices
                     self.sp_values = sp_values
-
                     self.output = self.sp_indices, self.sp_values
                 else:
                     self._forward(layer)
 
-            elif layer.shape.is_compatible_with(layer.dense_shape):
-                """corrupt dense layer"""
+            else:
+                # CORRUPT DENSE LAYER
                 if self.num_corrupted() > 0:
                     self.output = transform.dense_put(layer.output, noise)
                 else:
                     self._forward(layer)
-            else:
-                raise ValueError("Invalid Layer Error: could not be corrupted")
 
     def num_corrupted(self):
         """ Returns the number of entries corrupted by noise per sample"""
         noise_shape = self.dense_shape.as_list()
-        num_noise = int(self.noise_amount * noise_shape[1])
+        num_noise = int(self.density * noise_shape[1])
 
         if num_noise < 2:
             num_noise = 0

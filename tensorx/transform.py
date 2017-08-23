@@ -3,7 +3,7 @@ Utilities to convert between and combine tensors
 """
 
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
+from tensorflow.python.framework import ops, tensor_util
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.ops import sparse_ops as sp_ops
 from tensorflow.python.ops import array_ops
@@ -191,6 +191,25 @@ def complete_shape(tensor, shape, dtype=dtypes.int64):
         return math_ops.cast([batch_size, dim], dtype)
 
 
+def sp_values_to_sp_indices(sp_values):
+    """ Returns the a SparseTensor with the indices that go with the given sparse value tensor
+
+    Use Case:
+        sometimes we might want to modify a sparse tensor, but to use the new values with a sparse lookup, we need
+        new sparse indices
+
+    Args:
+        sp_values: a 2-D matrix with the sparse value tensor
+
+    Returns:
+        a SparseTensor with the indices that go with the given sparse values tensor
+
+    """
+    # new sparse indices after put
+    _, flat_indices = array_ops.unstack(sp_values.indices, axis=-1)
+    return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
+
+
 def flat_indices_to_sparse(indices, dense_shape):
     """Transforms a batch of flat indices to a sparse tensor with the same indices
 
@@ -251,6 +270,30 @@ def to_sparse(tensor):
     sp_values = SparseTensor(indices, values, dense_shape)
 
     return sp_indices, sp_values
+
+
+def empty_sparse_tensor(dense_shape, dtype=dtypes.float32):
+    """ Creates an empty SparseTensor
+
+    TODO make this work for dense_shape values with shape [1] as well
+
+    Args:
+        dtype: the dtype of the values for the empty SparseTensor
+        dense_shape: a 1-D tensor of type int64 and shape [2] with the dense_shape for the sparse tensor
+
+    Returns:
+        an empty sparse tensor with a given shape
+
+    """
+    if not tensor_util.is_tensor(dense_shape):
+        dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int32)
+
+    empty_indices = array_ops.ones([0, 2], dtype=dtypes.int64)
+    empty_values = array_ops.ones([0], dtype=dtype)
+
+    if dense_shape.dtype != dtypes.int64:
+        dense_shape = math_ops.cast(dense_shape, dtypes.int64)
+    return SparseTensor(empty_indices, empty_values, dense_shape)
 
 
 def pairs(tensor1, tensor2):

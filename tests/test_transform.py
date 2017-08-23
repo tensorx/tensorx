@@ -96,6 +96,23 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(sparse_indices.values.eval(), flat_indices.eval())
         np.testing.assert_array_equal(sparse_values.values.eval(), values.eval())
 
+    def test_to_sparse_zero(self):
+        shape = [2, 3]
+        data_zero = np.zeros(shape)
+        sp_i, sp_v = transform.to_sparse(data_zero)
+
+        self.assertEqual(sp_i.eval().indices.shape[0], 0)
+        self.assertEqual(sp_v.eval().indices.shape[0], 0)
+
+        dense = tf.sparse_tensor_to_dense(sp_i)
+        np.testing.assert_array_equal(dense.eval(), np.zeros(shape))
+
+    def test_empty_sparse_tensor(self):
+        dense_shape = [2, 2]
+        empty = transform.empty_sparse_tensor(dense_shape)
+        dense_empty = tf.sparse_tensor_to_dense(empty)
+        np.testing.assert_array_equal(dense_empty.eval(), np.zeros(dense_shape))
+
 
 if __name__ == '__main__':
     unittest.main()
