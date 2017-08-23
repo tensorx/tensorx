@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
-from tensorflow.python.ops import array_ops, random_ops, math_ops
+from tensorflow.python.ops import array_ops, random_ops, math_ops, sparse_ops
+from tensorflow.python.ops import check_ops as check
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
@@ -50,7 +51,7 @@ def _sample(range_max, num_sampled, unique=True, seed=None):
     return candidates
 
 
-def sample(range_max, shape, unique=True, seed=None, name="sample"):
+def sample(range_max, num_sampled, batch_size=None, unique=True, seed=None, name="sample"):
     """
 
     Args:
@@ -66,47 +67,20 @@ def sample(range_max, shape, unique=True, seed=None, name="sample"):
         uniform distribution. If unique=True, samples values without repetition
     """
     with ops.name_scope(name):
-        if tensor_util.is_tensor(shape):
-            print(shape)
-            shape = tensor_util.constant_value(shape)
-            if shape is None:
-                raise ValueError("Shape could not be converted to constant array")
+        if tensor_util.is_tensor(num_sampled):
+            num_sampled = tensor_util.constant_value(num_sampled)
+            if num_sampled is None:
+                raise ValueError("num_sampled could not be converted to constant value")
 
-        if len(shape) == 1 and shape[0] > 0:
-            return _sample(range_max, shape[0], unique, seed)
-        elif len(shape) == 2 and shape[0] > 0 and shape[1] > 0:
-            num_sampled = shape[1]
-            batch_size = shape[0]
-
-            i = tf.range(0, batch_size)
-            fn = lambda _: _sample(range_max, num_sampled)
-            return tf.map_fn(fn, i, dtypes.int64)
+        if batch_size is None:
+            return _sample(range_max, num_sampled, unique, seed)
         else:
-            raise ValueError("Invalid Shape: expect 1-D tensor or array with positive dimensions")
+            i = tf.range(0, batch_size)
 
-def sample2(range_max, shape, unique=True, seed=None, name="sample"):
-    """
+            def fn_sample(_):
+                return _sample(range_max, num_sampled)
 
-    Args:
-        range_max: an int32 or int64 scalar with the maximum range for the int samples
-        shape: a 1-D integer Tensor or Python array. The shape of the output tensor
-        unique: boolean
-        seed: a python integer. Used to create a random seed for the distribution.
-        See @{tf.set_random_seed} for behaviour
-
-        name: a name for the operation (optional)
-    Returns:
-        A tensor of the specified shape filled with int values between 0 and max_range from the
-        uniform distribution. If unique=True, samples values without repetition
-    """
-    with ops.name_scope(name):
-        num_sampled = shape[1]
-        batch_size = shape[0]
-
-        i = tf.range(0, batch_size)
-        fn = lambda _: _sample(range_max, num_sampled)
-        return tf.map_fn(fn, i, dtypes.int64)
-
+            return tf.map_fn(fn_sample, i, dtypes.int64)
 
 
 def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dtypes.float32, seed=None):
@@ -127,9 +101,10 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
         A `SparseTensor` with a given density with values sampled from the normal distribution
     """
     num_noise = int(density * dense_shape[1])
-    noise_shape = [dense_shape[0], num_noise]
+    num_noise = max(num_noise, 1)
 
-    flat_indices = sample(range_max=dense_shape[1], shape=noise_shape, unique=True, seed=seed)
+    flat_indices = sample(range_max=dense_shape[1], num_sampled=num_noise, batch_size=dense_shape[0], unique=True,
+                          seed=seed)
     indices = enum_row(flat_indices, dtype=dtypes.int64)
 
     value_shape = tensor_shape.as_shape([dense_shape[0] * num_noise])
@@ -137,19 +112,24 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
     values = random_ops.random_normal(shape=value_shape, mean=mean, stddev=stddev, dtype=dtype, seed=seed)
 
     # dense_shape = tensor_shape.as_shape(dense_shape)
-    return SparseTensor(indices, values, dense_shape)
+    sp_tensor = SparseTensor(indices, values, dense_shape)
+    sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
+    return sp_tensor
 
 
-def salt_pepper_noise(shape, noise_amount=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
+def salt_pepper_noise(dense_shape, noise_amount=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
     """ Creates a noise tensor with a given shape [N,M]
 
+    Note:
+        Always generates a symmetrical noise tensor
 
     Args:
         seed:
         dtype:
-        shape:
+        dense_shape: a 1-D int64 tensor with the output shape for the salt and pepper noise
         noise_amount: the amount of dimensions corrupted, 1.0 means every index is corrupted and set to
-        one of two values: `max_value` or `min_value`
+        one of two values: `max_value` or `min_value`.
+
         max_value: the maximum noise constant (salt)
         min_value: the minimum noise constant (pepper)
 
@@ -159,30 +139,46 @@ def salt_pepper_noise(shape, noise_amount=0.5, max_value=1, min_value=-1, seed=N
         salt or pepper values (max_value, min_value)
 
     """
-    # for we corrupt (n_units * noise_amount) for each training example
-    num_noise = noise_amount * shape[1]
-    num_salt = num_noise // 2
-    num_pepper = num_noise - num_salt
+    num_noise = int(noise_amount * dense_shape[1])
+    if num_noise < 2:
+        num_noise = 0
 
-    noise_shape = [shape[0], num_noise]
-    samples = sample(shape[1], shape=noise_shape, unique=True, seed=seed)
+    if num_noise == 0:
+        return SparseTensor([[0,0]], [0], dense_shape=dense_shape)
+    else:
+        num_salt = num_noise // 2
+        num_pepper = num_salt
 
-    # constant values to attribute to salt or pepper
-    salt_tensor = array_ops.constant(max_value, dtype, shape=[noise_shape[0], num_salt])
-    pepper_tensor = array_ops.constant(min_value, dtype, shape=[noise_shape[0], num_pepper])
-    """
-    [[1,1,-1,-1],
-     [1,1,-1,-1]]
-    ===================== 
-    [1,1,-1,-1,1,1,-1,-1]
-    """
-    values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
-    values = array_ops.reshape(values, [-1])
+        # symmetrical noise tensor
+        num_noise = num_salt + num_pepper
 
-    indices = enum_row(samples, dtype=dtypes.int64)
+        batch_size = dense_shape[0]
+        max_range = dense_shape[1]
 
-    dense_shape = ops.convert_to_tensor(shape, dtype=dtypes.int64)
+        samples = sample(max_range, num_sampled=num_noise, batch_size=batch_size, unique=True, seed=seed)
+        indices = enum_row(samples, dtype=dtypes.int64)
+        dense_shape = math_ops.cast([dense_shape[0], dense_shape[1]], dtypes.int64)
 
-    return SparseTensor(indices=indices,
-                        values=values,
-                        dense_shape=dense_shape)
+        """
+        Example
+               [[1,1,-1,-1],
+                [1,1,-1,-1]]
+               ===================== 
+            [1,1,-1,-1,1,1,-1,-1]
+        """
+
+        salt_shape = math_ops.cast([batch_size,num_salt], dtypes.int32)
+        salt_tensor = array_ops.fill(salt_shape, max_value)
+
+        salt_shape = math_ops.cast([batch_size, num_pepper], dtypes.int32)
+        pepper_tensor = array_ops.fill(salt_shape, min_value)
+
+        values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
+        values = array_ops.reshape(values, [-1])
+
+        if values.dtype != dtype:
+            values = math_ops.cast(values, dtype)
+
+        sp_tensor = SparseTensor(indices, values, dense_shape)
+        sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
+        return sp_tensor

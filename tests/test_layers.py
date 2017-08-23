@@ -1,7 +1,7 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise
+from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise, SparseNoise
 from tensorx.transform import index_list_to_sparse
 import math
 
@@ -241,3 +241,16 @@ class TestLayers(TestCase):
         result = noise_layer.output.eval({sparse_input.key[0]: sparse_data})
         mean_result = np.mean(result)
         self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
+
+    def test_sp_noise(self):
+        # PARAMS
+        noise_amount = 0.5
+        batch_size = 4
+        dim = 100
+
+        dense_input = Input(dim)
+        dense_data = np.zeros([batch_size, dim], dtype=np.float32)
+        noise_layer = SparseNoise(dense_input, noise_amount)
+        result = noise_layer.output.eval({dense_input.key: dense_data})
+        mean_result = np.mean(result)
+        self.assertEqual(mean_result, 0)

@@ -301,6 +301,7 @@ def enum_row(tensor, name="enum_row", dtype=dtypes.int64):
 
         rows = math_ops.range(math_ops.cast(shape[0], dtype))
         rows = array_ops.expand_dims(rows, 1)
+
         multiples = array_ops.stack([1, shape[1]])
         rows = array_ops.tile(rows, multiples)
 

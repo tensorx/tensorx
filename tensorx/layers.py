@@ -349,8 +349,8 @@ class GaussianNoise(Layer):
             self.output = math_ops.add(self.output, noise)
 
 
-class SaltPepperNoise(Layer):
-    def __init__(self, layer, noise_amount=0.1, max_value=1, min_value=0, seed=None):
+class SparseNoise(Layer):
+    def __init__(self, layer, noise_amount=0.1, max_value=1, min_value=-1, seed=None):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sp_noise")
 
         self.noise_amount = noise_amount
@@ -360,24 +360,33 @@ class SaltPepperNoise(Layer):
         if noise_amount == 0.0:
             self.output = layer.output
         else:
-            num_noise = int(layer.n_units * noise_amount)
-            batch_size = self.shape[0]
+            dense_shape = layer.dense_shape
+            noise_shape = dense_shape.as_list()
+
+            if noise_shape[0] is None:
+                batch_size = array_ops.shape(layer.output, out_type=dtypes.int64)[0]
+            else:
+                batch_size = noise_shape[0]
+
+            noise_shape = [batch_size, noise_shape[1]]
 
             if hasattr(layer, "sp_indices"):
                 """corrupt sparse layer"""
                 sp_indices = getattr(layer, "sp_indices")
                 sp_values = getattr(layer, "sp_values", default=None)
 
-                if sp_values is None:
-                    sp_values = transform.default_sp_values(sp_indices)
+                if self.num_corrupted() > 0:
+                    if sp_values is None:
+                        sp_values = transform.default_sp_values(sp_indices)
 
-                noise = salt_pepper_noise(layer.dense_shape, noise_amount, max_value, min_value, seed)
-                sp_values = transform.sparse_put(sp_values, noise)
+                    noise = salt_pepper_noise(noise_shape, noise_amount, max_value, min_value, seed)
+                    sp_values = transform.sparse_put(sp_values, noise)
 
-                indices = sp_values.indices
-                _, flat_indices = array_ops.unstack(indices, axis=-1)
-                sp_indices = SparseTensor(indices, flat_indices, sp_values.dense_shape)
+                    indices = sp_values.indices
+                    _, flat_indices = array_ops.unstack(indices, axis=-1)
+                    sp_indices = SparseTensor(indices, flat_indices, sp_values.dense_shape)
 
+                self.shape = self.dense_shape
                 self.sp_indices = sp_indices
                 self.sp_values = sp_values
 
@@ -388,28 +397,45 @@ class SaltPepperNoise(Layer):
                 the input layer is a batch of flat indices: the indices correspond to each sample, not to the indices
                 of a sparse matrix
                 """
-                sp_indices = transform.flat_indices_to_sparse(layer.output)
-                sp_values = transform.default_sp_values(sp_indices)
-                dense_shape = layer.dense_shape
+                if self.num_corrupted() > 0:
+                    sp_indices = transform.flat_indices_to_sparse(layer.output)
+                    sp_values = transform.default_sp_values(sp_indices)
 
-                noise = salt_pepper_noise(dense_shape, noise_amount, max_value, min_value, seed)
-                sp_values = transform.sparse_put(sp_values, noise)
+                    noise = salt_pepper_noise(noise_shape, noise_amount, max_value, min_value, seed)
+                    sp_values = transform.sparse_put(sp_values, noise)
 
-                # new sparse indices after put
-                _, flat_indices = array_ops.unstack(sp_values.indices, axis=-1)
-                sp_indices = SparseTensor(sp_values.indices, flat_indices, dense_shape)
+                    # new sparse indices after put
+                    _, flat_indices = array_ops.unstack(sp_values.indices, axis=-1)
+                    sp_indices = SparseTensor(sp_values.indices, flat_indices, dense_shape)
 
-                self.sp_indices = sp_indices
-                self.sp_values = sp_values
+                    self.shape = self.dense_shape
+                    self.sp_indices = sp_indices
+                    self.sp_values = sp_values
 
-                self.output = self.sp_indices, self.sp_values
+                    self.output = self.sp_indices, self.sp_values
+                else:
+                    self.output = layer.output
 
             elif layer.shape.is_compatible_with(layer.dense_shape):
                 """corrupt dense layer"""
-                noise = salt_pepper_noise(layer.dense_shape, noise_amount, max_value, min_value, seed)
-                self.output = transform.dense_put(layer.output, noise)
+                if self.num_corrupted() > 0:
+                    noise = salt_pepper_noise(noise_shape, noise_amount, max_value, min_value, seed)
+                    self.output = transform.dense_put(layer.output, noise)
+                else:
+                    self.output = layer.output
             else:
                 raise ValueError("Invalid Layer Error: could not be corrupted")
+
+    def num_corrupted(self):
+        """ Returns the number of entries corrupted by noise per sample"""
+        noise_shape = self.dense_shape.as_list()
+        num_noise = int(self.noise_amount * noise_shape[1])
+
+        if num_noise < 2:
+            num_noise = 0
+        else:
+            num_noise = (num_noise // 2) * 2
+        return num_noise
 
 
 class Activation(Layer):
