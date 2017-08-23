@@ -1,7 +1,7 @@
 from unittest import TestCase
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise, SparseNoise
+from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise, SaltPepperNoise
 from tensorx.transform import index_list_to_sparse
 import math
 
@@ -250,7 +250,7 @@ class TestLayers(TestCase):
 
         dense_input = Input(dim)
         dense_data = np.zeros([batch_size, dim], dtype=np.float32)
-        noise_layer = SparseNoise(dense_input, noise_amount)
+        noise_layer = SaltPepperNoise(dense_input, noise_amount)
         result = noise_layer.output.eval({dense_input.key: dense_data})
         mean_result = np.mean(result)
         self.assertEqual(mean_result, 0)

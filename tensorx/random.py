@@ -117,7 +117,7 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
     return sp_tensor
 
 
-def salt_pepper_noise(dense_shape, noise_amount=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
+def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
     """ Creates a noise tensor with a given shape [N,M]
 
     Note:
@@ -127,7 +127,7 @@ def salt_pepper_noise(dense_shape, noise_amount=0.5, max_value=1, min_value=-1, 
         seed:
         dtype:
         dense_shape: a 1-D int64 tensor with the output shape for the salt and pepper noise
-        noise_amount: the amount of dimensions corrupted, 1.0 means every index is corrupted and set to
+        density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
         one of two values: `max_value` or `min_value`.
 
         max_value: the maximum noise constant (salt)
@@ -139,12 +139,12 @@ def salt_pepper_noise(dense_shape, noise_amount=0.5, max_value=1, min_value=-1, 
         salt or pepper values (max_value, min_value)
 
     """
-    num_noise = int(noise_amount * dense_shape[1])
+    num_noise = int(density * dense_shape[1])
     if num_noise < 2:
         num_noise = 0
 
     if num_noise == 0:
-        return SparseTensor([[0,0]], [0], dense_shape=dense_shape)
+        return None
     else:
         num_salt = num_noise // 2
         num_pepper = num_salt
@@ -167,7 +167,7 @@ def salt_pepper_noise(dense_shape, noise_amount=0.5, max_value=1, min_value=-1, 
             [1,1,-1,-1,1,1,-1,-1]
         """
 
-        salt_shape = math_ops.cast([batch_size,num_salt], dtypes.int32)
+        salt_shape = math_ops.cast([batch_size, num_salt], dtypes.int32)
         salt_tensor = array_ops.fill(salt_shape, max_value)
 
         salt_shape = math_ops.cast([batch_size, num_pepper], dtypes.int32)
@@ -182,3 +182,50 @@ def salt_pepper_noise(dense_shape, noise_amount=0.5, max_value=1, min_value=-1, 
         sp_tensor = SparseTensor(indices, values, dense_shape)
         sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
         return sp_tensor
+
+
+def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], dtype=dtypes.float32, seed=None):
+    """
+    Uses values to create a sparse random mask according to a given density
+    a density of 0 returns an empty
+    Args:
+        seed: int32 to te used as seed
+        dtype: output tensor value type
+        dense_shape: output tensor shape
+        density: desired density, 1 fills all the indices
+        values:
+
+    TODO problems if dense_shape[1] % len(values) != 0
+    Returns:
+
+    """
+    # total number of corrupted indices
+    num_values = len(mask_values)
+    total_corrupted = int(density * dense_shape[1])
+
+    # num corrupted indices per value
+    mask_values = random_ops.random_shuffle(mask_values, seed)
+    samples = sample(dense_shape[1], total_corrupted, dense_shape[0], unique=True, seed=seed)
+    indices = enum_row(samples, dtype=dtypes.int64)
+
+    value_tensors = []
+    for i in range(num_values):
+        num_vi_corrupted = total_corrupted // num_values
+        # if last value and dim_corrupted % len(values) != 0 the last value corrupts more indices
+        if i == num_values - 1:
+            num_vi_corrupted = total_corrupted - (num_vi_corrupted * (num_values - 1))
+        vi_shape = math_ops.cast([dense_shape[0], num_vi_corrupted], dtypes.int32)
+        vi_tensor = array_ops.fill(vi_shape, mask_values[i])
+        value_tensors.append(vi_tensor)
+
+    values = array_ops.concat(value_tensors, axis=-1)
+    values = array_ops.reshape(values, [-1])
+
+    if values.dtype != dtype:
+        values = math_ops.cast(values, dtype)
+
+    dense_shape = math_ops.cast([dense_shape[0], dense_shape[1]], dtypes.int64)
+    sp_tensor = SparseTensor(indices, values, dense_shape)
+
+    sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
+    return sp_tensor

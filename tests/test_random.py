@@ -67,24 +67,23 @@ class TestRandom(unittest.TestCase):
         dim = 12
         noise_amount = 0.5
 
-        noise_tensor = random.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=0,
+        noise_tensor = random.salt_pepper_noise([batch_size, dim], density=noise_amount, max_value=1, min_value=0,
                                                 dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         max_tensor = tf.sparse_reduce_max(noise_tensor)
 
-        self.assertEqual(sum_tensor.eval(), int(dim*noise_amount)//2*batch_size)
-        self.assertEqual(max_tensor.eval(),1)
-        #self.assertEqual(min_tensor,0)
+        self.assertEqual(sum_tensor.eval(), int(dim * noise_amount) // 2 * batch_size)
+        self.assertEqual(max_tensor.eval(), 1)
+        # self.assertEqual(min_tensor,0)
 
         # use negative pepper
-        noise_tensor = random.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
+        noise_tensor = random.salt_pepper_noise([batch_size, dim], density=noise_amount, max_value=1, min_value=-1,
                                                 dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), 0)
 
-
         dim = 10
-        noise_tensor = random.salt_pepper_noise([batch_size, dim], noise_amount=noise_amount, max_value=1, min_value=-1,
+        noise_tensor = random.salt_pepper_noise([batch_size, dim], density=noise_amount, max_value=1, min_value=-1,
                                                 dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), 0)
@@ -99,6 +98,16 @@ class TestRandom(unittest.TestCase):
 
         self.assertEqual(len(result.indices), int(density * dim) * batch_size)
         self.assertAlmostEqual(np.mean(result.values), 0, places=1)
+
+    def test_sparse_random_mask(self):
+        batch_size = 2
+        dim = 10
+        density = 0.25
+        mask_values = [1, -1]
+
+        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values)
+        dense_mask = tf.sparse_tensor_to_dense(sp_mask)
+        #print(dense_mask.eval())
 
 
 if __name__ == '__main__':
