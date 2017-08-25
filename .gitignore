@@ -6,6 +6,9 @@ __pycache__/
 # C Extensions
 *.so
 
+# swap files for vim 
+*.swp
+
 # Packaging / Distribution
 .Python
 env/
@@ -47,6 +50,10 @@ target/
 # IPythonNotebook template
 ## Temporary data
 .ipynb_checkpoints/
+
+# sphinx
+_build/
+
 
 # Idea
 .idea
