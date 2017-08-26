@@ -36,7 +36,7 @@ def sparse_put(sp_tensor, sp_updates):
 
 
     Args:
-        sp_tensor: a sparse tensor we wich to set some indices to given values
+        sp_tensor: a sparse tensor we which to set some indices to given values
         sp_updates: a sparse tensor with the indices to be changed and the respective values
 
     The resulting tensor will have the same values as the input tensor, except for the indices
@@ -236,29 +236,32 @@ def flat_indices_to_sparse(indices, dense_shape):
 
 
 def to_sparse(tensor):
-    """
-    Returns a sparse representation for a given multi-dimensional tensor
-
-    Args:
-        tensor a dense tensor to be converted
-    Return:
-        (sp_indices,sp_values)
-        sp_indices is a sparse tensor with the values for the indices to be returned
-        sp_values is a sparse tensor with the values to be attributed to each index
+    """ Returns a sparse representation for a given multi-dimensional tensor
 
     Example:
+        For a dense ``Tensor`` such as::
 
-        tensor = [[1,0],
-                  [2,3]]
+            tensor = [[1,0],
+                      [2,3]]
 
-        indices = [[0,0],
-                   [1,0],
-                  [1,1]]
+        this returns an op that creates the following two ``SparseTensor`` s::
 
-        flat_indices = [0,0,1]
-        values = [1,2,3]
+            sp_indices = SparseTensor(indices = [[0,0],[1,0],[1,1]],
+                                      values = [0,0,1],
+                                      dense_shape=[2,2])
+
+            sp_values = SparseTensor(indices = [[0,0],[1,0],[1,1]],
+                                      values = [1,2,3],
+                                      dense_shape = [2,2])
+
+    Args:
+        tensor: a dense ``Tensor``
+
+    Returns:
+        ``(SparseTensor,SparseTensor)``: (sp_indices, sp_values) with sparse index and value tensors
+        with the non-zero entries of the given input.
+
     """
-
     indices = array_ops.where(math_ops.not_equal(tensor, 0))
     _, flat_indices = array_ops.unstack(indices, axis=-1)
     dense_shape = array_ops.shape(tensor, out_type=dtypes.int64)
@@ -363,30 +366,34 @@ def index_list_to_sparse(indices, dense_shape):
     """
     Converts a list of lists of indexes to a sparse tensor value with the given shape
 
-    example:
+    Example:
 
-    idx =[[0,5],[0,2,7],[1]]
+    ..transforms a python list of indices::
 
-    we want to transform this into:
+        idx =[[0,5],[0,2,7],[1]]
 
-    SparseTensorValue(indices=[[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]],
-                 values=[0,5,0,2,7,1],
-                 dense_shape=[3,10])
+    into a ``SparseTensorValue`` as follows::
 
-    this can be then fed to a tf.sparse_placeholder
+        SparseTensorValue(indices=[[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]],
+                          values=[0,5,0,2,7,1],
+                          dense_shape=[3,10])
 
-    if any index value >= shape[1] it raises an exception
+    this can be then fed to a ``tf.sparse_placeholder``
 
     Args:
-        indices: list of lists of indexes
-        dense_shape: the given shape, typically [BATCH_SIZE, MAX_INDEX]
-        a sparse tensor with the sparse indexes
+        indices: python list of int indexes
+        dense_shape: a python list or tuple with the shape for the ``SparseTensorValue``, typically ``[BATCH_SIZE, MAX_INDEX]``.
+
+    Raises:
+        ``ValueError`` exception if any index ``i`` in the list ``value >= shape[1]``
+
+
     """
     idx = []
     for row, indexes in enumerate(indices):
         for i in indexes:
             if i >= dense_shape[1]:
-                raise Exception("Invalid shape: index value {} >= {}".format(i, dense_shape[1]))
+                raise ValueError("Invalid shape: index value {} >= {}".format(i, dense_shape[1]))
             idx.append([row, i])
     idx = np_array(idx)
     values = np_array(sum(indices, []))
@@ -398,15 +405,14 @@ def value_list_to_sparse(values, sp_indices, shape):
     """ Converts a list of value vectors to a sparse tensor value, maps each index in
     the given sp_indices to each value.
 
-    sp_indices have the form of an array [[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]]
-
     Args:
         values: values to be encapsulated by the sparse tensor value
-        sp_indices: indices to be mapped to each value
+        sp_indices: indices of the form::
+            [[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]]
         shape: given shape of the sparse tensor value
 
     Returns:
-        A sparse tensor value with each index mapping to the given values
+        A ``SparseTensorValue`` with each index mapping to the given values
     """
     if len(sp_indices) != len(values):
         raise Exception(

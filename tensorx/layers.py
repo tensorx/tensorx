@@ -30,10 +30,9 @@ from tensorflow.python.framework.ops import name_scope
 from tensorflow.python.ops import random_ops
 from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add, dropout
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform
-from tensorx.random import salt_pepper_noise, sparse_random_mask, sparse_random_normal
+from tensorx.random import salt_pepper_noise, sparse_random_normal
 import tensorx.transform as transform
 
 

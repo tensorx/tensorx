@@ -122,14 +122,12 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
 def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
     """ Creates a noise tensor with a given shape [N,M]
 
-    TODO: make this work for dense_shapes with shape [1]
-
     Note:
-        Always generates a symmetrical noise tensor
+        Always generates a symmetrical noise tensor (same number of corrupted entries per row.
 
     Args:
-        seed:
-        dtype:
+        seed: an int32 seed for the random number generator
+        dtype: the output type for the resulting `SparseTensor`
         dense_shape: a 1-D int64 tensor with shape [2] with the output shape for the salt and pepper noise
         density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
         one of two values: `max_value` or `min_value`.
@@ -194,19 +192,24 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
 
     Note:
         if symmetrical the mask has always the same number of mask_values per row
-        which means that if density * dense_shape[1] < len(mask_values), the mask will be an empty SparseTensor
-        it also means that if dense_shape[1] % len(mask_values) != 0 and density = 1.0, not all values will be corrupted
+        which means that if ``density * dense_shape[1] < len(mask_values)``, the mask will be an empty ``SparseTensor``.
+        It also means that if ``dense_shape[1] % len(mask_values) != 0`` and ``density = 1.0``, not all values will be
+        corrupted because we can't fill every entry with a symmetrical mask.
 
-        if not symmetrical the number of mask_values will not be the same per row, if we need to fill 2 extra entries
-        with values 2 masked values are picked at random to set these two mask values
+        There are other ways to fill a dense tensor with random values though so a density of 1 defeats the purpose of
+        this operation.
 
-        Example:
-            if not symmetrical
-            shape = [1,10]]
-            density = 0.5
-            mask_values = [1,2,3]
+        if not symmetrical the number of mask_values will not be the same per row. If we need to fill 2 extra entries
+        with values 2 masked values are picked at random to fill the excess.
 
-            returns for example:
+    Example:
+        if **not** symmetrical and
+
+        ``shape = [1,10]]``
+        ``density = 0.5``
+        ``mask_values = [1,2,3]``
+
+        the result could be something like::
 
             [[1. 1.  2.  3.  0.  0.  0.  2.  0.  0.]]
 

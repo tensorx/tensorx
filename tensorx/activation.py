@@ -82,10 +82,10 @@ def tanh(x):
 
 
 def relu(x, alpha=0., max_value=None):
-    """ Rectified linear unit.
+    """ Rectified linear unit [1].
 
     References:
-        (Vinod & Hinton, 2010) "Rectified linear units improve restricted boltzmann machines."
+        [1] (Vinod & Hinton, 2010) "Rectified linear units improve restricted boltzmann machines."
 
     Args:
         x: Tensor or variable to compute the activation function for.
