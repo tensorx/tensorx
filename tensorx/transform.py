@@ -387,6 +387,8 @@ def index_list_to_sparse(indices, dense_shape):
     Raises:
         ``ValueError`` exception if any index ``i`` in the list ``value >= shape[1]``
 
+    Returns:
+        ``SparseTensorValue``: a SparseTensorValue with the sparse indices and the indices for each row as values.
 
     """
     idx = []
@@ -401,21 +403,23 @@ def index_list_to_sparse(indices, dense_shape):
     return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
 
 
-def value_list_to_sparse(values, sp_indices, shape):
-    """ Converts a list of value vectors to a sparse tensor value, maps each index in
-    the given sp_indices to each value.
+def value_list_to_sparse(values, sp_indices, dense_shape):
+    """ Converts a list of `values` to a sparse tensor value and maps each index in
+    `sp_indices` to each value.
 
     Args:
         values: values to be encapsulated by the sparse tensor value
-        sp_indices: indices of the form::
+        sp_indices:indices of the form::
+
             [[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]]
-        shape: given shape of the sparse tensor value
+
+        dense_shape: shape for resulting ``SparseTensorValue``
 
     Returns:
-        A ``SparseTensorValue`` with each index mapping to the given values
+        ``SparseTensorValue``: a SparseTensorValue with each index mapping to the given values
     """
     if len(sp_indices) != len(values):
         raise Exception(
             "Number of indices doesn't match number of values: %d != %d".format(len(sp_indices), len(values)))
 
-    return SparseTensorValue(indices=sp_indices, values=values, dense_shape=shape)
+    return SparseTensorValue(indices=sp_indices, values=values, dense_shape=dense_shape)
