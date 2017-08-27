@@ -23,6 +23,9 @@ import numbers
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import control_flow_ops as control
+from tensorflow.python.ops import check_ops
+
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variable_scope as vscope
 from tensorflow.python.framework.ops import name_scope
@@ -30,6 +33,7 @@ from tensorflow.python.framework.ops import name_scope
 from tensorflow.python.ops import random_ops
 from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add, dropout
 from tensorflow.python.framework import dtypes
+from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform
 from tensorx.random import salt_pepper_noise, sparse_random_normal
@@ -69,8 +73,11 @@ class Layer:
         self.shape = TensorShape(self.shape)
         self.dense_shape = TensorShape(self.dense_shape)
 
-        # has an output (tensor) attribute
-        self.output = None
+        # has an tensor (tensor) attribute
+        self.tensor = None
+
+    def is_sparse(self):
+        return isinstance(self.tensor, SparseTensor)
 
     def _forward(self, prev_layer):
         """ Modifies the current layer with the relevant outputs
@@ -90,13 +97,7 @@ class Layer:
 
         self.shape = prev_layer.shape
         self.dense_shape = prev_layer.dense_shape
-        self.output = prev_layer.output
-
-        if _is_flat_sparse(prev_layer):
-            self.dtype = prev_layer.dtype
-        elif _is_sparse(prev_layer):
-            self.sp_indices = prev_layer.sp_indices
-            self.sp_values = prev_layer.sp_values
+        self.tensor = prev_layer.tensor
 
 
 class Input(Layer):
@@ -118,7 +119,7 @@ class Input(Layer):
             if you want to feed a batch of sparse binary features with weights, use SparseInput instead
 
         Args:
-            n_units: number of units in the output of this layer
+            n_units: number of units in the tensor of this layer
             n_active: number of active units <= n_units
             batch_size: number of samples to be fed to this layer
             dtype: type of tensor values
@@ -137,54 +138,49 @@ class Input(Layer):
             shape = [batch_size, n_units]
 
         super().__init__(n_units, shape, dense_shape, dtype, name)
+        self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
 
-        self.output = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
-        self.key = self.output
+        # if n_active is not None convert to SparseTensor
+        if n_active is None:
+            self.tensor = self.placeholder
+        else:
+            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, self.dense_shape)
 
 
 class SparseInput(Layer):
-    """ Sparse Input Layer
-    creates an int32 placeholder with n_active int elements and
-    a float32 placeholder for values corresponding to each index
+    """ Sparse Input Layer.
 
-    USE CASE:
-        used with sparse layers to slice weight matrices
-        alternatively each slice can be weighted by the given values
+    Creates an op that depends on a `sparse_placeholder` to which one must feed a ``SparseTensorValue``.
 
-    Args:
-        values - if true, creates a sparse placeholder with (indices, values)
-
-    Placeholders:
-        indices = instead of [[0],[2,5],...] -> SparseTensorValue([[0,0],[1,2],[1,5]],[0,2,5])
-        values = [0.2,0.0,2.0] -> SparseTensorValue([[0,0],[1,2],[1,5]],[0.2,0.0,2.0])
-
-    Note:
-        See the following utils:
-
-        tensorx.utils.data.index_list_to_sparse
-        tensorx.utils.data.value_list_to_sparse
+    Notes:
+        ``SparseTensorValues`` can be created with empty values, but this layer will require the number of values
+        to be the same as the number of indices. If this is not the case, an ``InvalidArgumentError`` will be thrown
+        when the `TensorFlow` graph is evaluated.
     """
 
-    def __init__(self, n_units, n_active, values=False, batch_size=None, dtype=dtypes.float32, name="sparse_input"):
-        shape = [batch_size, n_active]
-        dense_shape = [batch_size, n_units]
-        super().__init__(n_units, shape, dense_shape, dtype, name)
+    def __init__(self, n_units, batch_size=None, dtype=dtypes.float32, name="sparse_input"):
+        """
 
-        self.n_active = n_active
-        self.values = values
+        Args:
+            n_units (int): the number of output units for this layer
+            batch_size (int): batch_size for the input, helps to define the dense_shape for this sparse layer
+            dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
+            name: name for the layer
+        """
+        dense_shape = [batch_size, n_units]
+        super().__init__(n_units, batch_size, dense_shape, dtype, name)
 
         with ops.name_scope(name):
-            self.sp_indices = array_ops.sparse_placeholder(dtypes.int64, dense_shape, name)
+            self.placeholder = array_ops.sparse_placeholder(dtype, dense_shape, name)
 
-            if values:
-                self.sp_values = array_ops.sparse_placeholder(dtype, dense_shape, name=name + "_values")
-            else:
-                self.sp_values = None
+            n_indices = array_ops.shape(self.placeholder.indices)[0]
+            n_values = array_ops.shape(self.placeholder.values)[0]
 
-            self.output = self.sp_indices, self.sp_values
+            valid_values = check_ops.assert_equal(n_indices, n_values, message="Invalid number of values")
+            with ops.control_dependencies([valid_values]):
+                values = array_ops.identity(self.placeholder.values)
 
-            # key is just an alias for output for readability purposes when using this with Tensorflow run
-            self.key = self.output
+            self.tensor = SparseTensor(self.placeholder.indices, values, self.placeholder.dense_shape)
 
 
 class Linear(Layer):
@@ -217,95 +213,54 @@ class Linear(Layer):
                 self.weights = vscope.get_variable("w", initializer=init(self.shape))
 
             # y = xW
-            if hasattr(layer, "sp_indices"):
-                indices = getattr(layer, "sp_indices")
-                values = getattr(layer, "sp_values", None)
+            if layer.is_sparse():
+                sp_values = layer.tensor
+                sp_indices = transform.sp_indices_from_sp_values(sp_values)
 
                 lookup_sum = embedding_lookup_sparse(params=self.weights,
-                                                     sp_ids=indices,
-                                                     sp_weights=values,
+                                                     sp_ids=sp_indices,
+                                                     sp_weights=sp_values,
                                                      combiner="sum",
                                                      name=self.name + "_embeddings")
-                self.output = lookup_sum
+                self.tensor = lookup_sum
             else:
-                if layer.shape.is_compatible_with(layer.dense_shape):
-                    self.output = math_ops.matmul(layer.output, self.weights)
-                else:
-                    lookup = embedding_lookup(params=self.weights,
-                                              ids=layer.output,
-                                              name=self.name + "_embeddings")
-                    self.output = math_ops.reduce_sum(lookup, axis=1)
+                self.tensor = math_ops.matmul(layer.tensor, self.weights)
 
             # y = xW + [b]
             if bias:
                 self.bias = vscope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
-                self.output = bias_add(self.output, self.bias, name="a")
+                self.tensor = bias_add(self.tensor, self.bias, name="a")
 
 
 class ToSparse(Layer):
-    """ Transforms the previous layer into a sparse representation
+    """ Transforms the previous layer into a sparse layer.
 
-    meaning the current layer will provide the following attributes:
-        sp_indices
-        sp_values
+    This means that the current layer.tensor is a ``SparseTensor``
     """
 
     def __init__(self, layer):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sparse")
 
         with name_scope(self.name):
-            if hasattr(layer, "sp_indices"):
-                """sparse layer - forward"""
-                self.sp_indices = layer.sp_indices
-                if layer.sp_values is None:
-                    self.sp_values = transform.default_sp_values(self.sp_indices)
-                else:
-                    self.sp_values = layer.sp_values
-            elif not layer.shape.is_compatible_with(layer.dense_shape):
-                """flat index sparse layer"""
-                # auto-completes the shape if batch size is unknown
-                self.sp_indices = transform.flat_indices_to_sparse(layer.output, layer.dense_shape)
-                self.sp_values = transform.default_sp_values(self.sp_indices)
+            if layer.is_sparse():
+                self._forward(layer)
             else:
-                """dense Layer"""
-                self.sp_indices, self.sp_values = transform.to_sparse(layer.output)
-
-            self.output = self.sp_indices, self.sp_values
-
-
-def _is_sparse(layer):
-    return hasattr(layer, "sp_indices")
-
-
-def _is_flat_sparse(layer):
-    return not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64
-
-
-def _sparse_layer_to_dense_tensor(layer):
-    dense = None
-    if hasattr(layer, "sp_indices"):
-        """Converts Sparse Layer to Dense """
-        dense = transform.to_dense(layer.sp_indices, layer.sp_values)
-    elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
-        """Converts Sparse Index Layer to Dense """
-        dense = transform.flat_indices_to_dense(layer.output, layer.dense_shape)
-
-    return dense
+                self.tensor = transform.to_sparse(layer.tensor)
 
 
 class ToDense(Layer):
-    """ Transforms the previous layer into a dense representation
+    """ Transforms the previous layer into a dense layer.
 
-        meaning the input layer provides:
-            sp_indices
-            [sp_values] if sp_values is None, the values are set to 1.0
     """
 
     def __init__(self, layer):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sparse")
+        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_dense")
 
         with name_scope(self.name):
-            self.output = _sparse_layer_to_dense_tensor(layer)
+            if layer.is_sparse():
+                self.tensor = transform.to_dense(layer.tensor)
+            else:
+                self._forward(layer)
 
 
 class Dropout(Layer):
@@ -321,39 +276,13 @@ class Dropout(Layer):
         keep_prob = ops.convert_to_tensor(keep_prob, dtype=dtypes.float32, name="keep_prob")
         keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
-        if not (_is_sparse(layer) or _is_flat_sparse(layer)):
-            """Apply dropout to Dense Layer"""
-            # Do nothing if we know keep_prob == 1
-            if tensor_util.constant_value(keep_prob) == 1:
-                self.output = layer.output
-            else:
-                self.output = dropout(layer.output, self.keep_prob, seed=seed)
+        if keep_prob:
+            self._forward(layer)
         else:
-            if hasattr(layer, "sp_indices"):
-                """Apply dropout to SparseLayer
-                    by applying dropout to values tensor
-                """
-                if tensor_util.constant_value(keep_prob) == 1:
-                    self.sp_indices, self.sp_values = layer.sp_indices, layer.sp_values
-                else:
-                    self.sp_indices, self.sp_values = transform.sparse_dropout(layer.sp_indices,
-                                                                               layer.sp_values,
-                                                                               keep_prob, seed)
-                self.output = self.sp_indices, self.sp_values
-
-            elif not layer.shape.is_compatible_with(layer.dense_shape) and layer.dtype == dtypes.int64:
-                if tensor_util.constant_value(keep_prob) == 1:
-                    self.output = layer.output
-                else:
-                    sp_indices = transform.flat_indices_to_sparse(layer.output, self.dense_shape)
-                    sp_values = transform.default_sp_values(sp_indices)
-
-                    self.sp_indices, self.sp_values = transform.sparse_dropout(sp_indices,
-                                                                               sp_values,
-                                                                               keep_prob, seed)
-                    self.output = self.sp_indices, self.sp_values
+            if layer.is_sparse():
+                self.tensor = transform.sparse_dropout(layer.tensor, keep_prob, seed)
             else:
-                raise TypeError("Invalid Layer, could not be corrupted with dropout")
+                self.tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
 
 
 class GaussianNoise(Layer):
@@ -369,14 +298,14 @@ class GaussianNoise(Layer):
         self.seed = seed
 
         with name_scope(self.name):
-            if _is_sparse(layer) or _is_flat_sparse(layer):
-                self.output = _sparse_layer_to_dense_tensor(layer)
+            if layer.is_sparse():
+                self.tensor = transform.to_dense(self.tensor)
             else:
-                self.output = layer.output
+                self.tensor = layer.tensor
 
-            noise = random_ops.random_normal(array_ops.shape(self.output), mean, stddev, seed=seed,
-                                             dtype=dtypes.float32)
-            self.output = math_ops.add(self.output, noise)
+            noise_shape = array_ops.shape(self.tensor)
+            noise = random_ops.random_normal(noise_shape, mean, stddev, seed=seed, dtype=dtypes.float32)
+            self.tensor = math_ops.add(self.output, noise)
 
 
 class SparseGaussianNoise(Layer):
@@ -395,24 +324,13 @@ class SparseGaussianNoise(Layer):
         self.seed = seed
 
         with name_scope(self.name):
-            if _is_sparse(layer):
-                # get sp_values and sp_indices
-                sp_indices = layer.sp_indices
-                if layer.sp_values is None:
-                    sp_values = transform.default_sp_values(sp_indices, self.dtype)
-                else:
-                    sp_values = layer.sp_values
-                    if layer.dtype != self.dtype:
-                        sp_values = math_ops.cast(sp_values, self.dtype)
+            noise_shape = layer.dense_shape
+            noise = sparse_random_normal(noise_shape, density, mean, stddev, self.dtype, seed)
 
-                # corrupt values
-                noise_shape = self.sp_indices.dense_shape
-                noise = sparse_random_normal(noise_shape, density, mean, stddev, self.dtype, seed)
-                self.sp_values = transform.sparse_put(sp_values, noise)
-                self.sp_indices = transform.sp_values_to_sp_indices(sp_values)
-                self.output = self.sp_indices, self.sp_values
-            elif _is_flat_sparse(layer):
-                raise NotImplementedError()
+            if layer.is_sparse():
+                self.tensor = transform.sparse_put(layer.tensor, noise)
+            else:
+                self.tensor = transform.dense_put(layer.tensor, noise)
 
 
 class SaltPepperNoise(Layer):
@@ -436,8 +354,8 @@ class SaltPepperNoise(Layer):
         self.pepper_value = pepper_value
 
         # do nothing if amount of noise is 0
-        if density == 0.0:
-            self.output = layer.output
+        if density == 0.0 or self.num_corrupted() > 0:
+            self._forward(layer)
         else:
             dense_shape = layer.dense_shape
             noise_shape = dense_shape.as_list()
@@ -448,50 +366,12 @@ class SaltPepperNoise(Layer):
                 batch_size = noise_shape[0]
 
             noise_shape = [batch_size, noise_shape[1]]
+            noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
 
-            if self.num_corrupted() > 0:
-                noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
-
-            # transform or forward according to the type of the previous layer
-            if _is_sparse(layer):
-                # CORRUPT SPARSE LAYER
-                if self.num_corrupted() > 0:
-                    sp_indices = layer.sp_indices
-                    sp_values = layer.sp_values
-
-                    # corrupt
-                    if sp_values is None:
-                        sp_values = transform.default_sp_values(sp_indices)
-
-                    self.sp_values = transform.sparse_put(sp_values, noise)
-                    self.sp_indices = transform.sp_values_to_sp_indices(sp_values)
-                    self.output = self.sp_indices, self.sp_values
-                else:
-                    self._forward(layer, self)
-
-            elif _is_flat_sparse(layer):
-                # CORRUPT FLAT SPARSE LAYER
-                if self.num_corrupted() > 0:
-                    self.shape = self.dense_shape
-                    # corrupt
-                    sp_indices = transform.flat_indices_to_sparse(layer.output)
-                    sp_values = transform.default_sp_values(sp_indices)
-
-                    sp_values = transform.sparse_put(sp_values, noise)
-                    sp_indices = transform.sp_values_to_sp_indices(sp_values)
-
-                    self.sp_indices = sp_indices
-                    self.sp_values = sp_values
-                    self.output = self.sp_indices, self.sp_values
-                else:
-                    self._forward(layer)
-
+            if layer.is_sparse(layer):
+                self.tensor = transform.sparse_put(layer.tensor, noise)
             else:
-                # CORRUPT DENSE LAYER
-                if self.num_corrupted() > 0:
-                    self.output = transform.dense_put(layer.output, noise)
-                else:
-                    self._forward(layer)
+                self.tensor = transform.dense_put(layer.tensor, noise)
 
     def num_corrupted(self):
         """ Returns the number of entries corrupted by noise per sample"""
@@ -509,7 +389,7 @@ class Activation(Layer):
     def __init__(self, layer, fn=array_ops.identity):
         super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_activation")
         self.fn = fn
-        self.output = self.fn(layer.output, name=self.name)
+        self.output = self.fn(layer.tensor, name=self.name)
 
 
 class Bias(Layer):
@@ -525,16 +405,16 @@ class Bias(Layer):
 
         with vscope.variable_scope(self.name):
             self.bias = vscope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
-            self.output = bias_add(layer.tensor, self.bias, name="output")
+            self.tensor = bias_add(layer.tensor, self.bias, name="tensor")
 
 
 class Merge(Layer):
     """Merge Layer
 
     Merges a list layers by combining their tensors with a merging function.
-    Allows for the output of each layer to be weighted.
+    Allows for the tensor of each layer to be weighted.
 
-    This is just a container that for convenience takes the output of each given layer (which is generaly a tensor),
+    This is just a container that for convenience takes the tensor of each given layer (which is generaly a tensor),
     and applies a merging function.
     """
 
@@ -566,6 +446,6 @@ class Merge(Layer):
         with name_scope(name):
             if weights is not None:
                 for i in range(len(layers)):
-                    layers[i] = math_ops.scalar_mul(weights[i], layers[i].output)
+                    layers[i] = math_ops.scalar_mul(weights[i], layers[i].tensor)
 
             self.output = merge_fn(layers)

@@ -21,33 +21,43 @@ class TestLayers(TestCase):
         and a shape corresponding to [batch_size, n_units]
         """
         in_layer = Input(n_units=10)
-        self.assertIsInstance(in_layer.output, tf.Tensor)
+        self.assertIsInstance(in_layer.tensor, tf.Tensor)
 
         ones = np.ones(shape=(2, 10))
-        result = self.ss.run(in_layer.output, feed_dict={in_layer.output: ones})
+        result = self.ss.run(in_layer.tensor, feed_dict={in_layer.tensor: ones})
 
         np.testing.assert_array_equal(ones, result)
 
         ones_wrong_shape = np.ones(shape=(2, 11))
         try:
-            self.ss.run(in_layer.output, feed_dict={in_layer.output: ones_wrong_shape})
+            self.ss.run(in_layer.tensor, feed_dict={in_layer.tensor: ones_wrong_shape})
             self.fail("Should have raised an exception since shapes don't match")
         except ValueError:
             pass
 
-    def test_index_input(self):
+    def test_flat_sparse_input(self):
         """ Create a Sparse Input by providing
         a n_active parameter
         """
-        dim = 10
-        index = np.random.randint(0, 10)
-        index = [[index]]
+        dim = 4
+        index = [[0]]
 
         input_layer = Input(n_units=dim, n_active=1, dtype=tf.int64)
 
-        result = self.ss.run(input_layer.output, feed_dict={input_layer.output: index})
-        s = np.shape(result)
-        self.assertEqual(s[1], 1)
+        result = self.ss.run(input_layer.tensor, feed_dict={input_layer.placeholder: index})
+        self.assertEqual(len(result.values), 1)
+
+    def test_sparse_input(self):
+        indices = [[0, 1], [1, 1]]
+        values = [1, 1]
+        dense_shape = [4, 4]
+        sp_data = tf.SparseTensorValue(indices, values, dense_shape)
+
+        sp_input = SparseInput(n_units=4)
+        result = tf.sparse_tensor_to_dense(sp_input.tensor).eval({sp_input.placeholder: sp_data})
+
+        np.testing.assert_array_equal(result[sp_data.indices], [1, 1])
+        np.testing.assert_array_equal(result.shape, dense_shape)
 
     def test_linear_equal_sparse_dense(self):
         index = 0
@@ -217,7 +227,7 @@ class TestLayers(TestCase):
         dense_data = np.ones([1, dim], dtype=np.float32)
         noise_layer = GaussianNoise(dense_input)
 
-        # test that expected average output is approximately the same
+        # test that expected average tensor is approximately the same
         result = noise_layer.output.eval({dense_input.key: dense_data})
         mean_result = np.mean(result)
         mean_data = np.mean(dense_data)

@@ -56,7 +56,7 @@ def sample(range_max, num_sampled, batch_size=None, unique=True, seed=None, name
 
     Args:
         range_max: an int32 or int64 scalar with the maximum range for the int samples
-        shape: a 1-D integer Tensor or Python array. The shape of the output tensor
+        shape: a 1-D integer Tensor or Python array. The shape of the tensor tensor
         unique: boolean
         seed: a python integer. Used to create a random seed for the distribution.
         See @{tf.set_random_seed} for behaviour
@@ -150,8 +150,8 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
 
     Args:
         seed: int32 to te used as seed
-        dtype: output tensor value type
-        dense_shape: a 1-D output tensor with shape [2]
+        dtype: tensor tensor value type
+        dense_shape: a 1-D tensor tensor with shape [2]
         density: desired density
         mask_values: the values to be used to generate the random mask
 
@@ -210,8 +210,8 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
 
     Args:
         seed: an int32 seed for the random number generator
-        dtype: the output type for the resulting `SparseTensor`
-        dense_shape: a 1-D int64 tensor with shape [2] with the output shape for the salt and pepper noise
+        dtype: the tensor type for the resulting `SparseTensor`
+        dense_shape: a 1-D int64 tensor with shape [2] with the tensor shape for the salt and pepper noise
         density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
         one of two values: `max_value` or `min_value`.
 
