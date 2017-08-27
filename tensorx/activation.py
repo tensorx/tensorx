@@ -88,13 +88,13 @@ def relu(x, alpha=0., max_value=None):
         [1] (Vinod & Hinton, 2010) "Rectified linear units improve restricted boltzmann machines."
 
     Args:
-        x: Tensor or variable to compute the activation function for.
+        x (Tensor):  Tensor or variable to compute the activation function for.
         alpha: Slope for negative input, usually between 0 and 1. The default value of 0 will lead to the standard
         rectifier, 1 will lead to a linear activation function, and any value in between will give a leaky rectifier
         max_value: Saturation threshold.
 
     Returns:
-        A tensor that results in element-wise rectifier applied to x.
+        ´´Tensor´´: A tensor that results in element-wise rectifier applied to x.
     """
     x = ops.convert_to_tensor(x)
     if alpha != 0.:

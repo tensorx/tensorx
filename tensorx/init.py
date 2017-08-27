@@ -9,39 +9,33 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import random_ops
 
 
-def random_uniform(shape, dtype=dt.float32):
-    """ Random Uniform Initialisation
+def random_uniform(shape, maxval=1, minval=-1, dtype=dt.float32):
+    """ Random Uniform Initialisation between minval and maxval.
 
-    Wrapper around TensorFlow random_uniform function between -1 and 1
+    Wrapper around TensorFlow random_uniform function between minval and maxval
 
     Args:
+        minval: minimum value for random uniform distribution values
+        maxval: maximum value for random uniform distribution values
         shape: shape of the tensor to be generated
         dtype: TensorFlow data type
 
     Returns:
         Tensor: a TensorFlow tensor used to initialise variable
     """
-    return random_ops.random_uniform(shape=shape, minval=-1, maxval=1, dtype=dtype)
+    return random_ops.random_uniform(shape=shape, minval=minval, maxval=maxval, dtype=dtype)
 
 
 def xavier_init(shape, dtype=dt.float32):
-    """ "Xavier Initialisation" - Normalised Weight Initialisation
+    """ "Xavier Initialisation" - Normalised Weight Initialisation [1]
 
-    This initialisation keeps the scale of the gradients roughly the same in all layers.
+    This initialisation keeps the scale of the gradients roughly the same in all layers to
+    mitigate `vanishing` and `exploding gradients` see [1].
 
-    The idea is to try and mitigate:
-                vanishing gradient: the gradient decreases exponentially
-                    (multiplication throughout each layer) and the front
-                    layers train very slowly. (Affects deep networks and
-                    recurrent networks --more multiplications);
 
-                exploring gradient: when we use activation functions
-                    whose derivative can take larger values,gradients
-                    can grow exponentially.
-
-    Reference:
-        (Glorot and Bengio 2010),
-        "Understanding the difficulty of training deep feedforward neural networks".
+    References:
+        [1] (Glorot and Bengio 2010), "Understanding the difficulty of training deep
+        feedforward neural networks".
 
     Args:
         shape: [fan_in, fan_out]
@@ -58,10 +52,12 @@ def xavier_init(shape, dtype=dt.float32):
 
 
 def relu_init(shape, dtype=dt.float32):
-    """ ReLU Weight Initialisation
+    """ ReLU Weight Initialisation [1].
+
 
     Initialisation tensor for weights used as inputs to ReLU activations. Initialises the weights with
-    a Gaussian distribution:
+    a `Gaussian Distribution`::
+
         mu: 0
         sigma: sqrt(2/fan_in)
 
@@ -69,16 +65,12 @@ def relu_init(shape, dtype=dt.float32):
     that are being explored are close to zero --- the gradient is close to one.
     This doesn't hold for rectifying non-linearities.
 
-    Reference:
-        (He, Rang, Zhen and Sun 2015),
-        "Delving Deep into Rectifiers:Surpassing Human-Level Performance on ImageNet Classification".
-
-    Use Case:
-        With deep networks using ReLU and PReLU activations.
+    References:
+        [1] (He, Rang, Zhen and Sun 2015), "Delving Deep into Rectifiers:Surpassing Human-Level Performance on ImageNet Classification".
 
     Args:
         shape: [fan_in, fan_out]
-        dtype: TensorFlow data type
+        dtype: TensorFlow dtype
 
     Returns:
         Tensor: a TensorFlow tensor used to initialise variable
