@@ -119,71 +119,6 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
         return sp_tensor
 
 
-def salt_pepper_noise(dense_shape, density=0.5, max_value=1, min_value=-1, seed=None, dtype=dtypes.float32):
-    """ Creates a noise tensor with a given shape [N,M]
-
-    Note:
-        Always generates a symmetrical noise tensor (same number of corrupted entries per row.
-
-    Args:
-        seed: an int32 seed for the random number generator
-        dtype: the output type for the resulting `SparseTensor`
-        dense_shape: a 1-D int64 tensor with shape [2] with the output shape for the salt and pepper noise
-        density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
-        one of two values: `max_value` or `min_value`.
-
-        max_value: the maximum noise constant (salt)
-        min_value: the minimum noise constant (pepper)
-
-    Returns:
-        A noise tensor with the given shape where a given ammount
-        (noise_amount * M) of indices is corrupted with
-        salt or pepper values (max_value, min_value)
-
-    """
-    num_noise = int(density * dense_shape[1])
-
-    if num_noise < 2:
-        return empty_sparse_tensor(dense_shape)
-    else:
-        num_salt = num_noise // 2
-        num_pepper = num_salt
-
-        # symmetrical noise tensor
-        num_noise = num_salt + num_pepper
-
-        batch_size = dense_shape[0]
-        max_range = dense_shape[1]
-
-        samples = sample(max_range, num_sampled=num_noise, batch_size=batch_size, unique=True, seed=seed)
-        indices = enum_row(samples, dtype=dtypes.int64)
-        dense_shape = math_ops.cast([dense_shape[0], dense_shape[1]], dtypes.int64)
-
-        """
-        Example
-               [[1,1,-1,-1],
-                [1,1,-1,-1]]
-               ===================== 
-            [1,1,-1,-1,1,1,-1,-1]
-        """
-
-        salt_shape = math_ops.cast([batch_size, num_salt], dtypes.int32)
-        salt_tensor = array_ops.fill(salt_shape, max_value)
-
-        salt_shape = math_ops.cast([batch_size, num_pepper], dtypes.int32)
-        pepper_tensor = array_ops.fill(salt_shape, min_value)
-
-        values = array_ops.concat([salt_tensor, pepper_tensor], axis=-1)
-        values = array_ops.reshape(values, [-1])
-
-        if values.dtype != dtype:
-            values = math_ops.cast(values, dtype)
-
-        sp_tensor = SparseTensor(indices, values, dense_shape)
-        sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
-        return sp_tensor
-
-
 def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32, seed=None):
     """Uses values to create a sparse random mask according to a given density
     a density of 0 returns an empty sparse tensor
@@ -265,3 +200,34 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
         sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
 
         return sp_tensor
+
+
+def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, seed=None, dtype=dtypes.float32):
+    """ Creates a noise tensor with a given shape [N,M]
+
+    Note:
+        Always generates a symmetrical noise tensor (same number of corrupted entries per row.
+
+    Args:
+        seed: an int32 seed for the random number generator
+        dtype: the output type for the resulting `SparseTensor`
+        dense_shape: a 1-D int64 tensor with shape [2] with the output shape for the salt and pepper noise
+        density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
+        one of two values: `max_value` or `min_value`.
+
+        salt_value: the maximum noise constant (salt)
+        pepper_value: the minimum noise constant (pepper)
+
+    Returns:
+        A noise tensor with the given shape where a given ammount
+        (noise_amount * M) of indices is corrupted with
+        salt or pepper values (max_value, min_value)
+
+    """
+    num_noise = int(density * dense_shape[1])
+
+    if num_noise < 2:
+        return empty_sparse_tensor(dense_shape)
+    else:
+        mask_values = [salt_value, pepper_value]
+        return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype)
