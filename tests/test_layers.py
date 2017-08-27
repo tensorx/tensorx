@@ -66,7 +66,7 @@ class TestLayers(TestCase):
         # x1 = dense input / x2 = sparse input / x3 = sparse input (explicit)
         x1 = Input(n_units=dim)
         x2 = Input(n_units=dim, n_active=1, dtype=tf.int64)
-        x3 = SparseInput(10, n_active=1)
+        x3 = SparseInput(10)
 
         # two layers with shared weights, one uses a sparse input layer, the other the dense one
         y1 = Linear(x1, 4)
@@ -82,10 +82,11 @@ class TestLayers(TestCase):
         input3 = index_list_to_sparse(input2, [1, dim])
         self.assertIsInstance(input3, tf.SparseTensorValue)
 
+
         # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
-        y1_output = y1.output.eval({x1.key: input1})
-        y2_output = y2.output.eval({x2.key: input2})
-        y3_output = y3.output.eval({x3.key[0]: input3})
+        y1_output = y1.tensor.eval({x1.placeholder: input1})
+        y2_output = y2.tensor.eval({x2.placeholder: input2})
+        y3_output = y3.tensor.eval({x3.placeholder: input3})
 
         # the result should be the same
         np.testing.assert_array_equal(y1_output, y2_output)
@@ -98,7 +99,7 @@ class TestLayers(TestCase):
         # dense input
         x1 = Input(n_units=dim)
         x2 = Input(n_units=dim, n_active=1, dtype=tf.int64)
-        x3 = SparseInput(10, n_active=1)
+        x3 = SparseInput(10)
 
         # dummy input data
         input1 = np.zeros([1, dim])
@@ -110,25 +111,20 @@ class TestLayers(TestCase):
         s2 = ToSparse(x2)
         s3 = ToSparse(x3)
 
-        y1_sp_indices, y1_sp_values = self.ss.run(s1.output, {x1.key: input1})
+        y1_sp_tensor = self.ss.run(s1.tensor, {x1.placeholder: input1})
 
-        self.assertEqual(len(y1_sp_indices.values), 1)
-        self.assertEqual(len(y1_sp_values.values), 1)
-        self.assertEqual(y1_sp_values.values, 1)
+        self.assertEqual(len(y1_sp_tensor.values), 1)
 
-        y2_sp_indices, y2_sp_values = self.ss.run(s2.output, {x2.key: input2})
-        self.assertEqual(len(y1_sp_indices.values), 1)
-        self.assertEqual(len(y1_sp_values.values), 1)
-        self.assertEqual(y1_sp_values.values, 1)
-        np.testing.assert_array_equal(y1_sp_indices.indices, y2_sp_indices.indices)
-        np.testing.assert_array_equal(y1_sp_indices.values, y2_sp_indices.values)
+        y2_sp_tensor = self.ss.run(s2.tensor, {x2.placeholder: input2})
+        self.assertEqual(len(y1_sp_tensor.values), 1)
+        np.testing.assert_array_equal(y1_sp_tensor.indices, y2_sp_tensor.indices)
+        np.testing.assert_array_equal(y1_sp_tensor.values, y2_sp_tensor.values)
 
-        y3_sp_indices, y3_sp_values = self.ss.run(s3.output, {x3.key[0]: input3})
-        self.assertEqual(len(y3_sp_indices.values), 1)
-        self.assertEqual(len(y3_sp_values.values), 1)
-        self.assertEqual(y3_sp_values.values, 1)
-        np.testing.assert_array_equal(y1_sp_indices.indices, y3_sp_indices.indices)
-        np.testing.assert_array_equal(y1_sp_indices.values, y3_sp_indices.values)
+        y3_sp_tensor = self.ss.run(s3.tensor, {x3.placeholder: input3})
+        self.assertEqual(len(y2_sp_tensor.values), 1)
+        self.assertEqual(y2_sp_tensor.values, 1)
+        np.testing.assert_array_equal(y1_sp_tensor.indices, y3_sp_tensor.indices)
+        np.testing.assert_array_equal(y1_sp_tensor.values, y3_sp_tensor.values)
 
     def test_to_dense(self):
         dim = 10

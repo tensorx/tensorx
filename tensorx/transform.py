@@ -11,7 +11,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops.nn import dropout
 
-from numpy import array as np_array
+import numpy as np
 
 
 def empty_sparse_tensor(dense_shape, dtype=dtypes.float32):
@@ -293,7 +293,7 @@ def sp_indices_from_sp_values(sp_values):
 
     """
     # new sparse indices after put
-    _, flat_indices = array_ops.unstack(sp_values.indices, axis=-1)
+    _, flat_indices = array_ops.unstack(sp_values.indices,num=2, axis=-1)
     return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
 
@@ -338,10 +338,9 @@ def flat_indices_to_sparse_tensor(indices, dense_shape, default_value=1, dtype=d
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
     sp_indices = enum_row(indices, dtype=dtypes.int64)
-    if isinstance(dense_shape, TensorShape):
-        dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
-    else:
-        dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int64)
+
+    dense_shape = TensorShape(dense_shape)
+    dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
 
     n_values = array_ops.shape(sp_indices)[0]
     values = array_ops.fill([n_values], default_value, name="default_values")
@@ -402,7 +401,7 @@ def index_list_to_sparse(indices, dense_shape):
     into a ``SparseTensorValue`` as follows::
 
         SparseTensorValue(indices=[[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]],
-                          values=[0,5,0,2,7,1],
+                          values=[1,1,1,1,1,1],
                           dense_shape=[3,10])
 
     this can be then fed to a ``tf.sparse_placeholder``
@@ -424,29 +423,7 @@ def index_list_to_sparse(indices, dense_shape):
             if i >= dense_shape[1]:
                 raise ValueError("Invalid shape: index value {} >= {}".format(i, dense_shape[1]))
             idx.append([row, i])
-    idx = np_array(idx)
-    values = np_array(sum(indices, []))
+    idx = np.array(idx)
+    values = np.ones([len(idx)])
 
     return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
-
-
-def value_list_to_sparse(values, sp_indices, dense_shape):
-    """ Converts a list of `values` to a sparse tensor value and maps each index in
-    `sp_indices` to each value.
-
-    Args:
-        values: values to be encapsulated by the sparse tensor value
-        sp_indices:indices of the form::
-
-            [[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]]
-
-        dense_shape: shape for resulting ``SparseTensorValue``
-
-    Returns:
-        ``SparseTensorValue``: a SparseTensorValue with each index mapping to the given values
-    """
-    if len(sp_indices) != len(values):
-        raise Exception(
-            "Number of indices doesn't match number of values: %d != %d".format(len(sp_indices), len(values)))
-
-    return SparseTensorValue(indices=sp_indices, values=values, dense_shape=dense_shape)

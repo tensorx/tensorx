@@ -41,7 +41,7 @@ import tensorx.transform as transform
 
 
 class Layer:
-    def __init__(self, n_units, shape=None, dense_shape=None, dtype=dtypes.float32, name="layer"):
+    def __init__(self, n_units, shape=None, dtype=dtypes.float32, name="layer"):
         """
         Args:
             n_units: dimension of input vector (dimension of columns in case batch_size != None
@@ -56,22 +56,9 @@ class Layer:
         if shape is None:
             self.shape = [None, n_units]
         else:
+            if shape[1] < n_units:
+                raise ValueError("Shape mismatch: shape[1] < n_units")
             self.shape = shape
-
-        if dense_shape is None:
-            self.dense_shape = self.shape
-        else:
-            if dense_shape[1] < n_units:
-                raise Exception("Shape mismatch: dense_shape[1] < n_units")
-            elif dense_shape[0] != self.shape[0]:
-                raise Exception("Shape mismatch: dense_shape[0] != self.shape[0]")
-            else:
-                self.dense_shape = dense_shape
-
-        # convert shapes to TensorShapes
-        # this allows us to init shapes with lists and tuples with None
-        self.shape = TensorShape(self.shape)
-        self.dense_shape = TensorShape(self.dense_shape)
 
         # has an tensor (tensor) attribute
         self.tensor = None
@@ -96,7 +83,6 @@ class Layer:
         """
 
         self.shape = prev_layer.shape
-        self.dense_shape = prev_layer.dense_shape
         self.tensor = prev_layer.tensor
 
 
@@ -128,23 +114,16 @@ class Input(Layer):
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
-        dense_shape = [batch_size, n_units]
-
-        if n_active is not None:
-            if dtype != dtypes.int64:
-                raise TypeError("If n_active is not None, dtype must be set to dt.int64")
-            shape = [batch_size, n_active]
-        else:
-            shape = [batch_size, n_units]
-
-        super().__init__(n_units, shape, dense_shape, dtype, name)
-        self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
+        shape = [batch_size, n_units]
+        super().__init__(n_units, shape, dtype, name)
 
         # if n_active is not None convert to SparseTensor
         if n_active is None:
+            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
             self.tensor = self.placeholder
         else:
-            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, self.dense_shape)
+            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
+            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, self.shape)
 
 
 class SparseInput(Layer):
@@ -163,15 +142,15 @@ class SparseInput(Layer):
 
         Args:
             n_units (int): the number of output units for this layer
-            batch_size (int): batch_size for the input, helps to define the dense_shape for this sparse layer
+            batch_size (int): batch_size for the input, helps to define the shape for this sparse layer
             dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
             name: name for the layer
         """
-        dense_shape = [batch_size, n_units]
-        super().__init__(n_units, batch_size, dense_shape, dtype, name)
+        shape = [batch_size, n_units]
+        super().__init__(n_units, shape, dtype, name)
 
         with ops.name_scope(name):
-            self.placeholder = array_ops.sparse_placeholder(dtype, dense_shape, name)
+            self.placeholder = array_ops.sparse_placeholder(dtype, self.shape, name)
 
             n_indices = array_ops.shape(self.placeholder.indices)[0]
             n_values = array_ops.shape(self.placeholder.values)[0]
@@ -193,9 +172,8 @@ class Linear(Layer):
                  dtype=dtypes.float32,
                  name="linear"):
 
-        shape = [layer.dense_shape[1], n_units]
+        shape = [layer.shape[1], n_units]
         super().__init__(n_units, shape=shape,
-                         dense_shape=shape,
                          dtype=dtype,
                          name=name)
 
@@ -239,7 +217,7 @@ class ToSparse(Layer):
     """
 
     def __init__(self, layer):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sparse")
+        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_sparse")
 
         with name_scope(self.name):
             if layer.is_sparse():
@@ -254,7 +232,7 @@ class ToDense(Layer):
     """
 
     def __init__(self, layer):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_dense")
+        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_dense")
 
         with name_scope(self.name):
             if layer.is_sparse():
@@ -265,7 +243,7 @@ class ToDense(Layer):
 
 class Dropout(Layer):
     def __init__(self, layer, keep_prob=0.2, seed=None):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_dropout")
+        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
 
         self.seed = seed
         self.keep_prob = keep_prob
@@ -288,8 +266,7 @@ class Dropout(Layer):
 class GaussianNoise(Layer):
     def __init__(self, layer, mean=0.0, stddev=0.2, seed=None):
         super().__init__(n_units=layer.n_units,
-                         shape=layer.dense_shape,
-                         dense_shape=layer.dense_shape,
+                         shape=layer.shape,
                          dtype=layer.dtype,
                          name=layer.name + "_gaussian_noise")
 
@@ -314,8 +291,7 @@ class SparseGaussianNoise(Layer):
         if dtype is not None:
             self.dtype = dtype
         super().__init__(n_units=layer.n_units,
-                         shape=layer.dense_shape,
-                         dense_shape=layer.dense_shape,
+                         shape=layer.shape,
                          dtype=self.dtype,
                          name=layer.name + "_sparse_gaussian_noise")
         self.density = density
@@ -324,7 +300,7 @@ class SparseGaussianNoise(Layer):
         self.seed = seed
 
         with name_scope(self.name):
-            noise_shape = layer.dense_shape
+            noise_shape = layer.shape
             noise = sparse_random_normal(noise_shape, density, mean, stddev, self.dtype, seed)
 
             if layer.is_sparse():
@@ -339,14 +315,14 @@ class SaltPepperNoise(Layer):
     Generates a random salt&pepper mask that will corrupt a given density of the previous layer.
     It always generates a symmetrical noise mask, meaning that it corrupts
 
-    layer.dense_shape[1].value * density // 2
+    layer.shape[1].value * density // 2
     with salt, and the same amount with pepper
 
     if the proportion amounts to less than 2 entries, the previous layer is simply forwarded
     """
 
     def __init__(self, layer, density=0.1, salt_value=1, pepper_value=-1, seed=None):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_sp_noise")
+        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
 
         self.density = density
         self.seed = seed
@@ -357,11 +333,10 @@ class SaltPepperNoise(Layer):
         if density == 0.0 or self.num_corrupted() > 0:
             self._forward(layer)
         else:
-            dense_shape = layer.dense_shape
-            noise_shape = dense_shape.as_list()
+            noise_shape = layer.shape
 
             if noise_shape[0] is None:
-                batch_size = array_ops.shape(layer.output, out_type=dtypes.int64)[0]
+                batch_size = array_ops.shape(layer.tensor, out_type=dtypes.int64)[0]
             else:
                 batch_size = noise_shape[0]
 
@@ -375,7 +350,7 @@ class SaltPepperNoise(Layer):
 
     def num_corrupted(self):
         """ Returns the number of entries corrupted by noise per sample"""
-        noise_shape = self.dense_shape.as_list()
+        noise_shape = self.shape
         num_noise = int(self.density * noise_shape[1])
 
         if num_noise < 2:
@@ -387,7 +362,7 @@ class SaltPepperNoise(Layer):
 
 class Activation(Layer):
     def __init__(self, layer, fn=array_ops.identity):
-        super().__init__(layer.n_units, layer.shape, layer.dense_shape, layer.dtype, layer.name + "_activation")
+        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
         self.fn = fn
         self.output = self.fn(layer.tensor, name=self.name)
 
@@ -441,7 +416,7 @@ class Merge(Layer):
         if weights is not None and len(weights) != len(layers):
             raise Exception("len(weights) must be equals to len(layers)")
 
-        super().__init__(layers[0].n_units, layers[0].shape, layers[0].dense_shape, layers[0].dtype, name)
+        super().__init__(layers[0].n_units, layers[0].shape, layers[0].dtype, name)
 
         with name_scope(name):
             if weights is not None:
