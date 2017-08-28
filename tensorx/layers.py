@@ -30,10 +30,11 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variable_scope as vscope
 from tensorflow.python.framework.ops import name_scope
 
-from tensorflow.python.ops import random_ops
+from tensorflow.python.ops import random_ops, sparse_ops
 from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add, dropout
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
+
 
 from tensorx.init import random_uniform
 from tensorx.random import salt_pepper_noise, sparse_random_normal
@@ -123,7 +124,7 @@ class Input(Layer):
             self.tensor = self.placeholder
         else:
             self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
-            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, self.shape)
+            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, self.shape,dtype=self.dtype)
 
 
 class SparseInput(Layer):
@@ -149,9 +150,9 @@ class SparseInput(Layer):
         shape = [batch_size, n_units]
         super().__init__(n_units, shape, dtype, name)
 
+
         with ops.name_scope(name):
             self.placeholder = array_ops.sparse_placeholder(dtype, self.shape, name)
-
             n_indices = array_ops.shape(self.placeholder.indices)[0]
             n_values = array_ops.shape(self.placeholder.values)[0]
 
@@ -242,25 +243,33 @@ class ToDense(Layer):
 
 
 class Dropout(Layer):
+    """ A Dropout Layer that applies the dropout op to a given layer
+
+    Note:
+        uses `dropout` from tensorflow for dense layers
+        and `sparse_dropout` from tensorx for sparse layers
+    """
+
     def __init__(self, layer, keep_prob=0.2, seed=None):
+        """ Constructor
+        Args:
+            layer: an input layer ``Layer`` to which dropout will be applied
+            keep_prob:
+            seed:
+        """
         super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
 
         self.seed = seed
         self.keep_prob = keep_prob
 
-        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
-            raise ValueError("keep_prob must be a scalar tensor or a float in the "
-                             "range (0, 1], got %g" % keep_prob)
-        keep_prob = ops.convert_to_tensor(keep_prob, dtype=dtypes.float32, name="keep_prob")
-        keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
-
-        if keep_prob:
+        if keep_prob == 0:
             self._forward(layer)
         else:
-            if layer.is_sparse():
-                self.tensor = transform.sparse_dropout(layer.tensor, keep_prob, seed)
-            else:
-                self.tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
+            with name_scope(self.name):
+                if layer.is_sparse():
+                    self.tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
+                else:
+                    self.tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
 
 
 class GaussianNoise(Layer):
@@ -276,13 +285,15 @@ class GaussianNoise(Layer):
 
         with name_scope(self.name):
             if layer.is_sparse():
-                self.tensor = transform.to_dense(self.tensor)
+                self.tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
                 self.tensor = layer.tensor
 
             noise_shape = array_ops.shape(self.tensor)
             noise = random_ops.random_normal(noise_shape, mean, stddev, seed=seed, dtype=dtypes.float32)
-            self.tensor = math_ops.add(self.output, noise)
+
+            self.tensor = math_ops.cast(self.tensor,dtypes.float32)
+            self.tensor = math_ops.add(self.tensor, noise)
 
 
 class SparseGaussianNoise(Layer):

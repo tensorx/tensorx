@@ -43,6 +43,7 @@ class TestLayers(TestCase):
         index = [[0]]
 
         input_layer = Input(n_units=dim, n_active=1, dtype=tf.int64)
+        self.assertEqual(input_layer.tensor.values.dtype, tf.int64)
 
         result = self.ss.run(input_layer.tensor, feed_dict={input_layer.placeholder: index})
         self.assertEqual(len(result.values), 1)
@@ -81,7 +82,6 @@ class TestLayers(TestCase):
         input2 = [[index]]
         input3 = index_list_to_sparse(input2, [1, dim])
         self.assertIsInstance(input3, tf.SparseTensorValue)
-
 
         # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
         y1_output = y1.tensor.eval({x1.placeholder: input1})
@@ -132,7 +132,7 @@ class TestLayers(TestCase):
         index = 0
 
         x1 = Input(n_units=dim, n_active=n_active, dtype=tf.int64)
-        x2 = SparseInput(10, n_active=1)
+        x2 = SparseInput(10)
 
         data1 = [[index]]
         data2 = index_list_to_sparse(data1, [1, dim])
@@ -143,27 +143,25 @@ class TestLayers(TestCase):
         to_dense1 = ToDense(x1)
         to_dense2 = ToDense(x2)
 
-        result1 = to_dense1.output.eval({x1.key: data1})
-        result2 = to_dense2.output.eval({x2.key[0]: data2})
+        result1 = to_dense1.tensor.eval({x1.placeholder: data1})
+        result2 = to_dense2.tensor.eval({x2.placeholder: data2})
 
         np.testing.assert_array_equal(expected, result1)
         np.testing.assert_array_equal(expected, result2)
 
     def test_dropout_layer(self):
         dim = 100
-        # for sparse inputs
-        n_active = 4
         keep_prob = 0.5
         num_iter = 50
 
         dense_input = Input(dim)
-        drop_dense = Dropout(dense_input, keep_prob)
-        dense_data = np.ones([1, dim], dtype=np.float32)
+        data = np.ones([1, dim], dtype=np.float32)
+        dropout = Dropout(dense_input, keep_prob)
 
         # TEST DROPOUT WITH DENSE INPUTS
         final_count = 0
         for _ in range(0, num_iter):
-            result = drop_dense.output.eval({dense_input.key: dense_data})
+            result = dropout.tensor.eval({dense_input.placeholder: data})
             final_count += np.count_nonzero(result)
 
             # test the scaling
@@ -176,43 +174,45 @@ class TestLayers(TestCase):
         rel_error = math.fabs(math.fabs(final_count - expected_count) / expected_count)
         self.assertLess(rel_error, 0.1)
 
-        # TEST FLAT INDEX SPARSE INPUT
-        flat_sparse_input = Input(dim, n_active, dtype=tf.int64)
-        drop_flat_sparse = Dropout(flat_sparse_input, keep_prob)
-        flat_sparse_data = [list(range(0, n_active, 1))]
-
-        result = self.ss.run(drop_flat_sparse.output, {flat_sparse_input.key: flat_sparse_data})
-        np.testing.assert_array_equal(result[0].indices, result[1].indices)
-        np.testing.assert_allclose(1 / keep_prob, result[1].values)
-
-        result_indices = result[0].values
-        self.assertLessEqual(len(result_indices), len(flat_sparse_data[0]))
-
-        # TEST DROPOUT ON SPARSE INPUT
-        sparse_input = SparseInput(dim, n_active)
-        drop_sparse = Dropout(sparse_input, keep_prob=keep_prob)
-        sparse_data = index_list_to_sparse(flat_sparse_data, [1, dim])
-
-        # feed sparse tensor values with indices
-        result = self.ss.run(drop_sparse.output, {sparse_input.key[0]: sparse_data})
-        np.testing.assert_array_equal(result[0].indices, result[1].indices)
-        np.testing.assert_allclose(1 / keep_prob, result[1].values)
-
-        self.assertLessEqual(len(result[0].indices), len(sparse_data.indices))
-
         # TEST DROPOUT WITH keep_prob = 1
         drop_dense = Dropout(dense_input, keep_prob=1)
-        result = drop_dense.output.eval({dense_input.key: dense_data})
-        np.testing.assert_array_equal(result, dense_data)
+        result = drop_dense.tensor.eval({dense_input.placeholder: data})
+        np.testing.assert_array_equal(result, data)
 
-        drop_flat_sparse = Dropout(flat_sparse_input, keep_prob=1)
-        result = self.ss.run(drop_flat_sparse.output, {flat_sparse_input.key: flat_sparse_data})
-        np.testing.assert_array_equal(result, flat_sparse_data)
+        # TEST FLAT INDEX SPARSE INPUT
+        n_active = 2
+        data = [list(range(0, n_active, 1))]
+        flat_sparse = Input(dim, n_active)
+        self.assertTrue(flat_sparse.is_sparse())
 
-        drop_sparse = Dropout(sparse_input, keep_prob=1)
-        result = self.ss.run(drop_sparse.sp_indices, {sparse_input.key[0]: sparse_data})
-        np.testing.assert_array_equal(result.indices, sparse_data.indices)
-        np.testing.assert_array_equal(result.values, sparse_data.values)
+        dropout = Dropout(flat_sparse, keep_prob)
+        self.assertTrue(dropout.is_sparse())
+
+        result = self.ss.run(dropout.tensor, {flat_sparse.placeholder: data})
+        np.testing.assert_allclose(1 / keep_prob, result.values)
+        self.assertLessEqual(len(result.values), len(data[0]))
+
+        # test for keep_prob == 1
+        dropout = Dropout(flat_sparse, keep_prob=1)
+        after_dropout = self.ss.run(dropout.tensor, {flat_sparse.placeholder: data})
+        after_input = flat_sparse.tensor.eval({flat_sparse.placeholder: data})
+        np.testing.assert_array_equal(after_input.indices, after_input.indices)
+
+        # TEST DROPOUT ON SPARSE INPUT
+        sparse_data = index_list_to_sparse(data, [1, dim])
+        sparse_input = SparseInput(dim)
+        dropout = Dropout(sparse_input, keep_prob=keep_prob)
+
+        # feed sparse tensor values with indices
+        after_dropout = self.ss.run(dropout.tensor, {sparse_input.placeholder: sparse_data})
+        np.testing.assert_allclose(1 / keep_prob, after_dropout.values)
+        self.assertLessEqual(len(after_dropout.indices), len(sparse_data.indices))
+
+        dropout = Dropout(sparse_input, keep_prob=1)
+        before_dropout = self.ss.run(sparse_input.tensor, {sparse_input.placeholder: sparse_data})
+        after_dropout = self.ss.run(dropout.tensor, {sparse_input.placeholder: sparse_data})
+        np.testing.assert_array_equal(before_dropout.indices, after_dropout.indices)
+        np.testing.assert_array_equal(before_dropout.values, after_dropout.values)
 
     def test_gaussian_noise(self):
         dim = 1000
@@ -224,7 +224,7 @@ class TestLayers(TestCase):
         noise_layer = GaussianNoise(dense_input)
 
         # test that expected average tensor is approximately the same
-        result = noise_layer.output.eval({dense_input.key: dense_data})
+        result = noise_layer.tensor.eval({dense_input.placeholder: dense_data})
         mean_result = np.mean(result)
         mean_data = np.mean(dense_data)
         self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
@@ -233,7 +233,7 @@ class TestLayers(TestCase):
         flat_indices = [list(range(0, n_active, 1))]
         flat_input = Input(dim, n_active, dtype=tf.int64)
         noise_layer = GaussianNoise(flat_input)
-        result = noise_layer.output.eval({flat_input.key: flat_indices})
+        result = noise_layer.tensor.eval({flat_input.placeholder: flat_indices})
 
         dense_input = np.zeros([1, dim])
         dense_input[0, flat_indices[0]] = 1
@@ -244,7 +244,7 @@ class TestLayers(TestCase):
         sparse_input = SparseInput(dim, n_active)
         noise_layer = GaussianNoise(sparse_input)
         sparse_data = index_list_to_sparse(flat_indices, [1, dim])
-        result = noise_layer.output.eval({sparse_input.key[0]: sparse_data})
+        result = noise_layer.tensor.eval({sparse_input.placeholder: sparse_data})
         mean_result = np.mean(result)
         self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
 
