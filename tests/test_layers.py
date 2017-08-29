@@ -241,7 +241,7 @@ class TestLayers(TestCase):
         mean_result = np.mean(result)
         self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
 
-        sparse_input = SparseInput(dim, n_active)
+        sparse_input = SparseInput(dim)
         noise_layer = GaussianNoise(sparse_input)
         sparse_data = index_list_to_sparse(flat_indices, [1, dim])
         result = noise_layer.tensor.eval({sparse_input.placeholder: sparse_data})
@@ -257,6 +257,6 @@ class TestLayers(TestCase):
         dense_input = Input(dim)
         dense_data = np.zeros([batch_size, dim], dtype=np.float32)
         noise_layer = SaltPepperNoise(dense_input, noise_amount)
-        result = noise_layer.output.eval({dense_input.key: dense_data})
+        result = noise_layer.tensor.eval({dense_input.placeholder: dense_data})
         mean_result = np.mean(result)
         self.assertEqual(mean_result, 0)

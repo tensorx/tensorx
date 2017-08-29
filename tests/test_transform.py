@@ -77,13 +77,14 @@ class TestTransform(unittest.TestCase):
             pass
 
         def default_values(): return transform.fill_sp_ones(sp_placeholder)
+
         def forward(): return sp_placeholder
 
         n_values = tf.shape(sp_placeholder.values)[0]
         sp_ones = tf.cond(tf.equal(n_values, 0),
                           true_fn=default_values,
                           false_fn=forward)
-        # dense_result = tf.sparse_tensor_to_dense(sp_ones).eval({sp_placeholder: sp_indices})
+        dense_result = tf.sparse_tensor_to_dense(sp_ones).eval({sp_placeholder: sp_indices})
         # print(dense_result)
 
     def test_pairs(self):
@@ -99,7 +100,7 @@ class TestTransform(unittest.TestCase):
     def test_to_sparse(self):
         c = [[1, 0], [2, 3]]
 
-        sparse_indices, sparse_values = transform.to_sparse(c)
+        sparse_tensor = transform.to_sparse(c)
 
         dense_shape = tf.shape(c, out_type=tf.int64)
         indices = tf.where(tf.not_equal(c, 0))
@@ -111,19 +112,20 @@ class TestTransform(unittest.TestCase):
 
         values = tf.gather_nd(c, indices)
 
-        np.testing.assert_array_equal(sparse_indices.indices.eval(), indices.eval())
-        np.testing.assert_array_equal(sparse_indices.values.eval(), flat_indices.eval())
-        np.testing.assert_array_equal(sparse_values.values.eval(), values.eval())
+        sp_indices = transform.sp_indices_from_sp_values(sparse_tensor)
+        np.testing.assert_array_equal(sparse_tensor.indices.eval(), indices.eval())
+
+        np.testing.assert_array_equal(sp_indices.values.eval(), flat_indices.eval())
+        np.testing.assert_array_equal(sparse_tensor.values.eval(), values.eval())
 
     def test_to_sparse_zero(self):
         shape = [2, 3]
         data_zero = np.zeros(shape)
-        sp_i, sp_v = transform.to_sparse(data_zero)
+        sparse_tensor = transform.to_sparse(data_zero)
 
-        self.assertEqual(sp_i.eval().indices.shape[0], 0)
-        self.assertEqual(sp_v.eval().indices.shape[0], 0)
+        self.assertEqual(sparse_tensor.eval().indices.shape[0], 0)
 
-        dense = tf.sparse_tensor_to_dense(sp_i)
+        dense = tf.sparse_tensor_to_dense(sparse_tensor)
         np.testing.assert_array_equal(dense.eval(), np.zeros(shape))
 
     def test_empty_sparse_tensor(self):
