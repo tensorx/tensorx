@@ -94,22 +94,17 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(expected.eval(), result.eval({ph: data}))
 
     def test_fill_sp_ones(self):
-        sp_indices = tf.SparseTensorValue(indices=[[0, 0], [1, 0]], values=[], dense_shape=[2, 2])
-        sp_placeholder = tf.sparse_placeholder(tf.float32, shape=[None, 2])
+        indices = [[0, 0], [1, 0]]
+        dense_shape = [2,2]
+        expected = tf.SparseTensorValue(indices=indices, values=[1,1], dense_shape=dense_shape)
 
-        try:
-            tf.sparse_tensor_to_dense(sp_placeholder).eval({sp_placeholder: sp_indices})
-        except tf.errors.InvalidArgumentError:
-            pass
+        fill = transform.sparse_ones(indices,dense_shape,dtype=tf.float32)
 
-            # def default_values(): return transform.fill_sp_ones(sp_placeholder)
-            # def forward(): return sp_placeholder
-            # n_values = tf.shape(sp_placeholder.values)[0]
-            # sp_ones = tf.cond(tf.equal(n_values, 0),
-            #                  true_fn=default_values,
-            #                  false_fn=forward)
-            # dense_result = tf.sparse_tensor_to_dense(sp_ones).eval({sp_placeholder: sp_indices})
-            # print(dense_result)
+        fill_dense = tf.sparse_tensor_to_dense(fill)
+        expected_dense = tf.sparse_tensor_to_dense(expected)
+        expected_dense = tf.cast(expected_dense,tf.float32)
+
+        np.testing.assert_array_equal(fill_dense.eval(),expected_dense.eval())
 
     def test_to_sparse(self):
         c = [[1, 0], [2, 3]]

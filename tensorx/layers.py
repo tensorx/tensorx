@@ -20,10 +20,8 @@ Types of layers:
 """
 
 import numbers
-from tensorflow.python.framework import ops, tensor_util, tensor_shape
-from tensorflow.python.framework.tensor_shape import TensorShape
+from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import control_flow_ops as control
 from tensorflow.python.ops import check_ops
 
 from tensorflow.python.ops import math_ops
@@ -31,14 +29,14 @@ from tensorflow.python.ops import variable_scope as vscope
 from tensorflow.python.framework.ops import name_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup, embedding_lookup_sparse, bias_add, dropout
+from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
-
 
 from tensorx.init import random_uniform
 from tensorx.random import salt_pepper_noise, sparse_random_normal
 import tensorx.transform as transform
+import tensorx.utils as util
 
 
 class Layer:
@@ -124,7 +122,10 @@ class Input(Layer):
             self.tensor = self.placeholder
         else:
             self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
-            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, self.shape,dtype=self.dtype)
+
+            indices_shape = util.complete_shape(self.placeholder)
+            dense_shape = [indices_shape[0], self.shape[1]]
+            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, dense_shape, dtype=self.dtype)
 
 
 class SparseInput(Layer):
@@ -149,7 +150,6 @@ class SparseInput(Layer):
         """
         shape = [batch_size, n_units]
         super().__init__(n_units, shape, dtype, name)
-
 
         with ops.name_scope(name):
             self.placeholder = array_ops.sparse_placeholder(dtype, self.shape, name)
@@ -237,7 +237,7 @@ class ToDense(Layer):
 
         with name_scope(self.name):
             if layer.is_sparse():
-                self.tensor = transform.to_dense(layer.tensor)
+                self.tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
                 self._forward(layer)
 
@@ -292,7 +292,7 @@ class GaussianNoise(Layer):
             noise_shape = array_ops.shape(self.tensor)
             noise = random_ops.random_normal(noise_shape, mean, stddev, seed=seed, dtype=dtypes.float32)
 
-            self.tensor = math_ops.cast(self.tensor,dtypes.float32)
+            self.tensor = math_ops.cast(self.tensor, dtypes.float32)
             self.tensor = math_ops.add(self.tensor, noise)
 
 

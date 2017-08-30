@@ -13,7 +13,7 @@ from tensorflow.python.ops.nn import dropout
 
 import numpy as np
 
-from tensorx.utils import to_tensor_cast
+from tensorx.utils import to_tensor_cast, complete_shape
 
 
 def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor"):
@@ -257,77 +257,44 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None, name="sparse_dropout"):
         return new_tensor
 
 
-# TODO refactor continues here
-
-
-def default_sp_values(sp_indices, dtype=dtypes.float32):
-    values = array_ops.ones_like(sp_indices.values, dtype=dtype)
-    return SparseTensor(sp_indices.indices, values, sp_indices.dense_shape)
-
-
-def fill_sp_ones(sp_indices, dtype=dtypes.float32):
-    """ Replaces the given sparse tensor values with 1.
+def sparse_ones(indices, dense_shape, dtype=dtypes.float32):
+    """ Creates a new ``SparseTensor`` where the values are 1
 
     Args:
-        sp_indices: a ``SparseTensor`` or ``SparseTensorValue``
+        indices: a 2-D ``Tensor`` with the indices for the resulting sparse tensor
+        dense_shape: the ``SparseTensor`` dense shape
         dtype: the tensor type for the values
 
     Returns:
         ``SparseTensor``: a new SparseTensor with the values set to 1.
     """
-    n_active = array_ops.shape(sp_indices.indices)[0]
-
-    values = array_ops.ones([n_active], dtype)
-    return SparseTensor(sp_indices.indices, values, sp_indices.dense_shape)
-
-
-def to_dense(sp_tensor):
-    if not isinstance(sp_tensor, SparseTensor):
-        raise TypeError("Expected sp_indices to be a SparseTensor {} received instead.".format(type(sp_tensor)))
-
-    return sp_ops.sparse_tensor_to_dense(sp_tensor, name="to_dense")
+    indices = to_tensor_cast(indices, dtypes.int64)
+    dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
+    indices_shape = complete_shape(indices)
+    values = array_ops.ones([indices_shape[0]], dtype)
+    return SparseTensor(indices, values, dense_shape)
 
 
-def flat_indices_to_dense(indices, dense_shape):
-    """Converts a batch of flat indexes to a dense tensor
+def batch_indices_to_dense(indices, dense_shape):
+    """Converts a batch of flat indexes to a dense tensor.
+
     Args:
-        indices: a batch of indices (flat indices, each row has the indices up to a given dense_shape[1])
-        dense_shape: a `TensorShape` or Tensor with the desired shape for the conversion.
+        indices: a batch of indices
+        dense_shape: a list, array or `Tensor` with the desired shape for the conversion.
 
     Returns:
-        A tensor (one hot encoding for the given indices on each row)
+        ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices on each row
     """
-    indices = ops.convert_to_tensor(indices)
-    if indices.dtype != dtypes.int64:
-        indices = math_ops.cast(indices, dtypes.int64)
+    indices = to_tensor_cast(indices, dtypes.int64)
+    dense_shape = ops.convert_to_tensor(dense_shape)
 
-    if isinstance(dense_shape, TensorShape):
-        depth = dense_shape.as_list()[1]
-    else:
-        dense_shape = ops.convert_to_tensor(dense_shape)
-        depth = dense_shape[1]
-
-    encoding = array_ops.one_hot(indices, depth=depth)
+    encoding = array_ops.one_hot(indices, depth=dense_shape[1])
     one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
 
     return one_hot_dense
 
 
-def complete_shape(tensor, shape, dtype=dtypes.int64):
-    """ Completes a given shape if not fully defined
-
-    Use Case:
-        Sometimes we have networks with an unknown batch size at the time of graph creation,
-        this method can be used to complete that same shape based on the first dimension
-        of the given tensor and the second dimension of the given shape
-    """
-    tensor_shape = TensorShape(shape)
-    if tensor_shape.is_fully_defined():
-        return shape
-    else:
-        dim = shape.as_list()[1]
-        batch_size = array_ops.shape(tensor)[0]
-        return math_ops.cast([batch_size, dim], dtype)
+# TODO refactor continues here
 
 
 def sp_indices_from_sp_values(sp_values):
@@ -361,21 +328,16 @@ def flat_to_sparse_indices(indices, dense_shape):
     Returns:
         a `SparseTensor`
     """
-    indices = ops.convert_to_tensor(indices)
-    if indices.dtype != dtypes.int64:
-        indices = math_ops.cast(indices, dtypes.int64)
-    sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
+    indices = to_tensor_cast(indices, dtypes.int64)
+    dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
 
-    if dense_shape[0] is None:
-        dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
-    else:
-        dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int64)
+    sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
 
     return SparseTensor(sp_indices, array_ops.reshape(indices, shape=[-1]), dense_shape)
 
 
-def flat_indices_to_sparse_tensor(indices, dense_shape, default_value=1, dtype=dtypes.float32):
-    """Transforms a batch of flat indices to a sparse tensor with values set to 1
+def flat_indices_to_sparse_tensor(indices, dense_shape, dtype=dtypes.float32):
+    """Transforms a batch of indices to a one-hot encoding ``SparseTensor``.
 
         Example:
             [[0,1],[1,2]] -> SparseTensor(indices=[[0,0],[0,1],[1,1],[1,2]], values=[1,1,1,1], dense_shape=dense_shape)
@@ -386,23 +348,15 @@ def flat_indices_to_sparse_tensor(indices, dense_shape, default_value=1, dtype=d
         Returns:
             a `SparseTensor`
     """
-    indices = ops.convert_to_tensor(indices)
-    if indices.dtype != dtypes.int64:
-        indices = math_ops.cast(indices, dtypes.int64)
-    sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
+    flat_indices = to_tensor_cast(indices, dtypes.int64)
+    indices = batch_to_matrix_indices(flat_indices, dtype=dtypes.int64)
 
-    dense_shape = TensorShape(dense_shape)
-    dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
+    new_tensor = sparse_ones(indices, dense_shape, dtype)
 
-    n_values = array_ops.shape(sp_indices)[0]
-    values = array_ops.fill([n_values], default_value, name="default_values")
-    if values.dtype != dtype:
-        values = math_ops.cast(values, dtype)
-
-    return SparseTensor(sp_indices, values, dense_shape)
+    return new_tensor
 
 
-def to_sparse(tensor):
+def to_sparse(tensor, name="to_sparse"):
     """ Returns a sparse representation for a given tensor
 
     Example:
@@ -419,17 +373,19 @@ def to_sparse(tensor):
 
     Args:
         tensor: a dense ``Tensor``
+        name: name for this operation (optional)
 
     Returns:
         ``SparseTensor``: a sparse tensor with sparse index and value tensors
         with the non-zero entries of the given input.
 
     """
-    indices = array_ops.where(math_ops.not_equal(tensor, 0))
-    dense_shape = array_ops.shape(tensor, out_type=dtypes.int64)
+    with ops.name_scope(name):
+        indices = array_ops.where(math_ops.not_equal(tensor, 0))
+        dense_shape = array_ops.shape(tensor, out_type=dtypes.int64)
 
-    values = array_ops.gather_nd(tensor, indices)
-    sp_tensor = SparseTensor(indices, values, dense_shape)
+        values = array_ops.gather_nd(tensor, indices)
+        sp_tensor = SparseTensor(indices, values, dense_shape)
 
     return sp_tensor
 
