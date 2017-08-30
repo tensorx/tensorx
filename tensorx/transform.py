@@ -13,78 +13,126 @@ from tensorflow.python.ops.nn import dropout
 
 import numpy as np
 
+from tensorx.utils import to_tensor_cast
+
 
 def empty_sparse_tensor(dense_shape, dtype=dtypes.float32):
-    """ Creates an empty SparseTensor
+    """ Creates an empty SparseTensor.
 
-    TODO make this work for dense_shape values with shape [1] as well
+    Note:
+        ``shape = [10]``
+
+        ``empty = tf.sparse_tensor_to_dense(transform.empty_sparse_tensor(shape))``
+
+        is equivalent to:
+
+        ``zero = tf.zeros(shape)``
+
+       meaning that:
+
+       ``tf.reduce_all(tf.equal(zeros,empty)).eval()``
+
+       returns True
+
 
     Args:
+        dense_shape: a 1-D tensor, python list, or numpy array with the output shape for the sparse tensor
         dtype: the dtype of the values for the empty SparseTensor
-        dense_shape: a 1-D tensor of type int64 and shape [2] with the dense_shape for the sparse tensor
 
     Returns:
-        an empty sparse tensor with a given shape
+        ``SparseTensor``: an empty sparse tensor with a given shape
 
     """
-    if not tensor_util.is_tensor(dense_shape):
-        dense_shape = ops.convert_to_tensor(dense_shape, dtypes.int32)
+    with ops.name_scope("empty_sparse_tensor"):
+        dense_shape = ops.convert_to_tensor(dense_shape, name="dense_shape", dtype=dtypes.int64)
 
-    empty_indices = array_ops.ones([0, 2], dtype=dtypes.int64)
-    empty_values = array_ops.ones([0], dtype=dtype)
+        index_shape = dense_shape.get_shape().with_rank(1)
+        empty_indices = array_ops.ones([0, index_shape[0]], dtype=dtypes.int64)
+        empty_values = array_ops.ones([0], dtype=dtype)
 
-    if dense_shape.dtype != dtypes.int64:
-        dense_shape = math_ops.cast(dense_shape, dtypes.int64)
-    return SparseTensor(empty_indices, empty_values, dense_shape)
+        return SparseTensor(empty_indices, empty_values, dense_shape)
 
 
-def pairs(tensor1, tensor2):
+def pairs(tensor1, tensor2, name="pairs"):
+    """Pairwise combination of elements from the two tensors
+
+    Example::
+        t1 = [[0],[1]]
+        t2 = [2,3,4]
+        t12 = [[0,2],[1,2],[0,3],[1,3],[0,4],[1,4]]
+
+        tf.reduce_all(tf.equal(pairs(t1,t2),t12))
+
+    Args:
+        name: name for this op
+        tensor1(``Tensor``): a tensor, python list, or numpy array
+        tensor2(``Tensor``): a tensor, python list, or numpy array
+
+    Returns:
+        ``Tensor``: a ``Tensor`` of rank 2
     """
-    Returns a tensor resulting from the pairwise combination of the elements of each tensor
+    with ops.name_scope(name):
+        tensor1 = ops.convert_to_tensor(tensor1)
+        tensor2 = ops.convert_to_tensor(tensor2)
 
-    t1 = [0,1]
-    t2 = [2,3,4]
-    pairs(t1,t2) == [[0,2],[1,2],[0,3],[1,3],...]
-    """
-    x, y = array_ops.meshgrid(tensor1, tensor2)
-    result = array_ops.stack([x, y], axis=-1)
-    return array_ops.reshape(result, [-1, 2], name="pairs")
+        x, y = array_ops.meshgrid(tensor1, tensor2)
+
+        result = array_ops.stack([x, y], axis=-1)
+        result = array_ops.reshape(result, [-1, 2])
+        return result
 
 
-def enum_row(tensor, name="enum_row", dtype=dtypes.int64):
-    """ Converts a tensor of int32 or int64 to a 2-D tensor with row-value pairs.
+def batch_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
+    """ Converts a batch of indices to a 2-D tensor of matrix indices.
 
-    For each row `r` with `d` columns, each value `i` is considered an index for a 1-D tensor
-    and converted to pairs [[r,i1],[r,i2],[r,id]].
+    For a given batch of indices of shape [n,m] this op outputs a 2-D ``Tensor``
+    with the `row-index pairs`::
 
-    Example:
+        [[r1,i1],[r1,i2],...,[r1,im],
+         [r2,i1],[r2,i2],...,[r2,im],
+         ...
+         [rn,i1],[rn,i2],...,[rn,im]]
 
-            [[1,2],
-             [2,5]] is converted to a `SparseTensor` with
 
-             indices = [[0,1],
-                        [0,2],
-                        [1,2],
-                        [1,5]]
+    Example::
+
+            tensor = [[1,2],
+                      [2,5]]
+
+
+            batch_to_matrix(tensor)
+
+            [[0,1],
+             [0,2],
+             [1,2],
+             [1,5]]
 
     Use Case:
         Convert a batch of indices (used to slice another tensor with embedding lookup or gather)
         to be used in a SparseTensor, so that we can change the weights of each slice.
 
     Args:
-        dtype: tensor type
-        name: tensor name to create a scope for the op
+        dtype: int32 or int64, the output tensor type
+        name: name for batch_to_matrix_indices op
         tensor: the tensor to be converted
 
         Returns:
-            a 2-D tensor with (row index,value) for each element in the given tensor
+            ``Tensor``: a 2-D tensor with (row index,value) for each index in the input tensor.
 
     """
     with ops.name_scope(name):
-        tensor = ops.convert_to_tensor(tensor, dtype=dtype)
-        shape = array_ops.shape(tensor)
+        tensor = to_tensor_cast(tensor, dtype)
+        if tensor.dtype != dtypes.int32 and tensor.dtype != dtypes.int64:
+            raise TypeError("Invalid tensor type: expected {t1} or {t2}, found {t3}".format(t1=dtypes.int32,
+                                                                                            t2=dtypes.int64,
+                                                                                            t3=tensor.dtype))
+        shape = tensor.get_shape().with_rank(2)
+        if shape.is_fully_defined():
+            shape = shape.as_list()
+        else:
+            shape = array_ops.shape(tensor)
 
-        rows = math_ops.range(math_ops.cast(shape[0], dtype))
+        rows = math_ops.range(math_ops.cast(shape[0], tensor.dtype))
         rows = array_ops.expand_dims(rows, 1)
 
         multiples = array_ops.stack([1, shape[1]])
@@ -95,88 +143,87 @@ def enum_row(tensor, name="enum_row", dtype=dtypes.int64):
         return enum
 
 
-def to_tensor_cast(x, dtype):
-    """ Converts to tensor and casts to a given type if possible
+def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
+    """Changes a given SparseTensor according to the updates specified in a SparseTensor.
+
+    Creates a new tensor where the values of the updates override the
+    values in the original tensor. The input tensors must have the same
+    ``dense_shape``.
 
     Args:
-        x: an input Tensor.
-        dtype: the type we which to cast the input tensor into
+        name: name for this op
+        sp_tensor: a ``SparseTensor`` we which to set some indices to given values
+        sp_updates: a ``SparseTensor`` with the indices to be changed and the respective values
 
     Returns:
-        a tensor of type dtype
+        ``SparseTensor``: a ``SparseTensor`` with the updated values.
     """
-    x = ops.convert_to_tensor(x)
-    if x.dtype != dtype:
-        x = math_ops.cast(x, dtype)
-    return x
+    with ops.name_scope(name):
+        if sp_updates.dtype != sp_tensor.dtype:
+            sp_updates = math_ops.cast(sp_updates, sp_tensor.dtype)
+
+        # 1 concat indices and establish final tensor shape
+        update_shape = sp_updates.values.get_shape()
+        zero_updates = SparseTensor(sp_updates.indices,
+                                    array_ops.zeros(update_shape, dtype=dtypes.float32),
+                                    sp_updates.dense_shape)
+        proto_result = sp_ops.sparse_add(sp_tensor, zero_updates)
+
+        # shape of resulting values tensor
+        proto_shape = array_ops.shape(proto_result.values)
+
+        # 2 get mask for input tensor
+        proto_ones = SparseTensor(proto_result.indices,
+                                  array_ops.ones(proto_shape, dtypes.int8),
+                                  proto_result.dense_shape)
+
+        # mask_ones = math_ops.scalar_mul(-1, array_ops.ones(update_shape))
+        sp_mask = SparseTensor(sp_updates.indices,
+                               array_ops.constant(-1, dtypes.int8, update_shape),
+                               sp_updates.dense_shape)
+
+        to_retain = sp_ops.sparse_add(proto_ones, sp_mask)
+        to_retain = math_ops.not_equal(to_retain.values, 0)
+
+        # get tensor with masked values
+        tensor_masked = sp_ops.sparse_retain(proto_result, to_retain)
+
+        # add values to entries previously set to 0
+        new_tensor = sp_ops.sparse_add(tensor_masked, sp_updates)
+        return new_tensor
 
 
-def sparse_put(sp_tensor, sp_updates):
-    """Sparse Put
-    Changes a given SparseTensor according to the updates specified in a SparseTensor
+def dense_put(tensor, sp_updates, name="dense_put"):
+    """ Changes a given dense ``Tensor`` according to the updates specified in a ``SparseTensor``.
 
+    Creates a new ``Tensor`` where the values of the updates override the
+    values in the original tensor. The tensor `shape` must be the same as the updates `dense_shape`.
 
     Args:
-        sp_tensor: a sparse tensor we which to set some indices to given values
-        sp_updates: a sparse tensor with the indices to be changed and the respective values
+        name: the name for this op.
+        tensor: a ``Tensor`` we want to change.
+        sp_updates: a ``SparseTensor`` with the indices to be changed and the respective values.
 
-    The resulting tensor will have the same values as the input tensor, except for the indices
-    overlapping with update tensor which will be getting the updates.
+    Returns:
+        ``Tensor``: a ``Tensor`` with the updated values.
     """
+    with ops.name_scope(name):
+        tensor = ops.convert_to_tensor(tensor)
+        if sp_updates.dtype != tensor.dtype:
+            sp_updates = math_ops.cast(sp_updates, tensor.dtype)
 
-    # 1 concat indices and establish final tensor shape
-    update_shape = sp_updates.values.get_shape()
-    zero_updates = SparseTensor(sp_updates.indices,
-                                array_ops.zeros(update_shape, dtype=dtypes.float32),
-                                sp_updates.dense_shape)
-    proto_result = sp_ops.sparse_add(sp_tensor, zero_updates)
+        markers = array_ops.ones(shape=array_ops.shape(sp_updates.values))
+        sparse_marker_tensor = SparseTensor(indices=sp_updates.indices, values=markers,
+                                            dense_shape=sp_updates.dense_shape)
+        dense_update_marker = sp_ops.sparse_tensor_to_dense(sparse_marker_tensor)
+        dense_updates = sp_ops.sparse_tensor_to_dense(sp_updates)
 
-    # shape of resulting values tensor
-    proto_shape = array_ops.shape(proto_result.values)
-
-    # 2 get mask for input tensor
-    proto_ones = SparseTensor(proto_result.indices,
-                              array_ops.ones(proto_shape, dtypes.int8),
-                              proto_result.dense_shape)
-
-    # mask_ones = math_ops.scalar_mul(-1, array_ops.ones(update_shape))
-    sp_mask = SparseTensor(sp_updates.indices,
-                           array_ops.constant(-1, dtypes.int8, update_shape),
-                           sp_updates.dense_shape)
-
-    to_retain = sp_ops.sparse_add(proto_ones, sp_mask)
-    to_retain = math_ops.not_equal(to_retain.values, 0)
-
-    # get tensor with masked values
-    tensor_masked = sp_ops.sparse_retain(proto_result, to_retain)
-
-    # add values to entries previously set to 0
-    return sp_ops.sparse_add(tensor_masked, sp_updates)
+        new_tensor = array_ops.where(math_ops.not_equal(dense_update_marker, 0),
+                                     dense_updates, tensor)
+        return new_tensor
 
 
-def dense_put(tensor, sp_updates):
-    """ Dense Put
-
-    Changes a given tensor according to the updates specified in a SparseTensor
-
-    Args:
-        tensor: a dense tensor we want to change
-        sp_updates: a sparse tensor with the indices to be changed and the respective values
-
-    The resulting tensor will have the same values as the input tensor, except for the indices
-    overlapping with update tensor which will be getting the updates.
-    """
-    tensor = ops.convert_to_tensor(tensor)
-    if sp_updates.dtype != tensor.dtype:
-        sp_updates = math_ops.cast(sp_updates, tensor.dtype)
-
-    markers = array_ops.ones(shape=array_ops.shape(sp_updates.values))
-    sparse_marker_tensor = SparseTensor(indices=sp_updates.indices, values=markers, dense_shape=sp_updates.dense_shape)
-    dense_update_marker = sp_ops.sparse_tensor_to_dense(sparse_marker_tensor)
-    dense_updates = sp_ops.sparse_tensor_to_dense(sp_updates)
-    return array_ops.where(math_ops.not_equal(dense_update_marker, 0),
-                           dense_updates,
-                           tensor)
+# TODO refactor continues here
 
 
 def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None):
@@ -199,6 +246,7 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None):
     values = array_ops.boolean_mask(drop_values, not_zero)
     indices = array_ops.boolean_mask(sp_tensor.indices, not_zero)
     return SparseTensor(indices, values, dense_shape)
+
 
 """
 TODO this caused a problem with the constant because the shape of the input was unknown
@@ -293,7 +341,7 @@ def sp_indices_from_sp_values(sp_values):
 
     """
     # new sparse indices after put
-    _, flat_indices = array_ops.unstack(sp_values.indices,num=2, axis=-1)
+    _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
     return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
 
@@ -312,7 +360,7 @@ def flat_to_sparse_indices(indices, dense_shape):
     indices = ops.convert_to_tensor(indices)
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
-    sp_indices = enum_row(indices, dtype=dtypes.int64)
+    sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
 
     if dense_shape[0] is None:
         dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
@@ -337,7 +385,7 @@ def flat_indices_to_sparse_tensor(indices, dense_shape, default_value=1, dtype=d
     indices = ops.convert_to_tensor(indices)
     if indices.dtype != dtypes.int64:
         indices = math_ops.cast(indices, dtypes.int64)
-    sp_indices = enum_row(indices, dtype=dtypes.int64)
+    sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
 
     dense_shape = TensorShape(dense_shape)
     dense_shape = complete_shape(indices, dense_shape, dtypes.int64)
@@ -382,15 +430,8 @@ def to_sparse(tensor):
     return sp_tensor
 
 
-""" Prepare TensorFlow Inputs
-Utilities to prepare inputs for a TensorFlow graph
-    e.g. create sparse tensor values, etc
-"""
-
-
 def index_list_to_sparse(indices, dense_shape):
-    """
-    Converts a list of lists of indexes to a sparse tensor value with the given shape
+    """ Converts a python or numpy array of indexes to a ``SparseTensorValue``.
 
     Example:
 
@@ -407,8 +448,9 @@ def index_list_to_sparse(indices, dense_shape):
     this can be then fed to a ``tf.sparse_placeholder``
 
     Args:
-        indices: python list of int indexes
-        dense_shape: a python list or tuple with the shape for the ``SparseTensorValue``, typically ``[BATCH_SIZE, MAX_INDEX]``.
+        indices: a 2-D list or array of indices
+        dense_shape: a python list or tuple with the shape for the ``SparseTensorValue``,
+                     typically ``[BATCH_SIZE, MAX_INDEX]``.
 
     Raises:
         ``ValueError`` exception if any index ``i`` in the list ``value >= shape[1]``

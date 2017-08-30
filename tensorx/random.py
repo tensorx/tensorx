@@ -5,7 +5,7 @@ from tensorflow.python.ops import check_ops as check
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.transform import enum_row, empty_sparse_tensor
+from tensorx.transform import batch_to_matrix_indices, empty_sparse_tensor
 
 
 def _shape_tensor(shape, dtype=dtypes.int32):
@@ -107,7 +107,7 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
     else:
         flat_indices = sample(range_max=dense_shape[1], num_sampled=num_noise, batch_size=dense_shape[0], unique=True,
                               seed=seed)
-        indices = enum_row(flat_indices, dtype=dtypes.int64)
+        indices = batch_to_matrix_indices(flat_indices, dtype=dtypes.int64)
 
         value_shape = tensor_shape.as_shape([dense_shape[0] * num_noise])
 
@@ -176,7 +176,7 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
             num_mask_values = num_corrupted
 
         samples = sample(dense_shape[1], num_mask_values, dense_shape[0], unique=True, seed=seed)
-        indices = enum_row(samples, dtype=dtypes.int64)
+        indices = batch_to_matrix_indices(samples, dtype=dtypes.int64)
 
         value_tensors = []
         for i in range(num_values):

@@ -13,7 +13,7 @@ from tensorflow.python.ops.nn import top_k
 from tensorflow.python.ops import nn
 from tensorflow.python.ops import clip_ops
 
-from tensorx.transform import to_tensor_cast
+from tensorx.utils import to_tensor_cast
 
 
 def identity(x):
