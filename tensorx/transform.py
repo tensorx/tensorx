@@ -1,5 +1,5 @@
 """ TensorFlow tensor Transformation
-Utilities to convert between and combine tensors
+Utilities to create, convert between and combine tensors
 """
 
 from tensorflow.python.framework import dtypes
@@ -16,7 +16,7 @@ import numpy as np
 from tensorx.utils import to_tensor_cast
 
 
-def empty_sparse_tensor(dense_shape, dtype=dtypes.float32):
+def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor"):
     """ Creates an empty SparseTensor.
 
     Note:
@@ -38,12 +38,13 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32):
     Args:
         dense_shape: a 1-D tensor, python list, or numpy array with the output shape for the sparse tensor
         dtype: the dtype of the values for the empty SparseTensor
+        name: a name for this operation (optional)
 
     Returns:
         ``SparseTensor``: an empty sparse tensor with a given shape
 
     """
-    with ops.name_scope("empty_sparse_tensor"):
+    with ops.name_scope(name):
         dense_shape = ops.convert_to_tensor(dense_shape, name="dense_shape", dtype=dtypes.int64)
 
         index_shape = dense_shape.get_shape().with_rank(1)
@@ -54,7 +55,7 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32):
 
 
 def pairs(tensor1, tensor2, name="pairs"):
-    """Pairwise combination of elements from the two tensors
+    """Pairwise combination of elements from the two tensors.
 
     Example::
         t1 = [[0],[1]]
@@ -64,9 +65,9 @@ def pairs(tensor1, tensor2, name="pairs"):
         tf.reduce_all(tf.equal(pairs(t1,t2),t12))
 
     Args:
-        name: name for this op
         tensor1(``Tensor``): a tensor, python list, or numpy array
         tensor2(``Tensor``): a tensor, python list, or numpy array
+        name: name for this operation (optional)
 
     Returns:
         ``Tensor``: a ``Tensor`` of rank 2
@@ -151,9 +152,9 @@ def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
     ``dense_shape``.
 
     Args:
-        name: name for this op
         sp_tensor: a ``SparseTensor`` we which to set some indices to given values
         sp_updates: a ``SparseTensor`` with the indices to be changed and the respective values
+        name: name for this operation (optional)
 
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the updated values.
@@ -200,9 +201,9 @@ def dense_put(tensor, sp_updates, name="dense_put"):
     values in the original tensor. The tensor `shape` must be the same as the updates `dense_shape`.
 
     Args:
-        name: the name for this op.
         tensor: a ``Tensor`` we want to change.
         sp_updates: a ``SparseTensor`` with the indices to be changed and the respective values.
+        name: the name for this operation (optional).
 
     Returns:
         ``Tensor``: a ``Tensor`` with the updated values.
@@ -223,37 +224,40 @@ def dense_put(tensor, sp_updates, name="dense_put"):
         return new_tensor
 
 
-# TODO refactor continues here
+def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None, name="sparse_dropout"):
+    """Performs a dropout on a ``SparseTensor``.
 
+    With probability `keep_prob`, outputs the input element scaled up by
+    `1 / keep_prob`, otherwise outputs `0`.  The scaling is so that the expected
+    sum is unchanged.
 
-def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None):
-    """Performs a dropout computation on sparse tensors
+    Args:
+        sp_tensor: a ``SparseTensor`` on which the dropout is performed.
+        keep_prob: A scalar `Tensor` with the same type as x. The probability
+        that each element is kept.
+        seed: A Python integer. Used to create random seeds. (See `TensorFlow` documentation
+        for ``tf.set_random_seed`` for behavior.)
+        name: A name for this operation (optional).
 
-    Implementation Note:
-        if sp_indices comes from a sparse_placeholder, and the batch_size is unknown
-        the values in this sparse tensor have a dynamic shape that is only computed once
-        the values are fed, this means we have to supply unstack with num, otherwise this cannot be inferred
     """
-    dense_shape = sp_tensor.dense_shape
+    with ops.name_scope(name):
+        dense_shape = sp_tensor.dense_shape
 
-    drop_values = dropout(sp_tensor.values, keep_prob, seed=seed)
-    not_zero = math_ops.not_equal(drop_values, 0)
+        drop_values = dropout(sp_tensor.values, keep_prob, seed=seed)
+        not_zero = math_ops.not_equal(drop_values, 0)
 
-    # new indices (after dropout)
-    # not_zero_indices = array_ops.where(not_zero)
-    # indices = array_ops.gather_nd(sp_indices.indices, not_zero_indices)
+        # new indices (after dropout)
+        # not_zero_indices = array_ops.where(not_zero)
+        # indices = array_ops.gather_nd(sp_indices.indices, not_zero_indices)
 
-    values = array_ops.boolean_mask(drop_values, not_zero)
-    indices = array_ops.boolean_mask(sp_tensor.indices, not_zero)
-    return SparseTensor(indices, values, dense_shape)
+        values = array_ops.boolean_mask(drop_values, not_zero)
+        indices = array_ops.boolean_mask(sp_tensor.indices, not_zero)
+
+        new_tensor = SparseTensor(indices, values, dense_shape)
+        return new_tensor
 
 
-"""
-TODO this caused a problem with the constant because the shape of the input was unknown
-in these cases I can use broadcasting or fill to create a tensor with dynamic shape
-I need to test all of these operations with inputs of unknown shape, meaning the shape will be dynamic
-another option is to use fill
-"""
+# TODO refactor continues here
 
 
 def default_sp_values(sp_indices, dtype=dtypes.float32):
