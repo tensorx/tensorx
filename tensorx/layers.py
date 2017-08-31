@@ -125,7 +125,7 @@ class Input(Layer):
 
             indices_shape = util.complete_shape(self.placeholder)
             dense_shape = [indices_shape[0], self.shape[1]]
-            self.tensor = transform.flat_indices_to_sparse_tensor(self.placeholder, dense_shape, dtype=self.dtype)
+            self.tensor = transform.sparse_one_hot(self.placeholder, dense_shape, dtype=self.dtype)
 
 
 class SparseInput(Layer):

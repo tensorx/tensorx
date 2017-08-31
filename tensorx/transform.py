@@ -275,6 +275,39 @@ def sparse_ones(indices, dense_shape, dtype=dtypes.float32):
     return SparseTensor(indices, values, dense_shape)
 
 
+def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
+    """Transforms a batch of indices to a one-hot encoding ``SparseTensor``.
+
+        Example::
+
+            indices = [[0,1,4],
+                       [1,2,6]]
+
+            dense_shape = [2,10]
+
+            sp_one_hot = sparse_one_hot(indices,dense_shape)
+
+            expected = SparseTensor(indices=[[0,0],[0,1],[0,4],[1,1],[1,2],[1,6]],
+                                    values=[1,1,1,1,1,1],
+                                    dense_shape=[2,10])
+
+        Args:
+            indices: a dense ``Tensor`` with the indices to be active for each sample (row)
+            dense_shape: a tensor for the `dense shape` for the one hot encoding matrix.
+            dtype: the type for the output values.
+
+        Returns:
+            `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
+    """
+    flat_indices = to_tensor_cast(indices, dtypes.int64)
+    indices = batch_to_matrix_indices(flat_indices, dtype=dtypes.int64)
+
+    return sparse_ones(indices, dense_shape, dtype)
+
+
+# TODO refactor continues here
+
+
 def batch_indices_to_dense(indices, dense_shape):
     """Converts a batch of flat indexes to a dense tensor.
 
@@ -292,9 +325,6 @@ def batch_indices_to_dense(indices, dense_shape):
     one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
 
     return one_hot_dense
-
-
-# TODO refactor continues here
 
 
 def sp_indices_from_sp_values(sp_values):
@@ -316,7 +346,7 @@ def sp_indices_from_sp_values(sp_values):
     return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
 
-def flat_to_sparse_indices(indices, dense_shape):
+def batch_indices_to_sparse_indices(indices, dense_shape):
     """Transforms a batch of flat indices to a sparse tensor with the same indices
 
     Example:
@@ -334,26 +364,6 @@ def flat_to_sparse_indices(indices, dense_shape):
     sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
 
     return SparseTensor(sp_indices, array_ops.reshape(indices, shape=[-1]), dense_shape)
-
-
-def flat_indices_to_sparse_tensor(indices, dense_shape, dtype=dtypes.float32):
-    """Transforms a batch of indices to a one-hot encoding ``SparseTensor``.
-
-        Example:
-            [[0,1],[1,2]] -> SparseTensor(indices=[[0,0],[0,1],[1,1],[1,2]], values=[1,1,1,1], dense_shape=dense_shape)
-        Args:
-            indices: a dense ``Tensor`` with the indices to be active for each sample (row)
-            dense_shape: a list or tensor with the desired dense shape for the flat indices
-
-        Returns:
-            a `SparseTensor`
-    """
-    flat_indices = to_tensor_cast(indices, dtypes.int64)
-    indices = batch_to_matrix_indices(flat_indices, dtype=dtypes.int64)
-
-    new_tensor = sparse_ones(indices, dense_shape, dtype)
-
-    return new_tensor
 
 
 def to_sparse(tensor, name="to_sparse"):
