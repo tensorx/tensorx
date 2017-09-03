@@ -2,7 +2,7 @@ from unittest import TestCase
 import tensorflow as tf
 import numpy as np
 from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise, SaltPepperNoise
-from tensorx.transform import index_list_to_sparse
+from tensorx.transform import sparse_tensor_value_one_hot
 import math
 
 
@@ -80,7 +80,7 @@ class TestLayers(TestCase):
         input1 = np.zeros([1, dim])
         input1[0, index] = 1
         input2 = [[index]]
-        input3 = index_list_to_sparse(input2, [1, dim])
+        input3 = sparse_tensor_value_one_hot(input2, [1, dim])
         self.assertIsInstance(input3, tf.SparseTensorValue)
 
         # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
@@ -105,7 +105,7 @@ class TestLayers(TestCase):
         input1 = np.zeros([1, dim])
         input1[0, index] = 1
         input2 = [[index]]
-        input3 = index_list_to_sparse(input2, [1, dim])
+        input3 = sparse_tensor_value_one_hot(input2, [1, dim])
 
         s1 = ToSparse(x1)
         s2 = ToSparse(x2)
@@ -135,7 +135,7 @@ class TestLayers(TestCase):
         x2 = SparseInput(10)
 
         data1 = [[index]]
-        data2 = index_list_to_sparse(data1, [1, dim])
+        data2 = sparse_tensor_value_one_hot(data1, [1, dim])
 
         expected = np.zeros([1, dim])
         expected[0, index] = 1
@@ -199,7 +199,7 @@ class TestLayers(TestCase):
         np.testing.assert_array_equal(after_input.indices, after_input.indices)
 
         # TEST DROPOUT ON SPARSE INPUT
-        sparse_data = index_list_to_sparse(data, [1, dim])
+        sparse_data = sparse_tensor_value_one_hot(data, [1, dim])
         sparse_input = SparseInput(dim)
         dropout = Dropout(sparse_input, keep_prob=keep_prob)
 
@@ -243,7 +243,7 @@ class TestLayers(TestCase):
 
         sparse_input = SparseInput(dim)
         noise_layer = GaussianNoise(sparse_input)
-        sparse_data = index_list_to_sparse(flat_indices, [1, dim])
+        sparse_data = sparse_tensor_value_one_hot(flat_indices, [1, dim])
         result = noise_layer.tensor.eval({sparse_input.placeholder: sparse_data})
         mean_result = np.mean(result)
         self.assertAlmostEqual(mean_data, mean_result, delta=0.1)

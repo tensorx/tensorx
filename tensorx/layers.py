@@ -194,7 +194,7 @@ class Linear(Layer):
             # y = xW
             if layer.is_sparse():
                 sp_values = layer.tensor
-                sp_indices = transform.sp_indices_from_sp_values(sp_values)
+                sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
 
                 lookup_sum = embedding_lookup_sparse(params=self.weights,
                                                      sp_ids=sp_indices,

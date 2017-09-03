@@ -121,7 +121,7 @@ class TestTransform(unittest.TestCase):
 
         values = tf.gather_nd(c, indices)
 
-        sp_indices = transform.sp_indices_from_sp_values(sparse_tensor)
+        sp_indices = transform.sp_indices_from_sp_tensor(sparse_tensor)
         np.testing.assert_array_equal(sparse_tensor.indices.eval(), indices.eval())
 
         np.testing.assert_array_equal(sp_indices.values.eval(), flat_indices.eval())

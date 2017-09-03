@@ -354,7 +354,7 @@ def sp_indices_from_sp_tensor(sp_values):
 
 
 def to_sparse(tensor, name="to_sparse"):
-    """ Returns a sparse representation for a given tensor
+    """ Returns a ``SparseTensor` for a`given dense ``Tensor``.
 
     Example:
         For a dense ``Tensor`` such as::
@@ -387,8 +387,8 @@ def to_sparse(tensor, name="to_sparse"):
     return sp_tensor
 
 
-def index_list_to_sparse(indices, dense_shape):
-    """ Converts a python or numpy array of indexes to a ``SparseTensorValue``.
+def sparse_tensor_value_one_hot(indices, dense_shape):
+    """ Converts a python or numpy array of indices to a ``SparseTensorValue``.
 
     Example:
 
