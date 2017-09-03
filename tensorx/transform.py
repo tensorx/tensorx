@@ -332,46 +332,25 @@ def dense_one_hot(indices, dense_shape, dtype=dtypes.float32):
     return one_hot_dense
 
 
-# TODO refactor continues here
-
-
-def sp_indices_from_sp_values(sp_values):
-    """ Returns the a SparseTensor with the indices that go with the given sparse value tensor
+def sp_indices_from_sp_tensor(sp_values):
+    """ Returns the a ``SparseTensor`` with the indices for the active values on a given ``SparseTensor``.
 
     Use Case:
-        sometimes we might want to modify a sparse tensor, but to use the new values with a sparse lookup, we need
-        new sparse indices
+        To be used with ``embedding_lookup_sparse`` when we need two ``SparseTensor``s: one with the indices and
+        one with the values.
 
     Args:
-        sp_values: a 2-D matrix with the sparse value tensor
+        sp_values: a ``SparseTensor`` for which we extract the active indices.
 
     Returns:
-        a SparseTensor with the indices that go with the given sparse values tensor
+        ``SparseTensor`` a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor``
 
     """
-    # new sparse indices after put
     _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
     return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
 
-def batch_indices_to_sparse_indices(indices, dense_shape):
-    """Transforms a batch of flat indices to a sparse tensor with the same indices
-
-    Example:
-        [[0,1],[1,2]] -> SparseTensor(indices=[[0,0],[0,1],[1,1],[1,2]], values=[0,1,1,2], dense_shape=dense_shape)
-    Args:
-        indices:
-        dense_shape: a list or tensor with the desired dense shape for the flat indices
-
-    Returns:
-        a `SparseTensor`
-    """
-    indices = to_tensor_cast(indices, dtypes.int64)
-    dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
-
-    sp_indices = batch_to_matrix_indices(indices, dtype=dtypes.int64)
-
-    return SparseTensor(sp_indices, array_ops.reshape(indices, shape=[-1]), dense_shape)
+# TODO refactor continues here
 
 
 def to_sparse(tensor, name="to_sparse"):
