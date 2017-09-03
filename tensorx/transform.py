@@ -293,7 +293,7 @@ def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
 
         Args:
             indices: a dense ``Tensor`` with the indices to be active for each sample (row)
-            dense_shape: a tensor for the `dense shape` for the one hot encoding matrix.
+            dense_shape: a list, array or `Tensor` with the shape for output dense one_hot encoding tensor.
             dtype: the type for the output values.
 
         Returns:
@@ -305,26 +305,34 @@ def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
     return sparse_ones(indices, dense_shape, dtype)
 
 
-# TODO refactor continues here
+def dense_one_hot(indices, dense_shape, dtype=dtypes.float32):
+    """Transforms a batch of indices to a dense ``Tensor`` by adding the `one-hot` encoding for each index.
 
+    Example::
 
-def batch_indices_to_dense(indices, dense_shape):
-    """Converts a batch of flat indexes to a dense tensor.
+        indices = [[0],[1]]
+        dense_shape = [2,2]
+
+        dense_one_hot = [[1,0],[0,1]]
 
     Args:
-        indices: a batch of indices
-        dense_shape: a list, array or `Tensor` with the desired shape for the conversion.
+        indices: a dense ``Tensor`` with the active indices for each sample (row).
+        dense_shape: a list, array or `Tensor` with the shape for the output dense one_hot encoding tensor.
+        dtype: the type for the output tensor.
 
     Returns:
-        ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices on each row
+        ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices.
     """
     indices = to_tensor_cast(indices, dtypes.int64)
     dense_shape = ops.convert_to_tensor(dense_shape)
 
-    encoding = array_ops.one_hot(indices, depth=dense_shape[1])
+    encoding = array_ops.one_hot(indices, depth=dense_shape[1], dtype=dtype)
     one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
 
     return one_hot_dense
+
+
+# TODO refactor continues here
 
 
 def sp_indices_from_sp_values(sp_values):

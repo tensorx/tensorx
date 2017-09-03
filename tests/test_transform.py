@@ -43,7 +43,7 @@ class TestTransform(unittest.TestCase):
         data = [[0, 1, 3], [1, 2, 3]]
         expected = [[0, 0], [0, 1], [0, 3], [1, 1], [1, 2], [1, 3]]
 
-        result = transform.batch_to_matrix_indices(ph,dtype=tf.int64)
+        result = transform.batch_to_matrix_indices(ph, dtype=tf.int64)
         result = result.eval({ph: data})
         np.testing.assert_array_equal(expected, result)
 
@@ -95,16 +95,16 @@ class TestTransform(unittest.TestCase):
 
     def test_fill_sp_ones(self):
         indices = [[0, 0], [1, 0]]
-        dense_shape = [2,2]
-        expected = tf.SparseTensorValue(indices=indices, values=[1,1], dense_shape=dense_shape)
+        dense_shape = [2, 2]
+        expected = tf.SparseTensorValue(indices=indices, values=[1, 1], dense_shape=dense_shape)
 
-        fill = transform.sparse_ones(indices,dense_shape,dtype=tf.float32)
+        fill = transform.sparse_ones(indices, dense_shape, dtype=tf.float32)
 
         fill_dense = tf.sparse_tensor_to_dense(fill)
         expected_dense = tf.sparse_tensor_to_dense(expected)
-        expected_dense = tf.cast(expected_dense,tf.float32)
+        expected_dense = tf.cast(expected_dense, tf.float32)
 
-        np.testing.assert_array_equal(fill_dense.eval(),expected_dense.eval())
+        np.testing.assert_array_equal(fill_dense.eval(), expected_dense.eval())
 
     def test_to_sparse(self):
         c = [[1, 0], [2, 3]]
@@ -136,6 +136,25 @@ class TestTransform(unittest.TestCase):
 
         dense = tf.sparse_tensor_to_dense(sparse_tensor)
         np.testing.assert_array_equal(dense.eval(), np.zeros(shape))
+
+    def test_profile_one_hot_conversions(self):
+        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
+        data = [[0, 1, 3],
+                [1, 2, 3]]
+
+        dense_shape = [2, 4]
+
+        expected_dense = [[1, 1, 0, 1],
+                          [0, 1, 1, 1]]
+
+        sp_one_hot = transform.sparse_one_hot(ph, dense_shape)
+        dense_one_hot = transform.dense_one_hot(ph, dense_shape)
+
+        dense1 = self.ss.run(tf.sparse_tensor_to_dense(sp_one_hot), feed_dict={ph: data})
+        dense2 = self.ss.run(dense_one_hot, feed_dict={ph: data})
+
+        np.testing.assert_array_equal(dense1, expected_dense)
+        np.testing.assert_array_equal(dense1, dense2)
 
 
 if __name__ == '__main__':
