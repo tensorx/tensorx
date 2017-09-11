@@ -1,6 +1,3 @@
-tensorx
-=======
-
 .. toctree::
    :maxdepth: 4
 

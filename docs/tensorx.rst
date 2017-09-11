@@ -1,51 +1,48 @@
-tensorx package
-===============
+tx
+==
 
-Submodules
-----------
-
-tensorx\.activation module
---------------------------
+tx\.activation
+--------------
 
 .. automodule:: tensorx.activation
     :members:
     :undoc-members:
     :show-inheritance:
 
-tensorx\.init module
---------------------
+tx\.init
+--------
 
 .. automodule:: tensorx.init
     :members:
     :undoc-members:
     :show-inheritance:
 
-tensorx\.layers module
-----------------------
+tx\.layers
+----------
 
 .. automodule:: tensorx.layers
     :members:
     :undoc-members:
     :show-inheritance:
 
-tensorx\.loss module
---------------------
+tx\.loss
+--------
 
 .. automodule:: tensorx.loss
     :members:
     :undoc-members:
     :show-inheritance:
 
-tensorx\.random module
-----------------------
+tx\.random
+----------
 
 .. automodule:: tensorx.random
     :members:
     :undoc-members:
     :show-inheritance:
 
-tensorx\.transform module
--------------------------
+tx\.transform
+-------------
 
 .. automodule:: tensorx.transform
     :members:
@@ -53,10 +50,3 @@ tensorx\.transform module
     :show-inheritance:
 
 
-Module contents
----------------
-
-.. automodule:: tensorx
-    :members:
-    :undoc-members:
-    :show-inheritance:

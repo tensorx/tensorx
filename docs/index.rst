@@ -16,9 +16,10 @@
 
 .. toctree::
    :caption: API 
-   :maxdepth: 1
+   :maxdepth: 2
+   :hidden:
    
-   modules
+   api
 
 ..
         don't need these indices
