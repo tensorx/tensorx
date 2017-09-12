@@ -1,8 +1,6 @@
 """ Activation Functions
 
-To be used by the layers, some of these are just forward methods from the TensorFlow ops, others add some parameters
-to existing TensorFlow ops. (Like the ability to modify the threshold of a ReLU. I forwarded only the most common
-activations.
+To be used by :py:class:`~tensorx.layers.Activation` or with any other :py:class:`~tensorflow.Tensor`.
 """
 
 from tensorflow.python.framework import dtypes

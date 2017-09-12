@@ -1,5 +1,6 @@
 """ TensorFlow tensor Transformation
-Utilities to create, convert between and combine tensors
+
+Utilities to create, convert between, and combine tensors
 """
 
 from tensorflow.python.framework import dtypes
@@ -58,6 +59,7 @@ def pairs(tensor1, tensor2, name="pairs"):
     """Pairwise combination of elements from the two tensors.
 
     Example::
+
         t1 = [[0],[1]]
         t2 = [2,3,4]
         t12 = [[0,2],[1,2],[0,3],[1,3],[0,4],[1,4]]
@@ -333,30 +335,27 @@ def dense_one_hot(indices, dense_shape, dtype=dtypes.float32):
 
 
 def sp_indices_from_sp_tensor(sp_values):
-    """ Returns the a ``SparseTensor`` with the indices for the active values on a given ``SparseTensor``.
+    """ Returns the a ``SparseTensor`` with the indices for the active values on a given ``SparseTensor`` .
 
     Use Case:
-        To be used with ``embedding_lookup_sparse`` when we need two ``SparseTensor``s: one with the indices and
+        To be used with ``embedding_lookup_sparse`` when we need two ``SparseTensor`` : one with the indices and
         one with the values.
 
     Args:
         sp_values: a ``SparseTensor`` for which we extract the active indices.
 
     Returns:
-        ``SparseTensor`` a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor``
-
+        ``SparseTensor``: a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor`` .
     """
     _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
     return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
-
-
-# TODO refactor continues here
 
 
 def to_sparse(tensor, name="to_sparse"):
     """ Returns a ``SparseTensor` for a`given dense ``Tensor``.
 
     Example:
+
         For a dense ``Tensor`` such as::
 
             tensor = [[1,0],

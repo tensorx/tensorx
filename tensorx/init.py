@@ -1,7 +1,6 @@
-""" TensorX Initialisation Functions
+""" Initialisation Functions
 
-Provides functions that return weight initialisation tensors for different use cases.
-
+Functions that return weight initialisation tensors for different use cases.
 """
 
 from tensorflow.python.framework import dtypes as dt
@@ -21,7 +20,7 @@ def random_uniform(shape, maxval=1, minval=-1, dtype=dt.float32):
         dtype: TensorFlow data type
 
     Returns:
-        Tensor: a TensorFlow tensor used to initialise variable
+        ``Tensor``: a TensorFlow ``Tensor`` used to initialise a ``Variable``.
     """
     return random_ops.random_uniform(shape=shape, minval=minval, maxval=maxval, dtype=dtype)
 

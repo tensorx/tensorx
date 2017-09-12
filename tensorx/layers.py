@@ -1,4 +1,4 @@
-""" Neural Network Layers.
+""" Neural Network Layers
 
 All layers contain a certain number of units, its shape, name and a tensor member
 which gives us a handle for a TensorFlow tensor that can be evaluated.

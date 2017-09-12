@@ -20,18 +20,17 @@ def to_tensor_cast(x, dtype):
 
 
 def complete_shape(tensor, dtype=None):
-    """ Returns the complete shape of a tensor if not
-    fully defined.
+    """ Returns the complete shape of a tensor if not fully defined. If
+    dtype is given, casts the shape to that dtype.
 
-    Note: dtype can only be int32 or int64
+    Note: dtype can only be int32 or int64. int64 shapes are needed to create a ``SparseTensor`` .
 
     Args:
         tensor: a ``Tensor`` whose shape we wish to know
         dtype: the expected output shape type
 
     Returns:
-        ``Tensor``: a tensor with the complete shape
-        of the given tensor.
+        ``Tensor``: a ``Tensor`` with the complete shape of a tiven ``Tensor``.
     """
     shape = tensor.get_shape()
     if shape.is_fully_defined():

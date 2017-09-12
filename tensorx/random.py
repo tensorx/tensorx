@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import array_ops, random_ops, math_ops, sparse_ops
-from tensorflow.python.ops import check_ops as check
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
