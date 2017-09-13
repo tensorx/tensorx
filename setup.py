@@ -13,6 +13,7 @@ setup(
     description='TensorX is a minimalistic utility library to '
                 'build neural network models in TensorFlow',
 
+    python_requires='>=3.5',
     install_requires=[
         'tensorflow >= 1.3.0',
         'numpy >= 1.13'
