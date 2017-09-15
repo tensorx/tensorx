@@ -25,6 +25,14 @@ tx\.layers
     :undoc-members:
     :show-inheritance:
 
+tx\.model
+----------
+
+.. automodule:: tensorx.model
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 tx\.loss
 --------
 
