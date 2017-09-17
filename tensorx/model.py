@@ -5,7 +5,18 @@ Provides utilities to put neural network models together. Also facilitates model
 """
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops.variables import global_variables_initializer as global_init
 import tensorflow as tf
+
+
+def _default_session():
+    session = ops.get_default_session()
+    if session is None:
+        raise ValueError("Cannot execute operation using `run()`: No default "
+                         "session is registered. Use `with "
+                         "sess.as_default():` or pass an explicit session to "
+                         "`run(session=sess)`")
+    return session
 
 
 class Model:
@@ -23,12 +34,21 @@ class Model:
         self.inputs = inputs
         self.outputs = outputs
 
+        self.var_init = False
+
         # properties for training
         self.optimiser = None
         self.losses = None
         self.targets = None
         self.loss_weights = 1.0
         self.joint_loss = None
+
+    def init_vars(self, session=None):
+        if session is None:
+            session = _default_session()
+
+        session.run(global_init())
+        self.var_init = True
 
     def run(self, *data, session=None):
         """ run the model
@@ -52,7 +72,10 @@ class Model:
         if n_data != n_inputs:
             raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
         if session is None:
-            session = ops.get_default_session()
+            session = _default_session()
+
+        if not self.var_init:
+            self.init_vars(session)
 
         feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
         output_tensors = [output.tensor for output in self.outputs]
@@ -100,11 +123,12 @@ class Model:
             n_epochs: number of times the training op is run on the model
             session: a tensorflow session
 
-        Returns:
-
         """
         if session is None:
-            session = ops.get_default_session()
+            session = _default_session()
+
+        if not self.var_init:
+            self.init_vars(session)
 
         train_step = self.optimiser.minimize(self.joint_loss)
 

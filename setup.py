@@ -2,6 +2,11 @@ from distutils.core import setup
 
 _VERSION = '0.2'
 
+install_requires = [
+    'tensorflow >= 1.3.0',
+    'numpy >= 1.13'
+]
+
 setup(
     name='tensorx',
     version=_VERSION,
@@ -14,8 +19,5 @@ setup(
                 'build neural network models in TensorFlow',
 
     python_requires='>=3.5',
-    install_requires=[
-        'tensorflow >= 1.3.0',
-        'numpy >= 1.13'
-    ]
+    install_requires=install_requires
 )

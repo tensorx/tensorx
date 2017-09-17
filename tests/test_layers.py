@@ -1,4 +1,4 @@
-from unittest import TestCase
+import unittest
 import tensorflow as tf
 import numpy as np
 from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise, SaltPepperNoise
@@ -6,7 +6,7 @@ from tensorx.transform import sparse_tensor_value_one_hot
 import math
 
 
-class TestLayers(TestCase):
+class TestLayers(unittest.TestCase):
     # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
     def setUp(self):
         self.ss = tf.InteractiveSession()
@@ -260,3 +260,7 @@ class TestLayers(TestCase):
         result = noise_layer.tensor.eval({dense_input.placeholder: dense_data})
         mean_result = np.mean(result)
         self.assertEqual(mean_result, 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

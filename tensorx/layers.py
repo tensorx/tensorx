@@ -25,7 +25,7 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import check_ops
 
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import variable_scope as vscope
+from tensorflow.python.ops import variable_scope
 from tensorflow.python.framework.ops import name_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
@@ -184,12 +184,12 @@ class Linear(Layer):
             if s != n_units:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
-        with vscope.variable_scope(name):
+        with name_scope(name) as scope, variable_scope.variable_scope(scope):
             # init weights
             if weights is not None:
                 self.weights = weights
             else:
-                self.weights = vscope.get_variable("w", initializer=init(self.shape))
+                self.weights = variable_scope.get_variable("w", initializer=init(self.shape))
 
             # y = xW
             if layer.is_sparse():
@@ -375,7 +375,8 @@ class Activation(Layer):
     def __init__(self, layer, fn=array_ops.identity):
         super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
         self.fn = fn
-        self.output = self.fn(layer.tensor, name=self.name)
+        with name_scope(self.name):
+            self.tensor = self.fn(layer.tensor)
 
 
 class Bias(Layer):
@@ -434,4 +435,4 @@ class Merge(Layer):
                 for i in range(len(layers)):
                     layers[i] = math_ops.scalar_mul(weights[i], layers[i].tensor)
 
-            self.output = merge_fn(layers)
+            self.tensor = merge_fn(layers)
