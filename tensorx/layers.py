@@ -19,7 +19,7 @@ Types of layers:
     activation: adds an activation function to a given layer with its own scope
 """
 
-import numbers
+import functools
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import check_ops
@@ -33,16 +33,35 @@ from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.init import random_uniform
+from tensorx.init import random_uniform, zero_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal
 import tensorx.transform as transform
 import tensorx.utils as util
 
 
+def _as_list(elems):
+    """ returns a list from the given element(s)
+
+    Args:
+        elems: one or more objects
+
+    Returns:
+        a list with the elements in elems
+    """
+    if elems is None:
+        elems = []
+    elif isinstance(elems, (list, tuple)):
+        elems = list(elems)
+    else:
+        elems = [elems]
+    return elems
+
+
 class Layer:
-    def __init__(self, n_units, shape=None, dtype=dtypes.float32, name="layer"):
+    def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
         """
         Args:
+            input_layers: a single layer,a list of input layers, or None if no inputs are required
             n_units: dimension of input vector (dimension of columns in case batch_size != None
             shape: [batch size, input dimension]
             dtype: expected input TensorFlow data type
@@ -51,6 +70,7 @@ class Layer:
         self.n_units = n_units
         self.name = name
         self.dtype = dtype
+        self.input_layers = _as_list(input_layers)
 
         if shape is None:
             self.shape = [None, n_units]
@@ -114,7 +134,7 @@ class Input(Layer):
             raise ValueError("n_active must be < n_units")
 
         shape = [batch_size, n_units]
-        super().__init__(n_units, shape, dtype, name)
+        super().__init__(None, n_units, shape, dtype, name)
 
         # if n_active is not None convert to SparseTensor
         if n_active is None:
@@ -149,7 +169,7 @@ class SparseInput(Layer):
             name: name for the layer
         """
         shape = [batch_size, n_units]
-        super().__init__(n_units, shape, dtype, name)
+        super().__init__(None, n_units, shape, dtype, name)
 
         with ops.name_scope(name):
             self.placeholder = array_ops.sparse_placeholder(dtype, self.shape, name)
@@ -174,9 +194,7 @@ class Linear(Layer):
                  name="linear"):
 
         shape = [layer.shape[1], n_units]
-        super().__init__(n_units, shape=shape,
-                         dtype=dtype,
-                         name=name)
+        super().__init__(layer, n_units, shape, dtype, name)
 
         # if weights are passed, check that their shape matches the layer shape
         if weights is not None:
@@ -207,7 +225,7 @@ class Linear(Layer):
 
             # y = xW + [b]
             if bias:
-                self.bias = variable_scope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
+                self.bias = variable_scope.get_variable("b", shape=[self.n_units], initializer=zero_init())
                 self.tensor = bias_add(self.tensor, self.bias, name="a")
 
 
@@ -218,7 +236,7 @@ class ToSparse(Layer):
     """
 
     def __init__(self, layer):
-        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_sparse")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sparse")
 
         with name_scope(self.name):
             if layer.is_sparse():
@@ -233,7 +251,7 @@ class ToDense(Layer):
     """
 
     def __init__(self, layer):
-        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_dense")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dense")
 
         with name_scope(self.name):
             if layer.is_sparse():
@@ -257,7 +275,7 @@ class Dropout(Layer):
             keep_prob:
             seed:
         """
-        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
 
         self.seed = seed
         self.keep_prob = keep_prob
@@ -274,7 +292,8 @@ class Dropout(Layer):
 
 class GaussianNoise(Layer):
     def __init__(self, layer, mean=0.0, stddev=0.2, seed=None):
-        super().__init__(n_units=layer.n_units,
+        super().__init__(input_layers=layer,
+                         n_units=layer.n_units,
                          shape=layer.shape,
                          dtype=layer.dtype,
                          name=layer.name + "_gaussian_noise")
@@ -301,7 +320,8 @@ class SparseGaussianNoise(Layer):
         self.dtype = layer.dtype
         if dtype is not None:
             self.dtype = dtype
-        super().__init__(n_units=layer.n_units,
+        super().__init__(input_layers=layer,
+                         n_units=layer.n_units,
                          shape=layer.shape,
                          dtype=self.dtype,
                          name=layer.name + "_sparse_gaussian_noise")
@@ -333,7 +353,7 @@ class SaltPepperNoise(Layer):
     """
 
     def __init__(self, layer, density=0.1, salt_value=1, pepper_value=-1, seed=None):
-        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
 
         self.density = density
         self.seed = seed
@@ -373,7 +393,7 @@ class SaltPepperNoise(Layer):
 
 class Activation(Layer):
     def __init__(self, layer, fn=array_ops.identity):
-        super().__init__(layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
         self.fn = fn
         with name_scope(self.name):
             self.tensor = self.fn(layer.tensor)
@@ -388,7 +408,7 @@ class Bias(Layer):
 
     def __init__(self, layer, name="bias"):
         bias_name = layer.dtype, "{}_{}".format(layer.name, name)
-        super().__init__(layer.n_units, layer.shape, bias_name)
+        super().__init__(layer, layer.n_units, layer.shape, bias_name)
 
         with name_scope(name) as scope, variable_scope.variable_scope(scope):
             self.bias = variable_scope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
@@ -428,7 +448,7 @@ class Merge(Layer):
         if weights is not None and len(weights) != len(layers):
             raise Exception("len(weights) must be equals to len(layers)")
 
-        super().__init__(layers[0].n_units, layers[0].shape, layers[0].dtype, name)
+        super().__init__(layers, layers[0].n_units, layers[0].shape, layers[0].dtype, name)
 
         with name_scope(name):
             if weights is not None:
@@ -450,3 +470,16 @@ class Add(Merge):
 
     def __init__(self, layers, weights=None, name="add"):
         super().__init__(layers, weights, math_ops.add_n, name)
+
+
+class Concat(Layer):
+    def __init__(self, layers, axis=-1, name="concat"):
+        first, *rest = layers
+        if not all(layer.dtype == first.dtype for layer in rest):
+            raise ValueError("Layers must have the same type to be concatenated")
+
+        total_units = sum([layer.n_units for layer in layers])
+        super().__init__(layers, total_units, dtype=first.dtype, name=name)
+
+        tensors = [layer.tensor for layer in layers]
+        self.tensor = array_ops.concat(tensors, axis=axis)

@@ -5,7 +5,7 @@ Provides utilities to put neural network models together. Also facilitates model
 """
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops.variables import global_variables_initializer as global_init
+from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.client.session import Session
 
 
@@ -13,7 +13,6 @@ def _default_session():
     session = ops.get_default_session()
     if session is None:
         session = Session()
-
     return session
 
 
@@ -53,8 +52,10 @@ class Model:
         self.inputs = _as_list(inputs)
         self.outputs = _as_list(outputs)
 
-        self.var_init = False
         self.session = None
+
+        # var inited = ([true|false], session)
+        self._var_inited = (None, None)
 
         # properties for training
         self.optimiser = None
@@ -63,21 +64,30 @@ class Model:
         self.loss_weights = 1.0
         self.joint_loss = None
 
-    def _set_session(self, session):
+    def set_session(self, session=None):
         if session is None:
-            self.session = _default_session()
-        else:
-            self.session = session
+            session = _default_session()
+        self.session = session
+        return self.session
+
+    def reset_session(self):
+        self.session = None
 
     def init_vars(self):
         """ Initialises all the variables
-            var_init = True
+        if session was not set or default
         """
-        if not self.var_init:
-            self.session.run(global_init())
-            self.var_init = True
+        if self.session is None:
+            self.set_session()
 
-    def run(self, *data, session=None):
+        self.session.run(global_variables_initializer())
+        self._var_inited = (True, self.session)
+
+    def vars_inited(self):
+        inited, init_sess = self._var_inited
+        return inited and init_sess == self.session
+
+    def run(self, *data):
         """ run the model
 
         Uses a tensorflow ``Session`` to run the model by feeding the given data to the respective model inputs.
@@ -93,18 +103,20 @@ class Model:
         Raises:
             ValueError: if the number of data items and the number of model inputs are different
         """
+        if self.session is None:
+            self.set_session()
+
+        if not self.vars_inited():
+            self.init_vars()
+
         n_inputs = len(self.inputs)
         n_data = len(data)
 
         if n_data != n_inputs:
             raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
 
-        self._set_session(session)
-        self.init_vars()
-
         feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
         output_tensors = [output.tensor for output in self.outputs]
-
         result = self.session.run(output_tensors, feed_dict)
         if len(self.outputs) == 1:
             result = result[0]
@@ -120,9 +132,6 @@ class Model:
             loss_weights: weights used to create a join loss if we configure the model with multiple losses
 
         """
-        if not isinstance(losses, list):
-            losses = [losses]
-
         self.losses = _as_list(losses)
         self.targets = _as_list(targets)
 
@@ -135,7 +144,7 @@ class Model:
         weighted_losses = math_ops.multiply(t_losses, loss_weights)
         self.joint_loss = math_ops.reduce_sum(weighted_losses)
 
-    def train(self, data, targets=None, n_epochs=1, session=None):
+    def train(self, data, targets=None, n_epochs=1):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -155,8 +164,11 @@ class Model:
             session: a tensorflow session
 
         """
-        self._set_session(session)
-        self.init_vars()
+        if self.session is None:
+            self.set_session()
+
+        if not self.vars_inited():
+            self.init_vars()
 
         train_step = self.optimiser.minimize(self.joint_loss)
 

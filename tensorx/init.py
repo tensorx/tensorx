@@ -6,6 +6,11 @@ Functions that return weight initialisation tensors for different use cases.
 from tensorflow.python.framework import dtypes as dt
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import random_ops
+from tensorflow.python.ops import init_ops
+
+
+def zero_init():
+    return init_ops.zeros_initializer()
 
 
 def random_uniform(shape, maxval=1, minval=-1, dtype=dt.float32):
