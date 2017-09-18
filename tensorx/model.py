@@ -6,35 +6,55 @@ Provides utilities to put neural network models together. Also facilitates model
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops.variables import global_variables_initializer as global_init
-import tensorflow as tf
+from tensorflow.python.client.session import Session
 
 
 def _default_session():
     session = ops.get_default_session()
     if session is None:
-        raise ValueError("Cannot execute operation using `run()`: No default "
-                         "session is registered. Use `with "
-                         "sess.as_default():` or pass an explicit session to "
-                         "`run(session=sess)`")
+        session = Session()
+
     return session
+
+
+def _as_list(elems):
+    """ returns a list from the given element(s)
+
+    Args:
+        elems: one or more objects
+
+    Returns:
+        a list with the elements in elems
+    """
+    if isinstance(elems, (list, tuple)):
+        elems = list(elems)
+    else:
+        elems = [elems]
+    return elems
 
 
 class Model:
     """ Model
-            A model is a container for an acyclic network graph. It stores the endpoints (input-output) of a neural
-            network and facilitates model training and evaluation.
 
-            Args:
-             inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
+    A model is a container for an acyclic network graph. It stores the endpoints (input-output) of a neural
+    network and facilitates model training and evaluation.
 
-             outputs: a :obj:`list` of :class:`Layer` with the outputs for the model
+    Properties:
+        inputs: a single instance or :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
+        outputs: a single instance or :obj:`list` of :class:`Layer` with the outputs for the model
+
+    Args:
+        inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
+        outputs: a :obj:`list` of :class:`Layer` with the outputs for the model
     """
 
     def __init__(self, inputs, outputs):
-        self.inputs = inputs
-        self.outputs = outputs
+
+        self.inputs = _as_list(inputs)
+        self.outputs = _as_list(outputs)
 
         self.var_init = False
+        self.session = None
 
         # properties for training
         self.optimiser = None
@@ -43,17 +63,24 @@ class Model:
         self.loss_weights = 1.0
         self.joint_loss = None
 
-    def init_vars(self, session=None):
+    def _set_session(self, session):
         if session is None:
-            session = _default_session()
+            self.session = _default_session()
+        else:
+            self.session = session
 
-        session.run(global_init())
-        self.var_init = True
+    def init_vars(self):
+        """ Initialises all the variables
+            var_init = True
+        """
+        if not self.var_init:
+            self.session.run(global_init())
+            self.var_init = True
 
     def run(self, *data, session=None):
         """ run the model
 
-        Uses a tensorflow session to run the model by feeding the given data to the respective model inputs.
+        Uses a tensorflow ``Session`` to run the model by feeding the given data to the respective model inputs.
         the number of data inputs must be the same as the number of inputs.
 
         Args:
@@ -71,31 +98,35 @@ class Model:
 
         if n_data != n_inputs:
             raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
-        if session is None:
-            session = _default_session()
 
-        if not self.var_init:
-            self.init_vars(session)
+        self._set_session(session)
+        self.init_vars()
 
         feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
         output_tensors = [output.tensor for output in self.outputs]
 
-        return session.run(output_tensors, feed_dict)
+        result = self.session.run(output_tensors, feed_dict)
+        if len(self.outputs) == 1:
+            result = result[0]
+        return result
 
     def config(self, optimiser, losses, targets=None, loss_weights=1.0):
         """ Configures the model for training
 
         Args:
-            losses: a :obj:`list` of loss `Tensor` instances to be used to train the model variables
-            targets: a :obj:`list` of input layers that will be used with the loss function
+            losses: a :obj:`list` or single loss `Tensor` instances to be used to train the model variables
+            targets: a :obj:`list` or single input layers that will be used with the loss function
             optimiser: the tensorflow optimiser used to train the model
             loss_weights: weights used to create a join loss if we configure the model with multiple losses
 
         """
+        if not isinstance(losses, list):
+            losses = [losses]
+
+        self.losses = _as_list(losses)
+        self.targets = _as_list(targets)
 
         self.optimiser = optimiser
-        self.losses = losses
-        self.targets = targets
         self.loss_weights = loss_weights
 
         # the default behaviour is to create a (optionally weighted) joint loss function
@@ -124,11 +155,8 @@ class Model:
             session: a tensorflow session
 
         """
-        if session is None:
-            session = _default_session()
-
-        if not self.var_init:
-            self.init_vars(session)
+        self._set_session(session)
+        self.init_vars()
 
         train_step = self.optimiser.minimize(self.joint_loss)
 
@@ -138,4 +166,4 @@ class Model:
             feed_dict = {**feed_dict, **label_dict}
 
         for epoch in range(n_epochs):
-            session.run(train_step, feed_dict)
+            self.session.run(train_step, feed_dict)

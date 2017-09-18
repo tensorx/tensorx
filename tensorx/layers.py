@@ -169,7 +169,7 @@ class Linear(Layer):
                  n_units,
                  init=random_uniform,
                  weights=None,
-                 bias=False,
+                 bias=True,
                  dtype=dtypes.float32,
                  name="linear"):
 
@@ -207,7 +207,7 @@ class Linear(Layer):
 
             # y = xW + [b]
             if bias:
-                self.bias = vscope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
+                self.bias = variable_scope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
                 self.tensor = bias_add(self.tensor, self.bias, name="a")
 
 
@@ -390,8 +390,8 @@ class Bias(Layer):
         bias_name = layer.dtype, "{}_{}".format(layer.name, name)
         super().__init__(layer.n_units, layer.shape, bias_name)
 
-        with vscope.variable_scope(self.name):
-            self.bias = vscope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
+        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+            self.bias = variable_scope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
             self.tensor = bias_add(layer.tensor, self.bias, name="tensor")
 
 
@@ -432,7 +432,21 @@ class Merge(Layer):
 
         with name_scope(name):
             if weights is not None:
-                for i in range(len(layers)):
-                    layers[i] = math_ops.scalar_mul(weights[i], layers[i].tensor)
+                tensors = [math_ops.scalar_mul(weights[i], layers[i].tensor) for i in range(len(layers))]
+            else:
+                tensors = [layer.tensor for layer in layers]
+            self.tensor = merge_fn(tensors)
 
-            self.tensor = merge_fn(layers)
+
+class Add(Merge):
+    """ Adds the outputs of multiple layers with the same shape
+
+    Args:
+            layers: a list of layers with the same number of units to be merged
+            weights: a list of weights
+            name: name for layer scope
+
+    """
+
+    def __init__(self, layers, weights=None, name="add"):
+        super().__init__(layers, weights, math_ops.add_n, name)
