@@ -60,9 +60,6 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(np.array_equal(result31, result32))
         self.assertFalse(np.array_equal(result31, result33))
 
-        # TODO finish documentation for model with this in mind
-        # test default sessions with sessions defined outside the model
-        # the model will always use the first session it is set with
         # to use the model in a new session, either call reset or model.set_session(session)
         model.reset_session()
 

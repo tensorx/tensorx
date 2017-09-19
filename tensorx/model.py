@@ -10,6 +10,14 @@ from tensorflow.python.client.session import Session
 
 
 def _default_session():
+    """ Returns the default session or a newly created session
+
+    If no default session is available, creates a new session.
+
+    Returns:
+        ``Session``: returns the default session if available or a newly created session otherwise.
+
+    """
     session = ops.get_default_session()
     if session is None:
         session = Session()
@@ -17,13 +25,16 @@ def _default_session():
 
 
 def _as_list(elems):
-    """ returns a list from the given element(s)
+    """ Returns a list from one or multiple elements.
+
+    if one element is passed, returns a list with one element,
+    if a list or tuple of elements is passed, returns a list with the elements
 
     Args:
-        elems: one or more objects
+        elems: one element, a tuple of elements or a list of elements
 
     Returns:
-        a list with the elements in elems
+        a :obj:`list` with the elements in elems
     """
     if isinstance(elems, (list, tuple)):
         elems = list(elems)
@@ -35,8 +46,8 @@ def _as_list(elems):
 class Model:
     """ Model
 
-    A model is a container for an acyclic network graph. It stores the endpoints (input-output) of a neural
-    network and facilitates model training and evaluation.
+    A model is a container for an network graph. It stores the endpoints (input-output) of a model
+    and facilitates its training and evaluation.
 
     Properties:
         inputs: a single instance or :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
@@ -65,17 +76,57 @@ class Model:
         self.joint_loss = None
 
     def set_session(self, session=None):
+        """ Sets the session being used by :class:`Model` class.
+
+        If no session is passed it sets the session as follows:
+            1. sets the session to the default session if available
+            2. creates a new session and uses it as the default session for the model class.
+
+        Args:
+            session: a tensorflow ``Session``.
+
+        Returns:
+            ``Session``: the current ``Session`` being used by the model class.
+
+        """
+        if not isinstance(session, Session):
+            raise TypeError("Expecting a tensorflow Session object, got {} instead".format(type(session)))
+
         if session is None:
             session = _default_session()
         self.session = session
         return self.session
 
     def reset_session(self):
+        """ Resets the current session.
+
+        Deletes the current session, making the model run under a newly defined session if this is available or creating
+        a new session if needed.
+
+        Warning: Note that all the previously initialised variables were initialised under a certain session, this is no
+        longer valid for a newly defined session and the whole model runs the variable initialisers again when needed.
+        """
         self.session = None
 
+    def close_session(self):
+        """ Closes the current tensorflow session.
+
+        If the model is not run inside an externally-defined session, it creates a new session, in which case it should
+        be closed.
+        """
+        self.session.close()
+
     def init_vars(self):
-        """ Initialises all the variables
-        if session was not set or default
+        """ Initialises all the variables.
+
+        All the variables are initialised in the current session. If no session exists, it tries to find the default
+        session. If this is not possible either, it creates a new session which is available in ``self.session``.
+
+        Note:
+            In the future perhaps I can initialise only the variables that are defined in the model, for now
+            I always end up initialising all the variables anyway. Remember that model is not just a container
+            but an utility to reduce the verbose of variable initialisation, session management and training for
+            models.
         """
         if self.session is None:
             self.set_session()
@@ -84,6 +135,16 @@ class Model:
         self._var_inited = (True, self.session)
 
     def vars_inited(self):
+        """ Checks if global variables have been initialised.
+
+        Warning:
+            This takes into account the current session under which the model is operating.
+            If the session changes,this will return ``False`` since the variables have to be initialised in
+            the new session.
+
+        Returns:
+            bool: returns true if the variables have been initialised
+        """
         inited, init_sess = self._var_inited
         return inited and init_sess == self.session
 
@@ -93,9 +154,10 @@ class Model:
         Uses a tensorflow ``Session`` to run the model by feeding the given data to the respective model inputs.
         the number of data inputs must be the same as the number of inputs.
 
+        Note: it uses the default session if available, if not, creates a new session which is stored in `self.session`
+
         Args:
             *data: a :obj:`list` or multiple parameters with the data to be fed to each model input
-            session: an existing tensorflow session object. Uses the default session of nothing is provided
 
         Returns:
             outputs a :obj:`list` of numpy ``ndarray`` objects
@@ -152,8 +214,6 @@ class Model:
 
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
 
-
-
         Warning:
             You need to run :method:`config` before calling `train`.
 
@@ -161,8 +221,6 @@ class Model:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             targets: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
             n_epochs: number of times the training op is run on the model
-            session: a tensorflow session
-
         """
         if self.session is None:
             self.set_session()
