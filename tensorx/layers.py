@@ -18,8 +18,7 @@ Types of layers:
 
     activation: adds an activation function to a given layer with its own scope
 """
-
-import functools
+from functools import partial
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import check_ops
@@ -135,6 +134,13 @@ class Layer:
         self.tensor = prev_layer.tensor
 
     def __str__(self):
+        """ Informal string representation for a layer consists of Layer Class name, number of units and if its
+        Sparse or Dense.
+
+        Returns:
+            :obj:`str`: a :obj:`str` with the informal representation for a layer instance.
+
+        """
         class_name = type(self).__name__
         sparse_dense = "[Sparse]" if self.is_sparse() else "[Dense]"
         return "{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
@@ -235,6 +241,32 @@ class SparseInput(Layer):
 
 
 class Linear(Layer):
+    """ Linear Layer.
+
+    A fully connected layer with a given number of units.
+
+    Linear transformation Layer creates a linear transformation of the form ``xW + b`` where:
+
+     * ``x``: is a tensor coming from the layer this layer takes as input
+     * ``W``: is a variable with trainable weights created by this Layer
+     * ``b``: is an optional variable containing biases to be added to the linear transformation
+
+    the transformation becomes an **affine transformation**.
+
+    Note:
+        There is no need for **embedding** layers in this library. If the Linear layer receives a sparse layer as input
+        it uses the embeddings op, if not, it uses the default multiplication.
+
+    Args:
+        layer: an input :class:`Layer` used to build a fully connected layer
+        n_units: an :obj:`int` with the number of units for this layer
+        init: an initialisation function for the weights of this layer
+        weights: None if we wish the layer to create a new variable or a tensorflow variable otherwise
+        bias: if true creates a bias variable and the transformation becomes an affine transformation
+        dtype: dtype for the output of this layer
+        name: name to create a tensorflow named_scope
+    """
+
     def __init__(self,
                  layer,
                  n_units,
@@ -297,7 +329,10 @@ class ToSparse(Layer):
 
 
 class ToDense(Layer):
-    """ Transforms the previous layer into a dense layer.
+    """ ToDense transformation layer
+
+    Transforms the previous layer into a dense layer (outputting a dense tensor)
+    if the previous layer is already a dense layer, forwards the previous layer doing nothing
 
     """
 
@@ -312,20 +347,31 @@ class ToDense(Layer):
 
 
 class Dropout(Layer):
-    """ A Dropout Layer that applies the dropout op to a given layer
+    """ A Dropout Layer that applies the tensorflow dropout op to a given layer.
+
+    With probability ``keep_prob``, outputs the input elements scaled up by ``1 / keep_prob``, otherwise
+    outputs ``0``. The scaling is to that the expected sum of the input elements is unchanged.
+
+    Dropout can be viewed a stochastic version of model averaging and prevents the nodes from co-adapting too much. This
+    reduces generalisation error during training.
+
+    References:
+        [1] "Dropout:  A Simple Way to Prevent Neural Networks from Overfitting"
+        http://www.jmlr.org/papers/volume15/srivastava14a/srivastava14a.pdf
 
     Note:
-        uses `dropout` from tensorflow for dense layers
-        and `sparse_dropout` from tensorx for sparse layers
+        Contrary to the tensorflow operator, this layer also works with sparse layers as input it uses:
+
+            * `dropout` from tensorflow for dense layers
+            * :class:`tensorx.transform.sparse_dropout` from for sparse layers
+
+    Args:
+            layer: an input layer :class:`Layer` to which dropout will be applied
+            keep_prob: a scalar float with the probability that each element is kept.
+            seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
     def __init__(self, layer, keep_prob=0.2, seed=None):
-        """ Constructor
-        Args:
-            layer: an input layer ``Layer`` to which dropout will be applied
-            keep_prob:
-            seed:
-        """
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
 
         self.seed = seed
@@ -342,6 +388,24 @@ class Dropout(Layer):
 
 
 class GaussianNoise(Layer):
+    """ Gaussian Noise Layer.
+
+    Applies additive gaussian noise to the input layer. If the noise is zero-centered it does not
+    change the expected sum of input elements.
+
+
+    Use Cases:
+        This is useful to mitigate overfitting, making a network model more robust. Noise is usually added to inputs,
+        activation functions, or to network weights.
+
+    Args:
+        layer: an input :class:`Layer` used to build a fully connected layer
+        mean: the mean for the gaussian distribution
+        stddev: the standard deviation parameter for the gaussian distribution
+        seed: A Python integer. Used to create a random seed for the distribution
+
+    """
+
     def __init__(self, layer, mean=0.0, stddev=0.2, seed=None):
         super().__init__(input_layers=layer,
                          n_units=layer.n_units,
@@ -367,6 +431,13 @@ class GaussianNoise(Layer):
 
 
 class SparseGaussianNoise(Layer):
+    """ Sparse Gaussian Noise Layer
+
+    Applies additive gaussian noise to a given proportion of elements from an input layer.
+    If ``density == 1.0``, this is equivalent to :class:`GaussianNoise`.
+
+    """
+
     def __init__(self, layer, density=0.1, mean=0.0, stddev=0.2, dtype=None, seed=None):
         self.dtype = layer.dtype
         if dtype is not None:
@@ -401,6 +472,14 @@ class SaltPepperNoise(Layer):
     with salt, and the same amount with pepper
 
     if the proportion amounts to less than 2 entries, the previous layer is simply forwarded
+
+    Args:
+        layer: the input :class:`Layer`
+        density: a float scalar with the proportion of elements to be corrupted
+        salt_value: the value to be set for the "salt noise" (usually the max value of 1.)
+        pepper_value: the value to be set for the "pepper noise" (usually the min value of -1 or 0, but -1 keeps the
+        expected sum of the input elements the same.
+        seed: A Python integer. Used to create a random seed for the distribution
     """
 
     def __init__(self, layer, density=0.1, salt_value=1, pepper_value=-1, seed=None):
@@ -443,9 +522,30 @@ class SaltPepperNoise(Layer):
 
 
 class Activation(Layer):
-    def __init__(self, layer, fn=array_ops.identity):
+    """ Activation Layer
+
+    A container that applies a given function the the tensor of its input layer.
+    If the layer is sparse, it converts it to a dense layer.
+
+    You can pass positinoal arguments and keyword arguments for the given function,
+    their application works like :func:`functools.partial`.
+
+    Note:
+        Most activation functions do not produce a sparse output so no effort is made to adapt existing activation
+        functions to sparse input layers. If we know a non-linearity produces a sparse output with high-probability,
+        we can use a sparse transformation explicitly with a :class:`ToSparse` layer. Perhaps in the future I can
+        include a layer that does this transformation based on a desired sparsity threshold.
+
+    Args:
+        layer: the input :class:`Layer`
+        fn: a function that produces a Tensor and can be called on the tensor produced by the input layer
+        **keywords: the keyword arguments for the given function
+    """
+
+    def __init__(self, layer, fn=array_ops.identity, **keywords):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
-        self.fn = fn
+        self.fn = partial(fn, **keywords)
+
         with name_scope(self.name):
             if layer.is_sparse():
                 tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
@@ -463,6 +563,10 @@ class Bias(Layer):
         :class:`Linear` already have a bias option that if checked adds a bias variable
         to the linear transformation. Do not use this on top of a Linear layer if you already
         have a bias defined, you're just adding another bias variable.
+
+    Args:
+        layer: the input :class:`Layer`
+        name: the name for the bias layer tensorflow scope
     """
 
     def __init__(self, layer, name="bias"):
@@ -486,6 +590,20 @@ class Merge(Layer):
 
     This is just a container that for convenience takes the tensor of each given layer (which is generaly a tensor),
     and applies a merging function.
+
+    Args:
+            layers: a list of layers with the same number of units to be merged
+            weights: a list of weights
+            merge_fn: must operate on a list of tensors
+            name: name for layer which creates a named-scope
+
+    Requires:
+        len(layers) == len(weights)
+        layer[0].n_units == layer[1].n_units ...
+        layer[0].dtype = layer[1].dtype ...
+        the merge_fn should be applicable to Tensors if the layers are dense or to ``SparseTensor`` if
+        it the layers are sparse (``type(layer.tensor) == SparseTensor``).
+
     """
 
     def __init__(self,
@@ -493,18 +611,6 @@ class Merge(Layer):
                  weights=None,
                  merge_fn=math_ops.add_n,
                  name="merge"):
-        """
-        Args:
-            layers: a list of layers with the same number of units to be merged
-            weights: a list of weights
-            merge_fn: must operate on a list of tensors
-            name: name for layer which creates a named-scope
-
-        Requires:
-            len(layers) == len(weights)
-            layer[0].n_units == layer[1].n_units ...
-            layer[0].dtype = layer[1].dtype ...
-        """
         if len(layers) < 2:
             raise Exception("Expecting a list of layers with len >= 2")
 
@@ -528,7 +634,6 @@ class Add(Merge):
             layers: a list of layers with the same number of units to be merged
             weights: a list of weights
             name: name for layer scope
-
     """
 
     def __init__(self, layers, weights=None, name="add"):
@@ -536,7 +641,16 @@ class Add(Merge):
 
 
 class Concat(Layer):
-    def __init__(self, layers, axis=-1, name="concat"):
+    """ Concat Layer
+
+    Concatenates input layers on the last dimension
+
+    Args:
+        layers: a :obj:`list` of :class:`Layer`
+        name: name for the layer scope
+    """
+
+    def __init__(self, layers, name="concat"):
         first, *rest = layers
         if not all(layer.dtype == first.dtype for layer in rest):
             raise ValueError("Layers must have the same type to be concatenated")
@@ -545,4 +659,4 @@ class Concat(Layer):
         super().__init__(layers, total_units, dtype=first.dtype, name=name)
 
         tensors = [layer.tensor for layer in layers]
-        self.tensor = array_ops.concat(tensors, axis=axis)
+        self.tensor = array_ops.concat(tensors, axis=-1)

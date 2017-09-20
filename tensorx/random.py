@@ -122,8 +122,6 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
     """Uses values to create a sparse random mask according to a given density
     a density of 0 returns an empty sparse tensor
 
-    TODO: make this work for dense-shapes with shape [2]
-
     Note:
         if symmetrical the mask has always the same number of mask_values per row
         which means that if ``density * dense_shape[1] < len(mask_values)``, the mask will be an empty ``SparseTensor``.

@@ -262,6 +262,18 @@ class TestLayers(unittest.TestCase):
         mean_result = np.mean(result)
         self.assertEqual(mean_result, 0)
 
+    def test_activation_with_params(self):
+        inputs = Input(1)
+        act = Activation(inputs, relu, max_value=2.0)
+
+        r0 = act.tensor.eval({inputs.tensor: [[-1]]})
+        r1 = act.tensor.eval({inputs.tensor:[[1]]})
+        r2 = act.tensor.eval({inputs.tensor:[[3]]})
+
+        self.assertEqual(r0[0],0)
+        self.assertEqual(r1[0],1)
+        self.assertEqual(r2[0],2)
+
     def test_layers_to_list(self):
         """ layers_to_list returns the layers without repetition using a breadth first search from the last layer
         and then reversing the layers found.

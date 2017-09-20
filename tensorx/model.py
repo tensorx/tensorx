@@ -92,7 +92,7 @@ class Model:
             ``Session``: the current ``Session`` being used by the model class.
 
         """
-        if not isinstance(session, Session):
+        if session is not None and not isinstance(session, Session):
             raise TypeError("Expecting a tensorflow Session object, got {} instead".format(type(session)))
 
         if session is None:

@@ -108,7 +108,6 @@ class MyTestCase(unittest.TestCase):
         model = Model(inputs, out)
 
         data1 = [[1, -1, 1, -1]]
-        data2 = [[1, -1, 1, -1]]
 
         result = model.run(data1)
         self.assertIsInstance(result, np.ndarray)
