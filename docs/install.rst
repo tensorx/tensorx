@@ -14,7 +14,7 @@ Requirements
 Pip Installation
 ================
 
-You can install `tensorx` directly using `pip` using:
+You can install `tensorx` directly using `pip` as follows:
 
 .. code-block:: bash
 
