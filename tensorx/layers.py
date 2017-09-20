@@ -57,6 +57,36 @@ def _as_list(elems):
     return elems
 
 
+def layers_to_list(output_layers):
+    """ Converts a layer or a list of layers to a list of all the layers connected to it.
+
+    Warning:
+        should be used with the last layer, the output layer from which the list is built following the references
+        to input layers for each layer.
+
+    Args:
+        output_layers: the layer from which we wish to build the list of layers involved in the computation
+
+    Returns:
+        :obj:`list` of :class:`Layer`: a list of unique layers involved in the computation ordered from input to output
+        in a breadth-first fashion.
+
+    """
+    flat_layers, visited, stack = [], set(), _as_list(output_layers)
+    while stack:
+        layer = stack.pop(0)
+        if layer not in visited:
+            visited.add(layer)
+            flat_layers.append(layer)
+            next_layers = layer.input_layers
+            if len(next_layers) > 1:
+                next_layers.reverse()
+            stack.extend(layer.input_layers)
+
+    flat_layers.reverse()
+    return flat_layers
+
+
 class Layer:
     def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
         """
@@ -104,6 +134,14 @@ class Layer:
         self.shape = prev_layer.shape
         self.tensor = prev_layer.tensor
 
+    def __str__(self):
+        class_name = type(self).__name__
+        sparse_dense = "[Sparse]" if self.is_sparse() else "[Dense]"
+        return "{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
+                                                                      n_units=self.n_units,
+                                                                      dtype=self.dtype,
+                                                                      sparse_dense=sparse_dense)
+
 
 class Input(Layer):
     """ Input Layer
@@ -141,11 +179,24 @@ class Input(Layer):
             self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
             self.tensor = self.placeholder
         else:
+            self.n_active = n_active
             self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
 
             indices_shape = util.complete_shape(self.placeholder)
             dense_shape = [indices_shape[0], self.shape[1]]
             self.tensor = transform.sparse_one_hot(self.placeholder, dense_shape, dtype=self.dtype)
+
+    def __str__(self):
+        class_name = type(self).__name__
+        if self.is_sparse():
+            str = "{class_name}({n_active}/{n_units},{dtype})[Sparse]".format(class_name=class_name,
+                                                                              n_active=self.n_active,
+                                                                              n_units=self.n_units,
+                                                                              dtype=self.dtype)
+        else:
+            str = "{class_name}({n_units},{dtype})[Dense]".format(class_name=class_name, n_units=self.n_units,
+                                                                  dtype=self.dtype)
+        return str
 
 
 class SparseInput(Layer):
@@ -396,23 +447,35 @@ class Activation(Layer):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
         self.fn = fn
         with name_scope(self.name):
-            self.tensor = self.fn(layer.tensor)
+            if layer.is_sparse():
+                tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
+            else:
+                tensor = layer.tensor
+            self.tensor = self.fn(tensor)
 
 
 class Bias(Layer):
     """ Bias Layer
-
     A simple way to add a bias to a given layer, the dimensions of this variable
     are determined by the given layer and it is initialised with zeros
+
+    Warning:
+        :class:`Linear` already have a bias option that if checked adds a bias variable
+        to the linear transformation. Do not use this on top of a Linear layer if you already
+        have a bias defined, you're just adding another bias variable.
     """
 
     def __init__(self, layer, name="bias"):
         bias_name = layer.dtype, "{}_{}".format(layer.name, name)
-        super().__init__(layer, layer.n_units, layer.shape, bias_name)
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, bias_name)
 
         with name_scope(name) as scope, variable_scope.variable_scope(scope):
-            self.bias = variable_scope.get_variable("b", initializer=array_ops.zeros([self.n_units]))
-            self.tensor = bias_add(layer.tensor, self.bias, name="tensor")
+            self.bias = variable_scope.get_variable("b", shape=[self.n_units], initializer=zero_init())
+            if layer.is_sparse():
+                tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
+            else:
+                tensor = layer.tensor
+            self.tensor = bias_add(tensor, self.bias, name="tensor")
 
 
 class Merge(Layer):

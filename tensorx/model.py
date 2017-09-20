@@ -7,6 +7,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.client.session import Session
+from tensorx.layers import layers_to_list
 
 
 def _default_session():
@@ -74,6 +75,8 @@ class Model:
         self.targets = None
         self.loss_weights = 1.0
         self.joint_loss = None
+
+        self.layers = layers_to_list(self.outputs)
 
     def set_session(self, session=None):
         """ Sets the session being used by :class:`Model` class.

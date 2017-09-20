@@ -1,7 +1,8 @@
 import unittest
 import tensorflow as tf
 import numpy as np
-from tensorx.layers import Input, SparseInput, Linear, ToSparse, ToDense, Dropout, GaussianNoise, SaltPepperNoise
+from tensorx.layers import *
+from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
 import math
 
@@ -260,6 +261,33 @@ class TestLayers(unittest.TestCase):
         result = noise_layer.tensor.eval({dense_input.placeholder: dense_data})
         mean_result = np.mean(result)
         self.assertEqual(mean_result, 0)
+
+    def test_layers_to_list(self):
+        """ layers_to_list returns the layers without repetition using a breadth first search from the last layer
+        and then reversing the layers found.
+        """
+        l11 = Input(1)
+        l12 = Input(1)
+        l2 = Add([l11, l12])
+
+        l3 = Linear(l2, 1)
+
+        l41 = Activation(l3, fn=sigmoid)
+        l42 = Activation(l3, fn=hard_sigmoid)
+
+        l5 = ToSparse(l41)
+
+        outs = [l5, l42]
+        layers = layers_to_list(outs)
+
+        self.assertEqual(len(layers), 7)
+        self.assertEqual(layers[0], l11)
+        self.assertEqual(layers[1], l12)
+        self.assertEqual(layers[2], l2)
+        self.assertEqual(layers[3], l3)
+        self.assertEqual(layers[4], l41)
+        self.assertEqual(layers[5], l42)
+        self.assertEqual(layers[6], l5)
 
 
 if __name__ == '__main__':
