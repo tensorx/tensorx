@@ -218,7 +218,7 @@ class Model:
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
 
         Warning:
-            You need to run :method:`config` before calling `train`.
+            You need to run :func:`config` before calling `train`.
 
         Args:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input

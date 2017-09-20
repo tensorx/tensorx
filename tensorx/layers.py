@@ -4,19 +4,11 @@ All layers contain a certain number of units, its shape, name and a tensor membe
 which gives us a handle for a TensorFlow tensor that can be evaluated.
 
 Types of layers:
-    input: wrap around TensorFlow placeholders.
 
-    dense:  a layer encapsulating a dense matrix of weights,
-            possibly including biases and an activation function.
+    * **Input**: wrap around TensorFlow placeholders, ``input_layers`` is empty.
+    * **Dense**:  a layer that outputs a tensorflow ``Tensor``.
+    * **Sparse**: a layer that outputs a tensorflow ``SparseTensor``.
 
-    sparse: a dense matrix of weights accessed through a list of indexes,
-            (e.g. by being connected to an IndexInput layer)
-
-    merge: utility to merge other layers
-
-    bias: adds a bias to a given layer with its own scope for the bias variable
-
-    activation: adds an activation function to a given layer with its own scope
 """
 from functools import partial
 from tensorflow.python.framework import ops
@@ -87,15 +79,30 @@ def layers_to_list(output_layers):
 
 
 class Layer:
+    """ Layer.
+
+    Attributes:
+        input_layers: a list of Layers that serve as input to the current layer
+        n_units: the number of units for the current layer
+        tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
+        dtype: the tensorflow dtype for the output tensor
+        name: a name used to build a tensorflow named_scope for the layer
+
+
+
+
+    Args:
+        input_layers: a single layer,a list of input layers, or None if no inputs are required
+        n_units: dimension of input vector (dimension of columns in case batch_size != None
+        shape: [batch size, input dimension]
+        dtype: expected input TensorFlow data type
+        name: layer name (used to nam the placeholder)
+
+
+    """
+
     def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
-        """
-        Args:
-            input_layers: a single layer,a list of input layers, or None if no inputs are required
-            n_units: dimension of input vector (dimension of columns in case batch_size != None
-            shape: [batch size, input dimension]
-            dtype: expected input TensorFlow data type
-            name: layer name (used to nam the placeholder)
-        """
+
         self.n_units = n_units
         self.name = name
         self.dtype = dtype
@@ -112,6 +119,14 @@ class Layer:
         self.tensor = None
 
     def is_sparse(self):
+        """ Checks if the current layer is sparse
+
+        A layer is sparse if its output tensor is a ``SparseTensor``, it is dense if the output tensor is a ``Tensor``.
+
+        Returns:
+            ``bool``: returns True if the current layer is sparse, False otherwise.
+
+        """
         return isinstance(self.tensor, SparseTensor)
 
     def _forward(self, prev_layer):
@@ -598,12 +613,10 @@ class Merge(Layer):
             name: name for layer which creates a named-scope
 
     Requires:
-        len(layers) == len(weights)
-        layer[0].n_units == layer[1].n_units ...
-        layer[0].dtype = layer[1].dtype ...
-        the merge_fn should be applicable to Tensors if the layers are dense or to ``SparseTensor`` if
-        it the layers are sparse (``type(layer.tensor) == SparseTensor``).
-
+        * ``len(layers) == len(weights)``
+        * all layers must have the same number of units
+        * all layers must be of the same type (sparse or dense) and have the same dtype
+        * the merge_fn should be applicable to the ``Tensor`` if the layers are dense, and to ``SparseTensor`` otherwise
     """
 
     def __init__(self,
