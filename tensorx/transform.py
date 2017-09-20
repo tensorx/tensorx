@@ -425,3 +425,17 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
     values = np.ones([len(idx)])
 
     return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
+
+
+__all__ = ["empty_sparse_tensor",
+           "to_sparse",
+           "batch_to_matrix_indices",
+           "dense_one_hot",
+           "sparse_one_hot",
+           "dense_put",
+           "sparse_put",
+           "sparse_tensor_value_one_hot",
+           "sp_indices_from_sp_tensor",
+           "sparse_ones",
+           "sparse_dropout",
+           "pairs"]

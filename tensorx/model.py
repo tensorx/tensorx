@@ -240,3 +240,6 @@ class Model:
 
         for epoch in range(n_epochs):
             self.session.run(train_step, feed_dict)
+
+
+__all__ = ["Model"]

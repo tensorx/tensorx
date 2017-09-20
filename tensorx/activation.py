@@ -190,3 +190,6 @@ def sparsemax(logits, name=None):
         # calculate p
         return math_ops.maximum(
             math_ops.cast(0, logits.dtype), z - tau_z[:, array_ops.newaxis])
+
+
+__all__ = ["relu", "sigmoid", "hard_sigmoid", "tanh", "elu", "identity", "softmax", "sparsemax"]

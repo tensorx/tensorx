@@ -83,3 +83,6 @@ def relu_init(shape, dtype=dt.float32):
     mu = 0
     sigma = math_ops.sqrt(2.0 / fan_in)
     return random_ops.random_normal((fan_in, fan_out), mu, sigma, dtype)
+
+
+__all__ = ["zero_init", "random_uniform", "relu_init", "xavier_init"]

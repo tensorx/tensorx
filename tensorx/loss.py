@@ -11,7 +11,6 @@ from tensorflow.python.ops.losses.losses import hinge_loss as tf_hinge_loss
 from tensorflow.python.framework import dtypes
 
 
-
 def mse(labels, predictions, weights=1.0):
     """ Mean Squared Error (MSE)
 

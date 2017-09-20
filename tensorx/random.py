@@ -228,3 +228,9 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
     else:
         mask_values = [salt_value, pepper_value]
         return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype)
+
+
+__all__ = ["sample",
+           "sparse_random_normal",
+           "sparse_random_mask",
+           "salt_pepper_noise"]

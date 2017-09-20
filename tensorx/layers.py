@@ -673,3 +673,20 @@ class Concat(Layer):
 
         tensors = [layer.tensor for layer in layers]
         self.tensor = array_ops.concat(tensors, axis=-1)
+
+
+__all__ = ["Input",
+           "SparseInput",
+           "Activation",
+           "ToSparse",
+           "ToDense",
+           "Bias",
+           "Linear",
+           "Merge",
+           "Concat",
+           "Add",
+           "Dropout",
+           "GaussianNoise",
+           "SparseGaussianNoise",
+           "SaltPepperNoise"
+           ]
