@@ -48,8 +48,7 @@ Philosophy
    install 
    getting-started
 
-.. toctree::
-   :caption: API 
+.. toctree:: 
    :maxdepth: 2
    :hidden:
    
