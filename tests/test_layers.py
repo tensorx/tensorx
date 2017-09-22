@@ -2,6 +2,7 @@ import unittest
 import tensorflow as tf
 import numpy as np
 from tensorx.layers import *
+from tensorx.layers import layers_to_list
 from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
 import math

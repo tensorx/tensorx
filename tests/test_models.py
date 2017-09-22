@@ -162,8 +162,8 @@ class MyTestCase(unittest.TestCase):
         model = Model(input_layer, h)
         model.config(optimiser, losses, labels)
 
-        data = np.ndarray([[1, 1, 1, 1]])
-        target = np.ndarray([[1, 0]])
+        data = np.array([[1, 1, 1, 1]])
+        target = np.array([[1, 0]])
 
         # session = model.session
         # weights = session.run(linear.weights)
