@@ -237,8 +237,23 @@ class Model:
         if not self.vars_inited():
             self.init_vars()
 
+        data = _as_list(data)
+
+        n_data = len(data)
+        n_inputs = len(self.inputs)
+
+        if n_data != n_inputs:
+            raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
+
         feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
         if targets is not None:
+            targets = _as_list(targets)
+            n_targets = len(targets)
+            n_target_inputs = len(self.target_inputs)
+            if n_targets != n_target_inputs:
+                raise ValueError(
+                    "target items received {} != {} model target inputs".format(n_targets, n_target_inputs))
+
             label_dict = {target.tensor: label for target, label in zip(self.target_inputs, targets)}
             feed_dict.update(label_dict)
 
