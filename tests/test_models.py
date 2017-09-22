@@ -150,13 +150,13 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(result[0][0], 0)
 
     def test_model_train(self):
-        input_layer = Input(4)
+        input_layer = Input(4,name="x")
         linear = Linear(input_layer, 2)
         h = Activation(linear, fn=tanh)
 
         # configure training
-        optimiser = tf.train.GradientDescentOptimizer(learning_rate=0.01)
-        labels = Input(2)
+        optimiser = tf.train.GradientDescentOptimizer(learning_rate=0.5)
+        labels = Input(2,name="y_")
         losses = binary_cross_entropy(labels.tensor, h.tensor)
 
         model = Model(input_layer, h)
@@ -167,8 +167,15 @@ class MyTestCase(unittest.TestCase):
 
         # session = model.session
         # weights = session.run(linear.weights)
+        model.init_vars()
+        weights1 = model.session.run(linear.weights)
 
-        model.train(data, target, n_epochs=1)
+        for i in range(100):
+            model.train(data, target, n_epochs=1)
+
+        weights2 = model.session.run(linear.weights)
+
+        self.assertFalse(np.array_equal(weights1,weights2))
 
 
 if __name__ == '__main__':

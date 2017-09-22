@@ -75,6 +75,7 @@ class Model:
         self.targets = None
         self.loss_weights = 1.0
         self.joint_loss = None
+        self.train_step = None
 
         self.layers = layers_to_list(self.outputs)
 
@@ -187,27 +188,32 @@ class Model:
             result = result[0]
         return result
 
-    def config(self, optimiser, losses, targets=None, loss_weights=1.0):
+    def config(self, optimiser, losses, target_inputs=None, loss_weights=1.0):
         """ Configures the model for training
 
         Args:
             losses: a :obj:`list` or single loss `Tensor` instances to be used to train the model variables
-            targets: a :obj:`list` or single input layers that will be used with the loss function
+            target_inputs: a :obj:`list` or single input layers that will be used with the loss function
             optimiser: the tensorflow optimiser used to train the model
             loss_weights: weights used to create a join loss if we configure the model with multiple losses
 
         """
         self.losses = _as_list(losses)
-        self.targets = _as_list(targets)
+        self.target_inputs = _as_list(target_inputs)
 
         self.optimiser = optimiser
         self.loss_weights = loss_weights
 
-        # the default behaviour is to create a (optionally weighted) joint loss function
-        t_losses = ops.convert_to_tensor(losses)
-        loss_weights = math_ops.to_float(loss_weights)
-        weighted_losses = math_ops.multiply(t_losses, loss_weights)
-        self.joint_loss = math_ops.reduce_sum(weighted_losses)
+        # the default behaviour is to create a (optionally weighted) joint loss functionz
+        if len(self.losses) > 1:
+            t_losses = ops.convert_to_tensor(self.losses)
+            loss_weights = math_ops.to_float(loss_weights)
+            weighted_losses = math_ops.multiply(t_losses, loss_weights)
+            self.joint_loss = math_ops.reduce_sum(weighted_losses)
+        else:
+            self.joint_loss = self.losses[0]
+
+        self.train_step = self.optimiser.minimize(self.joint_loss)
 
     def train(self, data, targets=None, n_epochs=1):
         """ Trains the model on the given data.
@@ -231,15 +237,13 @@ class Model:
         if not self.vars_inited():
             self.init_vars()
 
-        train_step = self.optimiser.minimize(self.joint_loss)
-
         feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
         if targets is not None:
-            label_dict = {target.tensor: label for target, label in zip(self.targets, targets)}
-            feed_dict = {**feed_dict, **label_dict}
+            label_dict = {target.tensor: label for target, label in zip(self.target_inputs, targets)}
+            feed_dict.update(label_dict)
 
         for epoch in range(n_epochs):
-            self.session.run(train_step, feed_dict)
+            self.session.run(self.train_step, feed_dict)
 
 
 __all__ = ["Model"]
