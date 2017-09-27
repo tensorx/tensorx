@@ -2,6 +2,7 @@ import unittest
 import tensorflow as tf
 from tensorx.metrics import cosine_distance
 import functools
+import numpy as np
 
 
 class MyTestCase(unittest.TestCase):
@@ -10,6 +11,46 @@ class MyTestCase(unittest.TestCase):
 
     def tearDown(self):
         self.ss.close()
+
+    def test_sate_gauss_neighbourhood(self):
+        def _safe_div(numerator, denominator, name="value"):
+            """Computes a safe divide which returns 0 if the denominator is zero.
+            Note that the function contains an additional conditional check that is
+            necessary for avoiding situations where the loss is zero causing NaNs to
+            creep into the gradient computation.
+            Args:
+              numerator: An arbitrary `Tensor`.
+              denominator: `Tensor` whose shape matches `numerator` and whose values are
+                assumed to be non-negative.
+              name: An optional name for the returned op.
+            Returns:
+              The element-wise value of the numerator divided by the denominator.
+            """
+            return tf.where(
+                tf.greater(denominator, 0),
+                tf.div(numerator, tf.where(
+                    tf.equal(denominator, 0),
+                    tf.ones_like(denominator), denominator)),
+                tf.zeros_like(numerator),
+                name=name)
+
+        def gaussian(x, sigma=0.5):
+            x = tf.convert_to_tensor(x, dtype=tf.float32)
+            sigma = tf.convert_to_tensor(sigma, dtype=tf.float32)
+            gauss = tf.exp(_safe_div(-tf.pow(x, 2), tf.pow(sigma, 0.1)))
+            return gauss
+
+        def l1_dist_wrap(center, points, size):
+            center = tf.convert_to_tensor(center)
+            other = tf.convert_to_tensor(points)
+            return tf.minimum(tf.abs(tf.subtract(center, other)), tf.mod(center - other, size))
+
+        result = gaussian(0., 0.5).eval()
+        self.assertEqual(result, 1.)
+        result = gaussian([-2., -1., 0., 1., 2.], 2.).eval()
+        self.assertTrue(np.array_equal(result[0:2], result[3:5][::-1]))
+
+        print(l1_dist_wrap(0, [0, 1, 2, 3, 4], [5]).eval())
 
     def test_stage_implementation(self):
         n_inputs = 2
@@ -42,11 +83,6 @@ class MyTestCase(unittest.TestCase):
 
         h = tf.tensordot(inputs, features, axes=[[0, 1], [1, 2]])
 
-        def neighbourhood(x,weights,n_neurons,bmu,p):
-            neurons = tf.range(0,n_neurons)
-            # TODO 
-
-
         # didn't know but calling global variable int must be done after adding the vars to the graph
         init_vars = tf.global_variables_initializer()
         with tf.Session() as sess:
@@ -65,13 +101,15 @@ class MyTestCase(unittest.TestCase):
             print("result:\n", h.eval(feed_dict))
 
             print("result iterative")
-            for i in range(2):
-                features = feature_w_slice[i]
-                op = tf.matmul(inputs, features)
-                print(op.eval(feed_dict))
-                # print("h:\n",h.eval(feed_dict))
-                # print("slice: {}:{}".format(slice_begin.eval(feed_dict), slice_end.eval(feed_dict)))
-                # print(feature_w_slice.eval(feed_dict))
+            # for i in range(2):
+            #    features = feature_w_slice[i]
+            #    op = tf.matmul(inputs, features)
+            #    print(op.eval(feed_dict))
+            #    # print("h:\n",h.eval(feed_dict))
+            #    # print("slice: {}:{}".format(slice_begin.eval(feed_dict), slice_end.eval(feed_dict)))
+            #    # print(feature_w_slice.eval(feed_dict))
+
+            print(gaussian(0., 0.5).eval())
 
 
 if __name__ == '__main__':
