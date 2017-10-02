@@ -5,6 +5,35 @@ import functools
 import numpy as np
 
 
+def _safe_div(numerator, denominator, name="value"):
+    """Computes a safe divide which returns 0 if the denominator is zero.
+    Note that the function contains an additional conditional check that is
+    necessary for avoiding situations where the loss is zero causing NaNs to
+    creep into the gradient computation.
+    Args:
+      numerator: An arbitrary `Tensor`.
+      denominator: `Tensor` whose shape matches `numerator` and whose values are
+        assumed to be non-negative.
+      name: An optional name for the returned op.
+    Returns:
+      The element-wise value of the numerator divided by the denominator.
+    """
+    return tf.where(
+        tf.greater(denominator, 0),
+        tf.div(numerator, tf.where(
+            tf.equal(denominator, 0),
+            tf.ones_like(denominator), denominator)),
+        tf.zeros_like(numerator),
+        name=name)
+
+
+def gaussian(x, sigma=0.5):
+    x = tf.convert_to_tensor(x, dtype=tf.float32)
+    sigma = tf.convert_to_tensor(sigma, dtype=tf.float32)
+    gauss = tf.exp(_safe_div(-tf.pow(x, 2), tf.pow(sigma, 0.1)))
+    return gauss
+
+
 class MyTestCase(unittest.TestCase):
     def setUp(self):
         self.ss = tf.InteractiveSession()
@@ -13,44 +42,19 @@ class MyTestCase(unittest.TestCase):
         self.ss.close()
 
     def test_sate_gauss_neighbourhood(self):
-        def _safe_div(numerator, denominator, name="value"):
-            """Computes a safe divide which returns 0 if the denominator is zero.
-            Note that the function contains an additional conditional check that is
-            necessary for avoiding situations where the loss is zero causing NaNs to
-            creep into the gradient computation.
-            Args:
-              numerator: An arbitrary `Tensor`.
-              denominator: `Tensor` whose shape matches `numerator` and whose values are
-                assumed to be non-negative.
-              name: An optional name for the returned op.
-            Returns:
-              The element-wise value of the numerator divided by the denominator.
-            """
-            return tf.where(
-                tf.greater(denominator, 0),
-                tf.div(numerator, tf.where(
-                    tf.equal(denominator, 0),
-                    tf.ones_like(denominator), denominator)),
-                tf.zeros_like(numerator),
-                name=name)
-
-        def gaussian(x, sigma=0.5):
-            x = tf.convert_to_tensor(x, dtype=tf.float32)
-            sigma = tf.convert_to_tensor(sigma, dtype=tf.float32)
-            gauss = tf.exp(_safe_div(-tf.pow(x, 2), tf.pow(sigma, 0.1)))
-            return gauss
-
-        def l1_dist_wrap(center, points, size):
+        def l1_dist_wrap(center, points):
             center = tf.convert_to_tensor(center)
             other = tf.convert_to_tensor(points)
-            return tf.minimum(tf.abs(tf.subtract(center, other)), tf.mod(center - other, size))
+
+            size = other.get_shape()
+            return tf.minimum(tf.abs(center - other), tf.mod(-(tf.abs(center - other)), size))
 
         result = gaussian(0., 0.5).eval()
         self.assertEqual(result, 1.)
         result = gaussian([-2., -1., 0., 1., 2.], 2.).eval()
         self.assertTrue(np.array_equal(result[0:2], result[3:5][::-1]))
 
-        print(l1_dist_wrap(0, [0, 1, 2, 3, 4], [5]).eval())
+        print(l1_dist_wrap(3, [0, 1, 2, 3, 4]).eval())
 
     def test_stage_implementation(self):
         n_inputs = 2
@@ -69,12 +73,13 @@ class MyTestCase(unittest.TestCase):
         # bmu_dist = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
         # som_distances = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
 
-        # som_dist = cosine_distance(inputs,som_w)
-        # bmu = tf.argmin(som_dist, axis=0)
+        som_dist = cosine_distance(inputs, som_w)
+        bmu = tf.argmin(som_dist, axis=0)
         # bmu_slice = feature_w[bmu]
 
         # dummy dense example
-        indices = tf.constant([0, 2])
+        indices = [bmu]
+        # indices = tf.constant([0, 2])
         feature_w_slice = tf.gather(feature_w, indices=indices)
 
         # ext_inputs = tf.expand_dims(inputs,0)
@@ -99,15 +104,6 @@ class MyTestCase(unittest.TestCase):
             print("features:\n", features.eval(feed_dict))
             # hidden
             print("result:\n", h.eval(feed_dict))
-
-            print("result iterative")
-            # for i in range(2):
-            #    features = feature_w_slice[i]
-            #    op = tf.matmul(inputs, features)
-            #    print(op.eval(feed_dict))
-            #    # print("h:\n",h.eval(feed_dict))
-            #    # print("slice: {}:{}".format(slice_begin.eval(feed_dict), slice_end.eval(feed_dict)))
-            #    # print(feature_w_slice.eval(feed_dict))
 
             print(gaussian(0., 0.5).eval())
 

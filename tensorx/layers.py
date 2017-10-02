@@ -28,6 +28,7 @@ from tensorx.init import random_uniform, zero_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal
 import tensorx.transform as transform
 import tensorx.utils as util
+from tensorx.metrics import cosine_distance
 
 
 def _as_list(elems):
@@ -673,6 +674,53 @@ class Concat(Layer):
 
         tensors = [layer.tensor for layer in layers]
         self.tensor = array_ops.concat(tensors, axis=-1)
+
+
+
+
+class SOMLinear(Layer):
+
+    @staticmethod
+    def l1_distance(center, points):
+        """ Manhattan (L1) distance with continuous 1D vector (coordinates wrap around)
+
+        Args:
+            center: the coordinate to which we wish to compute the distance to all the other points
+            points: a 1D tensor with all the coordinates [0,1,2,3,...,n]
+            size:
+        """
+        center = ops.convert_to_tensor(center)
+        points = ops.convert_to_tensor(points)
+
+        size = points.get_shape()
+        return math_ops.minimum(math_ops.abs(center - points), math_ops.mod(-math_ops.abs(center - points), size))
+
+    def __init__(self,
+                 layer,
+                 n_units,
+                 map_size,
+                 map_distance=cosine_distance,
+                 init=random_uniform, weights=None, bias=True, dtype=dtypes.float32, name="som_linear"):
+        shape = [layer.shape[1], n_units]
+        super().__init__(layer, n_units, shape, dtype, name)
+
+        self.map_size = map_size
+        self.weights_shape = [map_size, layer.shape[1], n_units]
+        self.map_weights = None
+        self.map_shape = [map_size, layer.shape[1]]
+        self.bias = None
+
+        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+            # init weights
+            self.weights = variable_scope.get_variable("w", initializer=init(self.weights_shape))
+            self.map_weights = variable_scope.get_variable("som_w", initializer=init(self.map_shape))
+
+            if layer.is_sparse():
+                self.tensor = None
+            else:
+                som_dist = cosine_distance(layer.tensor, self.map_weights)
+                # Best Matching Unit (BMU)
+                bmu = math_ops.argmin(som_dist, axis=0)
 
 
 __all__ = ["Input",
