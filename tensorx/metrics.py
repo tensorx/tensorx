@@ -2,12 +2,12 @@
 
 measures different properties of and between tensors
 """
-from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import math_ops, array_ops
 from tensorflow.python.ops.nn import l2_normalize
 from tensorflow.python.framework import ops
 
 
-def cosine_distance(tensor1, tensor2, normalize=True):
+def cosine_distance(tensor1, tensor2, dim):
     """ Computes the cosine distance between two tensors
 
     Args:
@@ -22,11 +22,15 @@ def cosine_distance(tensor1, tensor2, normalize=True):
     tensor1 = ops.convert_to_tensor(tensor1)
     tensor2 = ops.convert_to_tensor(tensor2)
 
-    if normalize:
-        tensor1 = l2_normalize(tensor1, 0)
-        tensor2 = l2_normalize(tensor2, 0)
+    tensor1.get_shape().assert_is_compatible_with(tensor2.get_shape())
 
-    distance = 1 - math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), axis=1)
+    tensor1 = l2_normalize(tensor1,-1)
+    tensor2 = l2_normalize(tensor2, -1)
+
+    radial_diffs = math_ops.multiply(tensor1, tensor2)
+
+    distance = 1 - math_ops.reduce_sum(radial_diffs, axis=[dim,])
+
     return distance
 
 

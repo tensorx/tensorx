@@ -56,6 +56,16 @@ class MyTestCase(unittest.TestCase):
 
         print(l1_dist_wrap(3, [0, 1, 2, 3, 4]).eval())
 
+    def test_distances_sparse_tensors(self):
+        v1 = tf.random_normal([10])
+        v2 = tf.random_normal([10])
+
+        dist0 = cosine_distance(v1, v1, 0)
+        self.assertAlmostEqual(dist0.eval(), 0, places=6)
+
+        dist1 = cosine_distance(v1, v2, 0)
+        print(dist1.eval())
+
     def test_stage_implementation(self):
         n_inputs = 2
         n_partitions = 3
