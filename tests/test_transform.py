@@ -156,6 +156,18 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(dense1, expected_dense)
         np.testing.assert_array_equal(dense1, dense2)
 
+    def test_l2_normalise(self):
+        v1 = tf.constant([2., 0., -1.])
+        v1s = transform.to_sparse(v1)
+
+        self.assertIsInstance(v1s, tf.SparseTensor)
+
+        v1_norm = transform.l2_normalize(v1, -1)
+        v1s_norm = transform.l2_normalize(v1s, -1)
+        v1s_norm_dense = tf.sparse_tensor_to_dense(v1s_norm)
+
+        self.assertTrue(np.array_equal(v1_norm.eval(), v1s_norm_dense.eval()))
+
 
 if __name__ == '__main__':
     unittest.main()

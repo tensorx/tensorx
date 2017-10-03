@@ -1,6 +1,7 @@
 import unittest
 import tensorflow as tf
-import tensorx.metrics as metrics
+from tensorx import metrics
+from tensorx import transform
 import numpy as np
 
 
@@ -17,6 +18,11 @@ class MyTestCase(unittest.TestCase):
 
         dist0 = metrics.cosine_distance(v1, v1, 0)
         self.assertAlmostEqual(dist0.eval(), 0, places=6)
+
+        v1 = transform.to_sparse(v2)
+        self.assertIsInstance(v1, tf.SparseTensor)
+
+        dist0_sparse = metrics.cosine_distance(v1, v1, 0)
 
 
 if __name__ == '__main__':

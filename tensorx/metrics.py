@@ -3,8 +3,10 @@
 measures different properties of and between tensors
 """
 from tensorflow.python.ops import math_ops, array_ops
-from tensorflow.python.ops.nn import l2_normalize
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.sparse_tensor import SparseTensor
+
+from tensorx.transform import l2_normalize
 
 
 def cosine_distance(tensor1, tensor2, dim):
@@ -19,17 +21,19 @@ def cosine_distance(tensor1, tensor2, dim):
         ``Tensor``: a ``Tensor`` with the cosine distances between the two tensors
 
     """
-    tensor1 = ops.convert_to_tensor(tensor1)
-    tensor2 = ops.convert_to_tensor(tensor2)
+    if not isinstance(tensor1, (ops.Tensor, SparseTensor)):
+        tensor1 = ops.convert_to_tensor(tensor1)
+    if not isinstance(tensor1, (ops.Tensor, SparseTensor)):
+        tensor2 = ops.convert_to_tensor(tensor2)
 
     tensor1.get_shape().assert_is_compatible_with(tensor2.get_shape())
 
-    tensor1 = l2_normalize(tensor1,-1)
+    tensor1 = l2_normalize(tensor1, -1)
     tensor2 = l2_normalize(tensor2, -1)
 
     radial_diffs = math_ops.multiply(tensor1, tensor2)
 
-    distance = 1 - math_ops.reduce_sum(radial_diffs, axis=[dim,])
+    distance = 1 - math_ops.reduce_sum(radial_diffs, axis=[dim, ])
 
     return distance
 
