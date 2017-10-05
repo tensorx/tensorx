@@ -158,28 +158,14 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(dense1, expected_dense)
         np.testing.assert_array_equal(dense1, dense2)
 
-    def test_l2_normalise(self):
-        v1 = tf.constant([2., 0., -1.])
-        v1s = transform.to_sparse(v1)
-
-        self.assertIsInstance(v1s, tf.SparseTensor)
-
-        v1_norm = transform.l2_normalize(v1, -1)
-        v1s_norm = transform.l2_normalize(v1s, -1)
-        v1s_norm_dense = tf.sparse_tensor_to_dense(v1s_norm)
-
-        self.assertTrue(np.array_equal(v1_norm.eval(), v1s_norm_dense.eval()))
-
     def test_l2_norm(self):
-        v1 = tf.constant([[2., 0., -1.],[2., 0., -1.]])
+        v1 = tf.constant([[2., 0., -1.], [2., 0., -1.]])
         v1s = transform.to_sparse(v1)
 
-        norm1 = linalg_ops.norm(v1,axis=1)
-        norm1s = transform.sparse_l2_norm(v1s,1)
+        norm1 = linalg_ops.norm(v1, axis=1)
+        norm1s = transform.sparse_l2_norm(v1s, axis=1)
 
-        print(norm1.eval())
-        print(norm1s.eval())
-
+        self.assertTrue(np.array_equal(norm1.eval(), norm1s.eval()))
 
 
 if __name__ == '__main__':

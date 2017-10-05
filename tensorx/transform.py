@@ -8,7 +8,9 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import sparse_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
+from tensorflow.python.ops import functional_ops
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue, \
+    convert_to_tensor_or_sparse_tensor
 from tensorflow.python.ops.nn import dropout
 
 import numpy as np
@@ -426,49 +428,15 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
     return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
 
 
-def l2_normalize(x, dim, epsilon=1e-12, name=None):
-    """Normalizes along dimension `dim` using an L2 norm.
-
-    Note:
-        Works with both ``Tensor`` and ``SparseTensor``
-
-    For a 1-D tensor with `dim = 0`, computes
-        output = x / sqrt(max(sum(x**2), epsilon))
-
-    For `x` with more dimensions, independently normalizes each 1-D slice along
-    dimension `dim`.
-
-    Args:
-      x: A `Tensor` or `SparseTensor`
-
-      dim: Dimension along which to normalize.  A scalar or a vector of integers.
-
-      epsilon: A lower bound value for the norm. Will use `sqrt(epsilon)` as the divisor if `norm < sqrt(epsilon)`.
-
-      name: A name for this operation (optional).
-
-    Returns:
-      A `Tensor` or `SparseTensor` with the same shape as `x`.
-    """
-    with ops.name_scope(name, "l2_normalize", [x]) as name:
-        if not isinstance(x, (ops.Tensor, SparseTensor)):
-            x = ops.convert_to_tensor(x, name="x")
-
-        square = math_ops.square(x)
-        if isinstance(x, ops.Tensor):
-            square_sum = math_ops.reduce_sum(square, dim, keep_dims=True)
-            x_inv_norm = math_ops.rsqrt(math_ops.maximum(square_sum, epsilon))
-            result = math_ops.multiply(x, x_inv_norm, name=name)
+def sparse_l2_norm(sp_tensor, axis, name=None, keep_sparse=False):
+    with ops.name_scope(name, "l2_norm", [sp_tensor]) as name:
+        square = math_ops.square(sp_tensor)
+        if not keep_sparse:
+            square_sum = sparse_ops.sparse_reduce_sum(square, axis=axis)
         else:
-            sp_x = x
-            sparse_l2_norm(sp)
-            square_sum = sparse_ops.sparse_reduce_sum(square, axis=dim)
-            values_max = math_ops.maximum(square_sum, epsilon)
-            values_inv_norm = math_ops.rsqrt(values_max)
-            result_values = math_ops.multiply(sp_x.values, values_inv_norm)
-            result = SparseTensor(indices=x.indices, values=result_values, dense_shape=x.dense_shape)
-
-        return result
+            square_sum = sparse_ops.sparse_reduce_sum_sparse(square, axis=axis, keep_dims=True)
+        l2_norm = math_ops.sqrt(square_sum)
+        return l2_norm
 
 
 def sparse_dot(sp_tensor1, tensor2, dim, name=None):
@@ -486,22 +454,11 @@ def sparse_dot(sp_tensor1, tensor2, dim, name=None):
     """
     with ops.name_scope(name, "l2_norm", [sp_tensor1, tensor2]):
         dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
-        dense_values = array_ops.reshape(dense_values, [-1])
-
         radial_dif = math_ops.multiply(sp_tensor1.values, dense_values)
         radial_dif_sp = SparseTensor(indices=sp_tensor1.indices, values=radial_dif, dense_shape=sp_tensor1.dense_shape)
-
         dot_prod = sparse_ops.sparse_reduce_sum(radial_dif_sp, axis=dim)
 
         return dot_prod
-
-
-def sparse_l2_norm(sp_tensor, axis, name=None):
-    with ops.name_scope(name, "l2_norm", [sp_tensor]) as name:
-        square = math_ops.square(sp_tensor)
-        square_sum = sparse_ops.sparse_reduce_sum(square, axis=axis)
-        l2_norm = math_ops.sqrt(square_sum)
-        return l2_norm
 
 
 __all__ = ["empty_sparse_tensor",
@@ -516,6 +473,5 @@ __all__ = ["empty_sparse_tensor",
            "sparse_ones",
            "sparse_dropout",
            "pairs",
-           "l2_normalize",
            "sparse_dot",
            "sparse_l2_norm"]

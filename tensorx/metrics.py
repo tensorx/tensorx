@@ -6,103 +6,67 @@ from tensorflow.python.ops import math_ops, array_ops, linalg_ops, sparse_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.ops import Tensor
-from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
+from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor, SparseTensor
 
-from tensorx.transform import sparse_l2_norm, sparse_dot, l2_normalize
+from tensorx.transform import sparse_l2_norm, sparse_dot
 
 
-def cosine_distance_v2(tensor1, tensor2, dim, dtype=dtypes.float32):
-    sp_tensor = convert_to_tensor_or_sparse_tensor(tensor1, dtype)
+def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32):
+    """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
+
+        Args:
+            sp_tensor: a `SparseTensor`
+            tensor2: a `Tensor`
+            dim: the dimension along which the distance is computed
+            dtype:
+
+        Returns:
+            a `Tensor` with the cosine distance between two tensors
+        """
+    tensor1 = SparseTensor.from_value(sp_tensor)
+    if tensor1.values.dtype != dtype:
+        tensor1.values = math_ops.cast(tensor1.values, dtype)
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
-    if isinstance(tensor1, Tensor):
-        return _cosine_distance(sp_tensor, tensor2, dim)
+    dot_prod = sparse_dot(tensor1, tensor2, dim)
+    norm1 = sparse_l2_norm(tensor1, axis=dim)
+    norm2 = linalg_ops.norm(tensor2, axis=dim)
 
-    sp_tensor = l2_normalize(sp_tensor, dim)
-    tensor2 = l2_normalize(tensor2, dim)
+    cos12 = dot_prod / (norm1 * norm2)
+    distance = 1 - cos12
 
-    distance = 1 - sparse_dot(sp_tensor, tensor2, dim)
-
+    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
     return distance
 
 
-def _cosine_distance_v2(tensor1, tensor2, dim):
-    """ Computes the cosine distance between two tensors
+def cosine_distance(tensor1, tensor2, dim=-1, dtype=dtypes.float32):
+    """ Computes the cosine distance between two non-zero `Tensor`s
 
     Args:
-        tensor1: a ``Tensor``
-        tensor2: a ``Tensor``
-
+        tensor1: a `Tensor`
+        tensor2: a `Tensor`
+        dim: the dimension along which the distance is computed
+        dtype:
 
     Returns:
-        ``Tensor``: a ``Tensor`` with the cosine distances between the two tensors
-
+        a `Tensor` with the cosine distance betwen two tensors
     """
-    tensor1 = ops.convert_to_tensor(tensor1)
-    tensor2 = ops.convert_to_tensor(tensor2)
-    tensor1.get_shape().assert_is_compatible_with(tensor2.get_shape())
-
-    tensor1 = l2_normalize(tensor1, dim)
-    tensor2 = l2_normalize(tensor2, dim)
-
-    dist = 1 - math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), axis=dim)
-
-    return dist
-
-
-def cosine_distance(tensor1, tensor2, dim, dtype=dtypes.float32):
-    """ Computes the cosine distance between a `Tensor` or `SparseTensor` and a `Tensor`
-
-    Args:
-        tensor1 : a ``Tensor`` or ``SparseTensor``
-        tensor2: a ``Tensor``
-        dim: dimension along which the
-        dtype: casts the input tensors to the given type
-
-    """
-    sp_tensor = convert_to_tensor_or_sparse_tensor(tensor1, dtype)
+    tensor1 = ops.convert_to_tensor(tensor1, dtype)
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
-    if isinstance(tensor1, Tensor):
-        return _cosine_distance(sp_tensor, tensor2, dim)
+    dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), dim)
+    norm1 = linalg_ops.norm(tensor1, axis=dim)
+    norm2 = linalg_ops.norm(tensor2, axis=dim)
 
-    epsilon = 1e-12
-    norm1 = math_ops.maximum(sparse_l2_norm(sp_tensor, dim), epsilon)
-    norm2 = math_ops.maximum(linalg_ops.norm(tensor2, axis=dim), epsilon)
-
-    distance = 1 - math_ops.div(sparse_dot(sp_tensor, tensor2, dim), (norm1 * norm2))
+    cos12 = dot_prod / (norm1 * norm2)
+    distance = 1 - cos12
+    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
 
     return distance
-
-
-def _cosine_distance(tensor1, tensor2, dim):
-    """ Computes the cosine distance between two tensors
-
-    Args:
-        tensor1: a ``Tensor``
-        tensor2: a ``Tensor``
-
-
-    Returns:
-        ``Tensor``: a ``Tensor`` with the cosine distances between the two tensors
-
-    """
-    tensor1 = ops.convert_to_tensor(tensor1)
-    tensor2 = ops.convert_to_tensor(tensor2)
-    tensor1.get_shape().assert_is_compatible_with(tensor2.get_shape())
-
-    # because the norm can be zero
-    epsilon = 1e-12
-    norm1 = math_ops.maximum(linalg_ops.norm(tensor1, axis=dim), epsilon)
-    norm2 = math_ops.maximum(linalg_ops.norm(tensor2, axis=dim), epsilon)
-
-    dist = 1 - math_ops.div(math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), axis=dim), norm1 * norm2)
-
-    return dist
 
 
 def euclidean_distance(tensor1, tensor2, dim):
-    """ Computes the euclidean distance between two tensors
+    """ Computes the euclidean distance between two tensors.
 
         Args:
             tensor1: a ``Tensor``
