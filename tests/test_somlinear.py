@@ -47,6 +47,33 @@ def l1_dist_wrap(center, points):
     return tf.minimum(tf.abs(center - other), tf.mod(-(tf.abs(center - other)), size))
 
 
+def broadcast_reshape(tensor1, tensor2):
+    """
+    reshapes the first tensor to be broadcastable to the second
+
+    Args:
+        tensor1:
+        tensor2:
+
+    Returns:
+
+    """
+    # reshape neigh weights to multiply by each of gathered w
+    ones = tf.fill(tf.expand_dims(tf.rank(tensor2) - 1, 0), 1)
+    bcast_neigh_weights_shape = tf.concat([tf.shape(tensor1), ones], 0)
+    orig_weights_shape = tensor1.get_shape()
+    result = tf.reshape(tensor1, bcast_neigh_weights_shape)
+
+    # Set the weight shape, since after reshaping to bcast_weights_shape,
+    # the shape becomes None.
+    if tensor2.get_shape().ndims is not None:
+        result.set_shape(
+            orig_weights_shape.concatenate(
+                [1 for _ in range(tensor2.get_shape().ndims - 1)]))
+
+    return result
+
+
 class MyTestCase(unittest.TestCase):
     def setUp(self):
         self.ss = tf.InteractiveSession()
@@ -73,6 +100,7 @@ class MyTestCase(unittest.TestCase):
         inputs = tf.placeholder(tf.float32, [None, n_inputs], "x")
         som_w = tf.get_variable("p", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
         feature_w = tf.get_variable("w", feature_shape, tf.float32, tf.random_uniform_initializer(-1., 1.))
+        bias = tf.get_variable("b", [n_partitions, n_hidden], tf.float32, tf.random_uniform_initializer(-1., 1.))
 
         # bmu = tf.reduce_sum(tf.sqrt(som_w-inputs),axis=1)
         # bmu = tf.reduce_sum(tf.sqrt(som_w-inputs),axis=1)
@@ -93,8 +121,10 @@ class MyTestCase(unittest.TestCase):
 
         # indices = tf.constant([0, 2])
         w = tf.gather_nd(feature_w, indices=neigh_indices)
+        b = tf.gather_nd(bias, indices=neigh_indices)
 
-        # reshape neigh weights to multiply by 2
+        # reshape neigh weights to multiply by each of gathered w
+        """
         ones = tf.fill(tf.expand_dims(tf.rank(w) - 1, 0), 1)
         bcast_neigh_weights_shape = tf.concat([tf.shape(neigh_weights), ones], 0)
         orig_weights_shape = neigh_weights.get_shape()
@@ -106,6 +136,11 @@ class MyTestCase(unittest.TestCase):
             neigh_weights.set_shape(
                 orig_weights_shape.concatenate(
                     [1 for _ in range(w.get_shape().ndims - 1)]))
+        """
+        b2 = b * neigh_weights
+        neigh_weights = broadcast_reshape(neigh_weights, w)
+
+        # bias_weights = broadcast_reshape(neigh_weights,b)
 
         w2 = w * neigh_weights
 
@@ -133,31 +168,52 @@ class MyTestCase(unittest.TestCase):
         rows = tf.reshape(rows, [num_indices * n_partitions, 1])
         rows = tf.cast(rows, tf.int64)
 
+        rows_2 = tf.reshape(rows, [n_partitions, num_indices, 1])
+
         # tf.tile(tf.constant([[0,1],[0,1]]),multiples=tf.constant([2,1])).eval()
         # indices_tiled = tf.tile(sp_indices.indices, multiples=[n_partitions, 1])
         # indices_tiled = tf.concat([rows,indices_tiled],axis=1)
 
-
         flat_indices_tiled = tf.tile(sp_indices.values, multiples=[n_partitions])
+        indices_tiled = tf.concat([rows, tf.expand_dims(flat_indices_tiled, axis=1)], axis=1)
 
-        indices_tiled = tf.concat([rows, tf.expand_dims(flat_indices_tiled,axis=1)], axis=1)
+        flat_indices_2 = tf.reshape(flat_indices_tiled, [n_partitions, num_indices, 1])
+        rows_2 = tf.reshape(rows, [n_partitions, num_indices, 1])
+        indices_tiled_2 = tf.concat([rows_2, flat_indices_2], axis=2)
 
         values_tiled = tf.tile(sp_weights.values, multiples=[n_partitions])
+        values_tiled_2 = tf.reshape(values_tiled, [n_partitions, num_indices, 1])
+
         # dense_shape = tf.stack([tf.cast(n_partitions, tf.int64), sp_indices.dense_shape[0], sp_indices.dense_shape[1]],axis=-1)
-        dense_shape = tf.stack([tf.cast(n_partitions, tf.int64), sp_indices.dense_shape[1]], axis=-1)
+        dense_shape = tf.stack([tf.cast(num_indices * n_partitions, tf.int64), sp_indices.dense_shape[1]], axis=-1)
 
         sp_indices = tf.SparseTensor(indices_tiled, flat_indices_tiled, dense_shape)
         sp_weights = tf.SparseTensor(indices_tiled, values_tiled, dense_shape)
 
-        #sparse_h_no_mapfn = tf.nn.embedding_lookup_sparse(params=tf.squeeze(w2,axis=-1), sp_ids=sp_indices, sp_weights=sp_weights,
-         #                                                 combiner="sum", partition_strategy="mod")
+        # sparse_h_no_mapfn = tf.nn.embedding_lookup_sparse(params=w2, sp_ids=sp_indices, sp_weights=sp_weights,
+        #                                                 combiner="sum")
+        sparse_h_gather = tf.gather_nd(w2, indices_tiled_2)
+
+        # tensor_weights = broadcast_reshape(values_tiled, sparse_h_gather)
+
+        sparse_h_weighed = tf.multiply(values_tiled_2, sparse_h_gather)
+        sparse_h_weighed = tf.reduce_sum(sparse_h_weighed, 1)
+
+        y = sparse_h_weighed + b2
+        y = tf.reduce_sum(y)
+
+        # sparse_h_gather = tf.reshape(sparse_h_gather,[n_partitions,2,1])
+        # sparse_h_weighed = tf.multiply(sp_weights.values,sparse_h_gather)
+
+        # TODO correct the operation to take both dense inputs and sparse inputs with batch 1,2,...
 
         # didn't know but calling global variable int must be done after adding the vars to the graph
         init_vars = tf.global_variables_initializer()
         with tf.Session() as sess:
             sess.run(init_vars)
 
-            feed_dict = {inputs: [[1., 0, -1]]}
+            # feed_dict = {inputs: [[1., 0, -1]]}
+            feed_dict = {inputs: [[1., 0, -1], [1., 0, -1]]}
 
             # print("neigh distances")
             # print(neigh_distances.eval(feed_dict))
@@ -168,8 +224,8 @@ class MyTestCase(unittest.TestCase):
             # print("weights:")
             # print(weights.eval(feed_dict))
 
-            # print("neight indices: ")
-            # print(neigh_indices.eval(feed_dict))
+            print("neight indices: ")
+            print(neigh_indices.eval(feed_dict))
 
             # print("neigh weights:")
             # print(neigh_weights.eval(feed_dict))
@@ -180,17 +236,26 @@ class MyTestCase(unittest.TestCase):
             print("neigh gather * weights:")
             print(w2.eval(feed_dict))
 
-            print("neigh gather * weights:")
-            print(tf.reshape(w2,shape=[n_partitions*n_inputs,n_hidden]).eval(feed_dict))
+            print("neigh gather * bias:")
+            print(b2.eval(feed_dict))
+
+            print("flat indices 2")
+            print(flat_indices_2.eval(feed_dict))
 
             print("rows")
             print(rows.eval(feed_dict))
 
+            print("rows_2")
+            print(rows_2.eval(feed_dict))
+
+            print("indices tiled 2")
+            print(indices_tiled_2.eval(feed_dict))
+
+            print("values 2")
+            print(values_tiled_2.eval(feed_dict))
+
             print("new_dense_shape")
             print(dense_shape.eval(feed_dict))
-
-            print("indices tiled")
-            print(sp_indices.indices.eval(feed_dict))
 
             print("new indices")
             print(indices_tiled.eval(feed_dict))
@@ -198,8 +263,17 @@ class MyTestCase(unittest.TestCase):
             print("sparse h map_fn")
             print(sparse_h_map_fn.eval(feed_dict))
 
-            print("sparse h without map_fn")
-            print(sparse_h_no_mapfn.eval(feed_dict))
+            print("sparse h gather")
+            print(sparse_h_gather.eval(feed_dict))
+
+            # print("spare h gather weights")
+            # print(tensor_weights.eval(feed_dict))
+
+            print("sparse h weights")
+            print(sparse_h_weighed.eval(feed_dict))
+
+            print("sparse y")
+            print(y.eval(feed_dict))
 
 
 
@@ -215,6 +289,40 @@ class MyTestCase(unittest.TestCase):
             # print("result:\n", h.eval(feed_dict))
 
             # print(gaussian(0., 0.5).eval())
+
+    def test_batch_som_indices(self):
+        n_partitions = 2
+        n_inputs = 3
+        n_hidden = 1
+
+        dense_x = tf.constant([[1., 0., -1.], [1., 0., -1.]])
+        #dense_x = tf.constant([[1., 0., -1.]])
+        sparse_x = transform.to_sparse(dense_x)
+
+        som = tf.get_variable("som", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
+        all_w = tf.get_variable("w", [n_partitions, n_inputs, n_hidden], tf.float32,
+                                tf.random_uniform_initializer(-1., 1.))
+
+        init = tf.global_variables_initializer()
+        self.ss.run(init)
+
+        distances = cosine_distance(dense_x, som, dim=1)
+        bmu = tf.argmin(distances, axis=1)
+
+        print("som: \n",som.eval())
+        print("distances:\n", distances.eval())
+        print("bmu: ", bmu.eval())
+
+        """
+        map_indices = tf.range(0, n_partitions, 1)
+        neigh_distances = tf.to_float(l1_dist_wrap(bmu, map_indices))
+        weights = gaussian(neigh_distances, sigma=0.1)
+        neigh_threshold = 1e-6
+        neigh_active = tf.greater(weights, neigh_threshold)
+
+        neigh_indices = tf.where(neigh_active)
+        neigh_weights = tf.boolean_mask(weights, neigh_active)
+        """
 
 
 if __name__ == '__main__':

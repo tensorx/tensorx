@@ -28,7 +28,7 @@ class MyTestCase(unittest.TestCase):
         v2 = tf.constant(v2_data, dtype=tf.float32)
 
         dist0 = metrics.cosine_distance(v1, v1, 0)
-        self.assertAlmostEqual(dist0.eval(), 0, places=6)
+        self.assertTrue(np.allclose(dist0.eval(), 0., atol=1e-6))
 
         v1s = transform.to_sparse(v1)
         self.assertIsInstance(v1s, tf.SparseTensor)

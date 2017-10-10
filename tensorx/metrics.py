@@ -11,10 +11,11 @@ from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_spars
 from tensorx.transform import sparse_l2_norm, sparse_dot
 
 
-def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32):
+def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32, keep_dims=True):
     """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
 
         Args:
+            keep_dims: keeps the original dimension of the input tensor
             sp_tensor: a `SparseTensor`
             tensor2: a `Tensor`
             dim: the dimension along which the distance is computed
@@ -29,17 +30,23 @@ def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32):
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
     dot_prod = sparse_dot(tensor1, tensor2, dim)
+    if keep_dims:
+        dot_prod = array_ops.expand_dims(dot_prod, dim)
     norm1 = sparse_l2_norm(tensor1, axis=dim)
     norm2 = linalg_ops.norm(tensor2, axis=dim)
 
-    cos12 = dot_prod / (norm1 * norm2)
+    norm12 = norm1 * norm2
+    if keep_dims:
+        norm12 = array_ops.expand_dims(norm12, dim)
+
+    cos12 = dot_prod / norm12
     distance = 1 - cos12
 
     distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
     return distance
 
 
-def cosine_distance(tensor1, tensor2, dim=-1, dtype=dtypes.float32):
+def cosine_distance(tensor1, tensor2, dim=-1, dtype=dtypes.float32, keep_dims=True):
     """ Computes the cosine distance between two non-zero `Tensor`s
 
     Args:
@@ -54,11 +61,16 @@ def cosine_distance(tensor1, tensor2, dim=-1, dtype=dtypes.float32):
     tensor1 = ops.convert_to_tensor(tensor1, dtype)
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
-    dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), dim)
+    dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), dim, keep_dims=keep_dims)
+    # dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), dim)
     norm1 = linalg_ops.norm(tensor1, axis=dim)
     norm2 = linalg_ops.norm(tensor2, axis=dim)
 
-    cos12 = dot_prod / (norm1 * norm2)
+    norm12 = norm1 * norm2
+    if keep_dims:
+        norm12 = array_ops.expand_dims(norm12, dim)
+
+    cos12 = dot_prod / norm12
     distance = 1 - cos12
     distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
 
