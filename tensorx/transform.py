@@ -12,6 +12,7 @@ from tensorflow.python.ops import functional_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue, \
     convert_to_tensor_or_sparse_tensor
 from tensorflow.python.ops.nn import dropout
+from tensorflow.python.ops.nn import embedding_lookup
 
 import numpy as np
 
@@ -428,19 +429,53 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
     return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
 
 
-def sparse_l2_norm(sp_tensor, axis, name=None, keep_sparse=False):
+def sparse_l2_norm(sp_tensor, axis, name=None, keep_sparse=False, keep_dims=False):
     with ops.name_scope(name, "l2_norm", [sp_tensor]) as name:
         square = math_ops.square(sp_tensor)
         if not keep_sparse:
-            square_sum = sparse_ops.sparse_reduce_sum(square, axis=axis)
+            square_sum = sparse_ops.sparse_reduce_sum(square, axis=axis, keep_dims=keep_dims)
         else:
-            square_sum = sparse_ops.sparse_reduce_sum_sparse(square, axis=axis, keep_dims=True)
+            square_sum = sparse_ops.sparse_reduce_sum_sparse(square, axis=axis, keep_dims=keep_dims)
         l2_norm = math_ops.sqrt(square_sum)
         return l2_norm
 
 
-def sparse_dot(sp_tensor1, tensor2, dim, name=None):
+def batch_sparse_dot(sp_tensor1, tensor2, name=None, keep_dims=True):
     """
+
+    Args:
+        keep_dims: if true keeps the dimensions of the dot product:
+         tensor1.shape[0] x tensor2.shape[0] x tensor2.shape[1]
+        sp_tensor1: a ``SparseTensor``
+        tensor2: a ``Tensor
+        dim: the dimension along which the dot product is computed
+        name: the name for this op
+
+    Returns:
+        ``Tensor``: a ``Tensor`` with the result of the dot product
+
+    """
+    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        # radial_dif = math_ops.multiply(sp_tensor1.values, dense_values)
+        # radial_dif_sp = SparseTensor(indices=sp_tensor1.indices, values=radial_dif, dense_shape=sp_tensor1.dense_shape)
+        # dot_prod = sparse_ops.sparse_reduce_sum(radial_dif_sp, axis=-1)
+        # tensor1 = sparse_ops.sparse_tensor_to_dense(sp_tensor1)
+        # tensor1 = array_ops.expand_dims(tensor1,1)
+        # dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), -1, keep_dims=True)
+
+        dot_prod = sparse_ops.sparse_tensor_dense_matmul(sp_tensor1, array_ops.transpose(tensor2))
+
+        sp_shape = math_ops.cast(sp_tensor1.dense_shape, dtypes.int32)
+        dense_shape = array_ops.shape(tensor2)
+
+        if keep_dims:
+            dot_prod = array_ops.reshape(dot_prod, [sp_shape[0], dense_shape[0], 1])
+
+        return dot_prod
+
+
+def sparse_dot(sp_tensor1, tensor2, name=None):
+    """ Returns the dot product between two tensors with the same shape
 
     Args:
         sp_tensor1: a ``SparseTensor``
@@ -452,11 +487,11 @@ def sparse_dot(sp_tensor1, tensor2, dim, name=None):
         ``Tensor``: a ``Tensor`` with the result of the dot product
 
     """
-    with ops.name_scope(name, "l2_norm", [sp_tensor1, tensor2]):
+    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
         dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
         radial_dif = math_ops.multiply(sp_tensor1.values, dense_values)
         radial_dif_sp = SparseTensor(indices=sp_tensor1.indices, values=radial_dif, dense_shape=sp_tensor1.dense_shape)
-        dot_prod = sparse_ops.sparse_reduce_sum(radial_dif_sp, axis=dim)
+        dot_prod = sparse_ops.sparse_reduce_sum(radial_dif_sp, axis=-1)
 
         return dot_prod
 
@@ -473,5 +508,5 @@ __all__ = ["empty_sparse_tensor",
            "sparse_ones",
            "sparse_dropout",
            "pairs",
-           "sparse_dot",
+           "batch_sparse_dot",
            "sparse_l2_norm"]

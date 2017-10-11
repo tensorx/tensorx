@@ -2,7 +2,7 @@ import unittest
 import tensorflow as tf
 from tensorflow.contrib.layers.python.layers import feature_column
 
-from tensorx.metrics import cosine_distance
+from tensorx.metrics import pairwise_cosine_distance
 import functools
 import numpy as np
 
@@ -39,12 +39,13 @@ def gaussian(x, sigma=0.5):
     return gauss
 
 
-def l1_dist_wrap(center, points):
-    center = to_tensor_cast(center, tf.float32)
+def l1_dist_wrap(centers, points):
+    centers = to_tensor_cast(centers, tf.float32)
+    centers = tf.expand_dims(centers, -1)
     other = to_tensor_cast(points, tf.float32)
 
     size = other.get_shape()[-1].value
-    return tf.minimum(tf.abs(center - other), tf.mod(-(tf.abs(center - other)), size))
+    return tf.minimum(tf.abs(centers - other), tf.mod(-(tf.abs(centers - other)), size))
 
 
 def broadcast_reshape(tensor1, tensor2):
@@ -107,7 +108,7 @@ class MyTestCase(unittest.TestCase):
         # bmu_dist = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
         # som_distances = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
 
-        som_dist = cosine_distance(inputs, som_w)
+        som_dist = pairwise_cosine_distance(inputs, som_w)
         bmu = tf.argmin(som_dist, axis=0)
 
         map_indices = tf.range(0, n_partitions, 1)
@@ -291,9 +292,11 @@ class MyTestCase(unittest.TestCase):
             # print(gaussian(0., 0.5).eval())
 
     def test_batch_som_indices(self):
-        n_partitions = 2
+        n_partitions = 4
         n_inputs = 3
         n_hidden = 1
+
+        som_indices = tf.range(0, n_partitions)
 
         dense_x = tf.constant([[1., 0., -1.], [1., 0., -1.]])
         #dense_x = tf.constant([[1., 0., -1.]])
@@ -306,12 +309,15 @@ class MyTestCase(unittest.TestCase):
         init = tf.global_variables_initializer()
         self.ss.run(init)
 
-        distances = cosine_distance(dense_x, som, dim=1)
+        distances = pairwise_cosine_distance(dense_x, som, dim=1)
         bmu = tf.argmin(distances, axis=1)
 
-        print("som: \n",som.eval())
+        print("som: \n", som.eval())
         print("distances:\n", distances.eval())
         print("bmu: ", bmu.eval())
+
+        #som_l1 = l1_dist_wrap(bmu, som_indices)
+        #print(som_l1.eval())
 
         """
         map_indices = tf.range(0, n_partitions, 1)

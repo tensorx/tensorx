@@ -8,10 +8,10 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor, SparseTensor
 
-from tensorx.transform import sparse_l2_norm, sparse_dot
+from tensorx.transform import sparse_l2_norm, batch_sparse_dot, sparse_dot
 
 
-def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32, keep_dims=True):
+def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32):
     """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
 
         Args:
@@ -29,15 +29,13 @@ def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32, kee
         tensor1.values = math_ops.cast(tensor1.values, dtype)
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
-    dot_prod = sparse_dot(tensor1, tensor2, dim)
-    if keep_dims:
-        dot_prod = array_ops.expand_dims(dot_prod, dim)
-    norm1 = sparse_l2_norm(tensor1, axis=dim)
-    norm2 = linalg_ops.norm(tensor2, axis=dim)
+    dot_prod = batch_sparse_dot(tensor1, tensor2)
+
+    norm1 = sparse_l2_norm(tensor1, axis=-1,keep_dims=True)
+    norm2 = linalg_ops.norm(tensor2, axis=-1)
 
     norm12 = norm1 * norm2
-    if keep_dims:
-        norm12 = array_ops.expand_dims(norm12, dim)
+    norm12 = array_ops.expand_dims(norm12, -1)
 
     cos12 = dot_prod / norm12
     distance = 1 - cos12
@@ -46,8 +44,8 @@ def sparse_cosine_distance(sp_tensor, tensor2, dim=-1, dtype=dtypes.float32, kee
     return distance
 
 
-def cosine_distance(tensor1, tensor2, dim=-1, dtype=dtypes.float32, keep_dims=True):
-    """ Computes the cosine distance between two non-zero `Tensor`s
+def pairwise_cosine_distance(tensor1, tensor2, dtype=dtypes.float32):
+    """ Computes the pairwise cosine distance between two non-zero `Tensor`s
 
     Args:
         tensor1: a `Tensor`
@@ -56,19 +54,75 @@ def cosine_distance(tensor1, tensor2, dim=-1, dtype=dtypes.float32, keep_dims=Tr
         dtype:
 
     Returns:
-        a `Tensor` with the cosine distance betwen two tensors
+        a `Tensor` with the cosine distance between two tensors
+    """
+    tensor1 = ops.convert_to_tensor(tensor1, dtype)
+    tensor2 = ops.convert_to_tensor(tensor2, dtype)
+    tensor1 = array_ops.expand_dims(tensor1, 1)
+    dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), -1, keep_dims=True)
+
+    norm1 = linalg_ops.norm(tensor1, axis=-1)
+    norm2 = linalg_ops.norm(tensor2, axis=-1)
+    norm12 = norm1 * norm2
+    norm12 = array_ops.expand_dims(norm12, -1)
+    cos12 = dot_prod / norm12
+    distance = 1 - cos12
+    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
+
+    return distance
+
+
+def sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32):
+    """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
+
+        Args:
+            keep_dims: keeps the original dimension of the input tensor
+            sp_tensor: a `SparseTensor`
+            tensor2: a `Tensor`
+            dim: the dimension along which the distance is computed
+            dtype:
+
+        Returns:
+            a `Tensor` with the cosine distance between two tensors
+        """
+    tensor1 = SparseTensor.from_value(sp_tensor)
+    if tensor1.values.dtype != dtype:
+        tensor1.values = math_ops.cast(tensor1.values, dtype)
+    tensor2 = ops.convert_to_tensor(tensor2, dtype)
+
+    dot_prod = sparse_dot(tensor1, tensor2)
+    norm1 = sparse_l2_norm(tensor1, axis=-1)
+    norm2 = linalg_ops.norm(tensor2, axis=-1)
+
+    norm12 = norm1 * norm2
+
+    cos12 = dot_prod / norm12
+    distance = 1 - cos12
+
+    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
+    return distance
+
+
+def cosine_distance(tensor1, tensor2, dtype=dtypes.float32):
+    """ Computes the pairwise cosine distance between two non-zero `Tensor`s
+
+    Args:
+        tensor1: a `Tensor`
+        tensor2: a `Tensor`
+        dim: the dimension along which the distance is computed
+        dtype:
+
+    Returns:
+        a `Tensor` with the cosine distance between two tensors
     """
     tensor1 = ops.convert_to_tensor(tensor1, dtype)
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
-    dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), dim, keep_dims=keep_dims)
-    # dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), dim)
-    norm1 = linalg_ops.norm(tensor1, axis=dim)
-    norm2 = linalg_ops.norm(tensor2, axis=dim)
+    dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), -1)
 
+    norm1 = linalg_ops.norm(tensor1, axis=-1)
+    norm2 = linalg_ops.norm(tensor2, axis=-1)
     norm12 = norm1 * norm2
-    if keep_dims:
-        norm12 = array_ops.expand_dims(norm12, dim)
 
     cos12 = dot_prod / norm12
     distance = 1 - cos12

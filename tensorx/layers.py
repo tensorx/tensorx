@@ -28,7 +28,7 @@ from tensorx.init import random_uniform, zero_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal
 import tensorx.transform as transform
 import tensorx.utils as util
-from tensorx.metrics import cosine_distance
+from tensorx.metrics import pairwise_cosine_distance
 
 
 def _as_list(elems):
@@ -699,7 +699,7 @@ class SOMLinear(Layer):
                  layer,
                  n_units,
                  map_size,
-                 map_distance=cosine_distance,
+                 map_distance=pairwise_cosine_distance,
                  init=random_uniform, weights=None, bias=True, dtype=dtypes.float32, name="som_linear"):
         shape = [layer.shape[1], n_units]
         super().__init__(layer, n_units, shape, dtype, name)
@@ -718,7 +718,7 @@ class SOMLinear(Layer):
             if layer.is_sparse():
                 self.tensor = None
             else:
-                som_dist = cosine_distance(layer.tensor, self.map_weights)
+                som_dist = pairwise_cosine_distance(layer.tensor, self.map_weights)
                 # Best Matching Unit (BMU)
                 bmu = math_ops.argmin(som_dist, axis=0)
 
