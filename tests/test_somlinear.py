@@ -23,25 +23,23 @@ def _safe_div(numerator, denominator, name="value"):
     Returns:
       The element-wise value of the numerator divided by the denominator.
     """
-    return tf.where(
-        tf.greater(denominator, 0),
-        tf.div(numerator, tf.where(
-            tf.equal(denominator, 0),
-            tf.ones_like(denominator), denominator)),
-        tf.zeros_like(numerator),
-        name=name)
+    res = tf.div(numerator, tf.where(tf.equal(denominator, 0), tf.ones_like(denominator), denominator)),
+    res = tf.where(tf.is_finite(res), res, tf.zeros_like(res))
+    return res
 
 
 def gaussian(x, sigma=0.5):
     x = tf.convert_to_tensor(x, dtype=tf.float32)
     sigma = tf.convert_to_tensor(sigma, dtype=tf.float32)
-    gauss = tf.exp(_safe_div(-tf.pow(x, 2), tf.pow(sigma, 0.1)))
+    sigma = tf.expand_dims(sigma,-1)
+
+    gauss = tf.exp(_safe_div(-tf.pow(x, 2), tf.pow(sigma, 2)))
+    gauss = tf.squeeze(gauss,0)
     return gauss
 
 
 def l1_dist_wrap(centers, points):
     centers = to_tensor_cast(centers, tf.float32)
-    centers = tf.expand_dims(centers, -1)
     other = to_tensor_cast(points, tf.float32)
 
     size = other.get_shape()[-1].value
@@ -109,7 +107,7 @@ class MyTestCase(unittest.TestCase):
         # som_distances = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
 
         som_dist = pairwise_cosine_distance(inputs, som_w)
-        bmu = tf.argmin(som_dist, axis=0)
+        bmu = tf.argmin(som_dist, axis=1)
 
         map_indices = tf.range(0, n_partitions, 1)
         neigh_distances = tf.to_float(l1_dist_wrap(bmu, map_indices))
@@ -298,7 +296,7 @@ class MyTestCase(unittest.TestCase):
 
         som_indices = tf.range(0, n_partitions)
 
-        dense_x = tf.constant([[1., 0., -1.], [1., 0., -1.]])
+        dense_x = tf.constant([[1., 0., -1.], [1., 0., -1.], [1., 1., 0.]])
         #dense_x = tf.constant([[1., 0., -1.]])
         sparse_x = transform.to_sparse(dense_x)
 
@@ -309,26 +307,92 @@ class MyTestCase(unittest.TestCase):
         init = tf.global_variables_initializer()
         self.ss.run(init)
 
-        distances = pairwise_cosine_distance(dense_x, som, dim=1)
+        """ ************************************************************************************************************
+        L1 Neighbourhood and BMU
+        """
+
+        distances = pairwise_cosine_distance(dense_x, som)
         bmu = tf.argmin(distances, axis=1)
+        bmu_batch = tf.expand_dims(bmu, 1)
+        bmu_rows = transform.batch_to_matrix_indices(bmu_batch)
 
         print("som: \n", som.eval())
         print("distances:\n", distances.eval())
-        print("bmu: ", bmu.eval())
+        print("bmu: \n", bmu.eval())
+        print("bmu batch: \n", bmu_rows.eval())
 
-        #som_l1 = l1_dist_wrap(bmu, som_indices)
-        #print(som_l1.eval())
+        print("winner distances:")
+        winner_distances = tf.gather_nd(distances, bmu_rows)
+        print(winner_distances.eval())
 
+        som_l1 = l1_dist_wrap(bmu_batch, som_indices)
+        print("l1 dist\n", som_l1.eval())
+
+        """ ************************************************************************************************************
+        Dynamic SOM Gaussian Neighbourhood
         """
-        map_indices = tf.range(0, n_partitions, 1)
-        neigh_distances = tf.to_float(l1_dist_wrap(bmu, map_indices))
-        weights = gaussian(neigh_distances, sigma=0.1)
-        neigh_threshold = 1e-6
-        neigh_active = tf.greater(weights, neigh_threshold)
+        # sigma for gaussian is based on the distance between BMU (winner neuron) and X (data)
+        elasticity = 1.2  # parameter for the dynamic SOM
+        sigma = elasticity * winner_distances
+        #sigma = tf.expand_dims(sigma,-1)
 
-        neigh_indices = tf.where(neigh_active)
-        neigh_weights = tf.boolean_mask(weights, neigh_active)
+        #print("sigma: \n", sigma.eval())
+
+        #gauss_neighbourhood = gaussian(som_l1, sigma=0.1)
+        #print("gauss dist\n", gauss_neighbourhood.eval())
+
+        gauss_neighbourhood = gaussian(som_l1, sigma)
+        #print("dynamic gauss dist\n", gauss_neighbourhood.eval())
+        gauss_threshold = 1e-6
+        active_neighbourhood = tf.greater(gauss_neighbourhood, gauss_threshold)
+        active_indices = tf.where(active_neighbourhood)
+
+        #gauss_neighbourhood = transform.filter_nd(active_neighbourhood,gauss_neighbourhood)
+        #or just clip to 0
+        gauss_neighbourhood = tf.where(active_neighbourhood,gauss_neighbourhood,tf.zeros_like(active_neighbourhood,tf.float32))
+        #print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
+
+
+        """ ************************************************************************************************************
+        SOM Delta - how to change the som weights
         """
+        learning_rate = 0.1
+        delta = tf.expand_dims(dense_x,1) - som
+        # since dense x is usually a batch, the delta should be the average
+        delta = tf.reduce_mean(delta,axis=0)
+        print("delta x - som_w \n", delta.eval())
+
+        som_delta = learning_rate * distances #* gauss_neighbourhood * delta
+        print("lr vs dist \n", som_delta.eval())
+        som_delta *= gauss_neighbourhood
+        print("delta_modulated by neihbourhood \n", som_delta.eval())
+        som_delta = tf.expand_dims(som_delta, -1)
+        som_delta *= delta
+        # for a batch of changes take the mean of the deltas
+        print("delta_modulated by average code-diff \n", som_delta.eval())
+        som_delta = tf.reduce_mean(som_delta,0)
+        print("delta_modulated by average code-diff \n", som_delta.eval())
+
+
+        #gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_indices)
+
+
+
+        """ ************************************************************************************************************
+                    
+        """
+
+
+
+        # TODO review index selection and weights to create a batch of indices ?
+        # this should result in a sparse tensor since we might have different indices active for different layers
+        #som_active_indices = tf.where(active_neighbourhood)
+        #print("active som indices: \n", som_active_indices.eval())
+        #gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_neighbourhood)
+        #print("som index weight: \n", gauss_neighbourhood.eval())
+
+        # still need an expression to weight the different partitions which depends on
+        # both the gaussian distances and the distances to the data of each partition neuron
 
 
 if __name__ == '__main__':

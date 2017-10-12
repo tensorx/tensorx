@@ -105,7 +105,7 @@ class MyTestCase(unittest.TestCase):
         data2 = [[-1., 0., -1], [-1., 0., -1], [-1., 0., -1]]
 
         distance = metrics.pairwise_cosine_distance(data1, data2)
-        self.assertTrue(np.array_equal(np.shape(distance.eval()), [2, 3, 1]))
+        self.assertTrue(np.array_equal(np.shape(distance.eval()), [2, 3]))
 
     def test_broadcast_sparse_cosine_distance(self):
         data1 = [[1., 0., 1.], [1., 0., 1.]]
@@ -117,14 +117,15 @@ class MyTestCase(unittest.TestCase):
         data2_sp = transform.to_sparse(data2)
 
         distance = metrics.pairwise_sparse_cosine_distance(data1_sp, data2)
-        distance_dense = metrics.pairwise_cosine_distance(data1,data2)
-        self.assertTrue(np.array_equal(np.shape(distance.eval()), [2, 3, 1]))
-        self.assertTrue(np.array_equal(distance.eval(),distance_dense.eval()))
+        distance_dense = metrics.pairwise_cosine_distance(data1, data2)
+        self.assertTrue(np.array_equal(np.shape(distance.eval()), [2, 3]))
+        self.assertTrue(np.array_equal(distance.eval(), distance_dense.eval()))
 
         d01 = metrics.pairwise_sparse_cosine_distance(data1_sp, data1)
         d02 = metrics.pairwise_sparse_cosine_distance(data2_sp, data2)
-        self.assertTrue(np.allclose(d01.eval(),0.,atol=1e-6))
-        self.assertTrue(np.allclose(d02.eval(),0.,atol=1e-6))
+
+        self.assertTrue(np.allclose(d01.eval(), 0., atol=1e-6))
+        self.assertTrue(np.allclose(d02.eval(), 0., atol=1e-6))
 
 
 if __name__ == '__main__':

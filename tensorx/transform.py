@@ -496,6 +496,24 @@ def sparse_dot(sp_tensor1, tensor2, name=None):
         return dot_prod
 
 
+def filter_nd(condition, params):
+    """ Filters a given tensor based on a condition tensor
+
+    condition and params must have the same shape
+
+    Args:
+        condition: a boolean tensor used to filter params
+        params: the tensor to be filtered
+    Returns:
+        ``SparseTensor``: a `SparseTensor` with the values in params filtered according to condition
+    """
+    indices = math_ops.cast(array_ops.where(condition), dtype=dtypes.int64)
+    values = array_ops.gather_nd(params, indices)
+    dense_shape = math_ops.cast(array_ops.shape(params), dtypes.int64)
+    sp_result = SparseTensor(indices, values, dense_shape)
+    return sp_result
+
+
 __all__ = ["empty_sparse_tensor",
            "to_sparse",
            "batch_to_matrix_indices",
