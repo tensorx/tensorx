@@ -158,14 +158,15 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(dense1, expected_dense)
         np.testing.assert_array_equal(dense1, dense2)
 
-    def test_l2_norm(self):
-        v1 = tf.constant([[2., 0., -1.], [2., 0., -1.]])
-        v1s = transform.to_sparse(v1)
+    def test_torus_1d_l1_distance(self):
+        points1 = [1]
+        points2 = [[1], [3]]
 
-        norm1 = linalg_ops.norm(v1, axis=1)
-        norm1s = transform.sparse_l2_norm(v1s, axis=1)
+        dist1 = transform.torus_1d_l1_distance(points1, 4)
+        self.assertEqual(tf.rank(dist1).eval(), 1)
 
-        self.assertTrue(np.array_equal(norm1.eval(), norm1s.eval()))
+        dist2 = transform.torus_1d_l1_distance(points2, 4)
+        self.assertEqual(tf.rank(dist2).eval(), 2)
 
 
 if __name__ == '__main__':

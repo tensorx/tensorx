@@ -142,4 +142,8 @@ def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
         return math_ops.reduce_sum(sum_s + q_part, axis=1)
 
 
-__all__ = ["mse", "sparsemax_loss", "binary_cross_entropy", "categorical_cross_entropy", "binary_hinge"]
+__all__ = ["mse",
+           "sparsemax_loss",
+           "binary_cross_entropy",
+           "categorical_cross_entropy",
+           "binary_hinge"]

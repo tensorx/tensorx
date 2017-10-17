@@ -1,49 +1,15 @@
 import unittest
 import tensorflow as tf
-from tensorflow.contrib.layers.python.layers import feature_column
+from tensorx.metrics import pairwise_cosine_distance, torus_1d_l1_distance
 
-from tensorx.metrics import pairwise_cosine_distance
-import functools
 import numpy as np
 
-from tensorx.utils import to_tensor_cast
 from tensorx import transform
+from tensorx.math import gaussian
 
 
-def _safe_div(numerator, denominator, name="value"):
-    """Computes a safe divide which returns 0 if the denominator is zero.
-    Note that the function contains an additional conditional check that is
-    necessary for avoiding situations where the loss is zero causing NaNs to
-    creep into the gradient computation.
-    Args:
-      numerator: An arbitrary `Tensor`.
-      denominator: `Tensor` whose shape matches `numerator` and whose values are
-        assumed to be non-negative.
-      name: An optional name for the returned op.
-    Returns:
-      The element-wise value of the numerator divided by the denominator.
-    """
-    res = tf.div(numerator, tf.where(tf.equal(denominator, 0), tf.ones_like(denominator), denominator)),
-    res = tf.where(tf.is_finite(res), res, tf.zeros_like(res))
-    return res
 
 
-def gaussian(x, sigma=0.5):
-    x = tf.convert_to_tensor(x, dtype=tf.float32)
-    sigma = tf.convert_to_tensor(sigma, dtype=tf.float32)
-    sigma = tf.expand_dims(sigma,-1)
-
-    gauss = tf.exp(_safe_div(-tf.pow(x, 2), tf.pow(sigma, 2)))
-    gauss = tf.squeeze(gauss,0)
-    return gauss
-
-
-def l1_dist_wrap(centers, points):
-    centers = to_tensor_cast(centers, tf.float32)
-    other = to_tensor_cast(points, tf.float32)
-
-    size = other.get_shape()[-1].value
-    return tf.minimum(tf.abs(centers - other), tf.mod(-(tf.abs(centers - other)), size))
 
 
 def broadcast_reshape(tensor1, tensor2):
@@ -86,8 +52,6 @@ class MyTestCase(unittest.TestCase):
         result = gaussian([-2., -1., 0., 1., 2.], 2.).eval()
         self.assertTrue(np.array_equal(result[0:2], result[3:5][::-1]))
 
-        print(l1_dist_wrap(3, [0, 1, 2, 3, 4]).eval())
-
     def test_stage_implementation(self):
         n_inputs = 3
         n_partitions = 2
@@ -110,7 +74,7 @@ class MyTestCase(unittest.TestCase):
         bmu = tf.argmin(som_dist, axis=1)
 
         map_indices = tf.range(0, n_partitions, 1)
-        neigh_distances = tf.to_float(l1_dist_wrap(bmu, map_indices))
+        neigh_distances = tf.to_float(torus_1d_l1_distance(bmu, n_partitions))
         weights = gaussian(neigh_distances, sigma=0.1)
         neigh_threshold = 1e-6
         neigh_active = tf.greater(weights, neigh_threshold)
@@ -297,7 +261,7 @@ class MyTestCase(unittest.TestCase):
         som_indices = tf.range(0, n_partitions)
 
         dense_x = tf.constant([[1., 0., -1.], [1., 0., -1.], [1., 1., 0.]])
-        #dense_x = tf.constant([[1., 0., -1.]])
+        # dense_x = tf.constant([[1., 0., -1.]])
         sparse_x = transform.to_sparse(dense_x)
 
         som = tf.get_variable("som", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
@@ -325,7 +289,7 @@ class MyTestCase(unittest.TestCase):
         winner_distances = tf.gather_nd(distances, bmu_rows)
         print(winner_distances.eval())
 
-        som_l1 = l1_dist_wrap(bmu_batch, som_indices)
+        som_l1 = torus_1d_l1_distance(bmu_batch, n_partitions)
         print("l1 dist\n", som_l1.eval())
 
         """ ************************************************************************************************************
@@ -334,35 +298,36 @@ class MyTestCase(unittest.TestCase):
         # sigma for gaussian is based on the distance between BMU (winner neuron) and X (data)
         elasticity = 1.2  # parameter for the dynamic SOM
         sigma = elasticity * winner_distances
-        #sigma = tf.expand_dims(sigma,-1)
+        # sigma = tf.expand_dims(sigma,-1)
 
-        #print("sigma: \n", sigma.eval())
+        # print("sigma: \n", sigma.eval())
 
-        #gauss_neighbourhood = gaussian(som_l1, sigma=0.1)
-        #print("gauss dist\n", gauss_neighbourhood.eval())
+        # gauss_neighbourhood = gaussian(som_l1, sigma=0.1)
+        # print("gauss dist\n", gauss_neighbourhood.eval())
 
         gauss_neighbourhood = gaussian(som_l1, sigma)
-        #print("dynamic gauss dist\n", gauss_neighbourhood.eval())
+        # print("dynamic gauss dist\n", gauss_neighbourhood.eval())
         gauss_threshold = 1e-6
         active_neighbourhood = tf.greater(gauss_neighbourhood, gauss_threshold)
         active_indices = tf.where(active_neighbourhood)
 
-        #gauss_neighbourhood = transform.filter_nd(active_neighbourhood,gauss_neighbourhood)
-        #or just clip to 0
-        gauss_neighbourhood = tf.where(active_neighbourhood,gauss_neighbourhood,tf.zeros_like(active_neighbourhood,tf.float32))
-        #print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
+        # gauss_neighbourhood = transform.filter_nd(active_neighbourhood,gauss_neighbourhood)
+        # or just clip to 0
+        gauss_neighbourhood = tf.where(active_neighbourhood, gauss_neighbourhood,
+                                       tf.zeros_like(active_neighbourhood, tf.float32))
+        # print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
 
 
         """ ************************************************************************************************************
         SOM Delta - how to change the som weights
         """
         learning_rate = 0.1
-        delta = tf.expand_dims(dense_x,1) - som
+        delta = tf.expand_dims(dense_x, 1) - som
         # since dense x is usually a batch, the delta should be the average
-        delta = tf.reduce_mean(delta,axis=0)
+        delta = tf.reduce_mean(delta, axis=0)
         print("delta x - som_w \n", delta.eval())
 
-        som_delta = learning_rate * distances #* gauss_neighbourhood * delta
+        som_delta = learning_rate * distances  # * gauss_neighbourhood * delta
         print("lr vs dist \n", som_delta.eval())
         som_delta *= gauss_neighbourhood
         print("delta_modulated by neihbourhood \n", som_delta.eval())
@@ -370,11 +335,10 @@ class MyTestCase(unittest.TestCase):
         som_delta *= delta
         # for a batch of changes take the mean of the deltas
         print("delta_modulated by average code-diff \n", som_delta.eval())
-        som_delta = tf.reduce_mean(som_delta,0)
+        som_delta = tf.reduce_mean(som_delta, 0)
         print("delta_modulated by average code-diff \n", som_delta.eval())
 
-
-        #gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_indices)
+        # gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_indices)
 
 
 
@@ -386,10 +350,10 @@ class MyTestCase(unittest.TestCase):
 
         # TODO review index selection and weights to create a batch of indices ?
         # this should result in a sparse tensor since we might have different indices active for different layers
-        #som_active_indices = tf.where(active_neighbourhood)
-        #print("active som indices: \n", som_active_indices.eval())
-        #gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_neighbourhood)
-        #print("som index weight: \n", gauss_neighbourhood.eval())
+        # som_active_indices = tf.where(active_neighbourhood)
+        # print("active som indices: \n", som_active_indices.eval())
+        # gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_neighbourhood)
+        # print("som index weight: \n", gauss_neighbourhood.eval())
 
         # still need an expression to weight the different partitions which depends on
         # both the gaussian distances and the distances to the data of each partition neuron

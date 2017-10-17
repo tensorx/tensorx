@@ -1,14 +1,15 @@
-""" Metrics module
+""" Metrics.
 
-measures different properties of and between tensors
+This module contains metrics or distance functions defining a distance between each pair of elements of a set.
+
 """
 from tensorflow.python.ops import math_ops, array_ops, linalg_ops, sparse_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.ops import Tensor
-from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor, SparseTensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.transform import sparse_l2_norm, batch_sparse_dot, sparse_dot
+from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot
+from tensorx.utils import to_tensor_cast
 
 
 def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, keep_dims=False):
@@ -153,3 +154,50 @@ def euclidean_distance(tensor1, tensor2, dim):
     distance = math_ops.sqrt(math_ops.reduce_sum(math_ops.square(tensor1 - tensor2), axis=dim))
 
     return distance
+
+
+def torus_1d_l1_distance(point, size):
+    """ Computes the l1 distance between a given point or batch of points and a all points in a 1D torus
+
+    Args:
+        point: a rank 0 tensor with a single point or a rank 2 tensor with a batch of points.
+        size: the size of the 1d torus
+
+    Returns:
+        `Tensor`: a rank 1 or 2 `Tensor` with the distances between each point in the 1D torus and the given points
+
+    Example:
+
+    ..distance for a single point::
+
+        torus_1d_l1_distance(1,4).eval()
+
+    ..or::
+
+        torus_1d_l1_distance([1],4).eval()
+
+        array([ 1.,  0.,  1.,  2.], dtype=float32)
+
+    ..distance for multiple points::
+
+        torus_1d_l1_distance([[2],[3]],4).eval()
+
+        array([[ 2.,  1.,  0.,  1.],
+               [ 1.,  2.,  1.,  0.]], dtype=float32)
+
+    """
+    point = to_tensor_cast(point, dtypes.float32)
+    other = math_ops.range(0, size, 1, dtype=dtypes.float32)
+
+    size = other.get_shape()[-1].value
+    return math_ops.minimum(math_ops.abs(point - other), math_ops.mod(-(math_ops.abs(point - other)), size))
+
+
+__all__ = ["batch_sparse_dot",
+           "cosine_distance",
+           "sparse_cosine_distance",
+           "euclidean_distance",
+           "torus_1d_l1_distance",
+           "pairwise_cosine_distance",
+           "pairwise_sparse_cosine_distance"
+           ]

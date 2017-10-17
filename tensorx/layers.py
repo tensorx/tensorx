@@ -26,8 +26,8 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform, zero_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal
-import tensorx.transform as transform
-import tensorx.utils as util
+from tensorx import transform
+from tensorx import utils as txutils
 from tensorx.metrics import pairwise_cosine_distance
 
 
@@ -204,7 +204,7 @@ class Input(Layer):
             self.n_active = n_active
             self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
 
-            indices_shape = util.complete_shape(self.placeholder)
+            indices_shape = txutils.complete_shape(self.placeholder)
             dense_shape = [indices_shape[0], self.shape[1]]
             self.tensor = transform.sparse_one_hot(self.placeholder, dense_shape, dtype=self.dtype)
 
@@ -676,10 +676,7 @@ class Concat(Layer):
         self.tensor = array_ops.concat(tensors, axis=-1)
 
 
-
-
 class SOMLinear(Layer):
-
     @staticmethod
     def l1_distance(center, points):
         """ Manhattan (L1) distance with continuous 1D vector (coordinates wrap around)
