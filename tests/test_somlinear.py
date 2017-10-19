@@ -1,15 +1,11 @@
 import unittest
 import tensorflow as tf
-from tensorx.metrics import pairwise_cosine_distance, torus_1d_l1_distance
+from tensorx.metrics import pairwise_cosine_distance, torus_l1_distance
 
 import numpy as np
 
 from tensorx import transform
 from tensorx.math import gaussian
-
-
-
-
 
 
 def broadcast_reshape(tensor1, tensor2):
@@ -74,7 +70,7 @@ class MyTestCase(unittest.TestCase):
         bmu = tf.argmin(som_dist, axis=1)
 
         map_indices = tf.range(0, n_partitions, 1)
-        neigh_distances = tf.to_float(torus_1d_l1_distance(bmu, n_partitions))
+        neigh_distances = tf.to_float(torus_l1_distance(bmu, [n_partitions]))
         weights = gaussian(neigh_distances, sigma=0.1)
         neigh_threshold = 1e-6
         neigh_active = tf.greater(weights, neigh_threshold)
@@ -253,6 +249,44 @@ class MyTestCase(unittest.TestCase):
 
             # print(gaussian(0., 0.5).eval())
 
+    def test_som_2d(self):
+        som_shape = [2, 2]
+        n_partitions = som_shape[0] * som_shape[1]
+        n_inputs = 2
+        n_hidden = 1
+
+        inputs = tf.constant([[0., -1.], [0., -1.], [ 1., 0.]])
+        sp_inputs = transform.to_sparse(inputs)
+
+        # the som variable can be flatten since we have the ordered distances
+        som = tf.get_variable("som", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
+        w = tf.get_variable("w", [n_partitions, n_inputs, n_hidden], tf.float32, tf.random_uniform_initializer(-1., 1.))
+
+        init = tf.global_variables_initializer()
+        self.ss.run(init)
+
+        # **************************************************************************************************************
+        # SOM Neighbourhood - GAUSSIAN(L1(GRID))
+        # **************************************************************************************************************
+        som_indices = transform.indices(som_shape)
+        distances = pairwise_cosine_distance(inputs, som)
+        print(distances.eval())
+        bmu = tf.argmin(distances, axis=1)
+        bmu = tf.expand_dims(bmu, 1)
+
+        print(bmu.eval())
+
+        bmu_rows = transform.batch_to_matrix_indices(bmu)
+        winner_distances = tf.gather_nd(distances, bmu_rows)
+
+
+        winner_indices = tf.gather_nd(som_indices,bmu)
+        print("winner indices \n", winner_indices.eval())
+        som_l1 = torus_l1_distance(winner_indices, som_shape)
+        print(som_l1.eval())
+
+
+
     def test_batch_som_indices(self):
         n_partitions = 4
         n_inputs = 3
@@ -289,7 +323,7 @@ class MyTestCase(unittest.TestCase):
         winner_distances = tf.gather_nd(distances, bmu_rows)
         print(winner_distances.eval())
 
-        som_l1 = torus_1d_l1_distance(bmu_batch, n_partitions)
+        som_l1 = torus_l1_distance(bmu_batch, [n_partitions])
         print("l1 dist\n", som_l1.eval())
 
         """ ************************************************************************************************************
