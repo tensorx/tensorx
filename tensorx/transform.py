@@ -57,6 +57,24 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
         return SparseTensor(empty_indices, empty_values, dense_shape)
 
 
+def indices(shape, name="grid"):
+    with ops.name_scope(name):
+        if len(shape) == 1:
+            return math_ops.range(0, shape[0], 1)
+        elif len(shape) == 2:
+            max_x = shape[0]
+            max_y = shape[1]
+
+            ys = math_ops.range(0, max_y, 1)
+            ys = array_ops.tile(ys, [max_x])
+            ys = array_ops.reshape(ys, shape)
+
+            xys = batch_to_matrix_indices(ys)
+            return xys
+        else:
+            raise ValueError("Invalid shape: shape should have len 1 or 2")
+
+
 def pairs(tensor1, tensor2, name="pairs"):
     """Pairwise combination of elements from the two tensors.
 
@@ -459,5 +477,6 @@ __all__ = ["empty_sparse_tensor",
            "sparse_ones",
            "sparse_dropout",
            "pairs",
+           "indices",
            "filter_nd"
            ]

@@ -158,15 +158,21 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(dense1, expected_dense)
         np.testing.assert_array_equal(dense1, dense2)
 
-    def test_torus_1d_l1_distance(self):
-        points1 = [1]
-        points2 = [[1], [3]]
+    def test_indices(self):
+        shape = [4]
+        xs = transform.indices(shape)
+        self.assertTrue(np.ndim(xs.eval()), 1)
+        self.assertTrue(np.array_equal(tf.shape(xs).eval(), shape))
 
-        dist1 = transform.torus_1d_l1_distance(points1, 4)
-        self.assertEqual(tf.rank(dist1).eval(), 1)
+        shape = [4, 4]
+        xys = transform.indices(shape)
+        self.assertTrue(np.ndim(xys.eval()), 2)
+        self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
 
-        dist2 = transform.torus_1d_l1_distance(points2, 4)
-        self.assertEqual(tf.rank(dist2).eval(), 2)
+        shape = [1, 4]
+        xys = transform.indices(shape)
+        self.assertTrue(np.ndim(xys.eval()), 2)
+        self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
 
 
 if __name__ == '__main__':

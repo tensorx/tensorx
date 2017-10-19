@@ -127,6 +127,27 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(np.allclose(d01.eval(), 0., atol=1e-6))
         self.assertTrue(np.allclose(d02.eval(), 0., atol=1e-6))
 
+    def test_torus_l1_distance(self):
+        points1 = [1]
+        points2 = [[1], [3]]
+
+        dist1 = metrics.torus_l1_distance(points1, [4])
+        self.assertEqual(tf.rank(dist1).eval(), 1)
+        #print(dist1.eval())
+
+        dist2 = metrics.torus_l1_distance(points2, [4])
+        self.assertEqual(tf.rank(dist2).eval(), 2)
+        #print(dist2.eval())
+
+        points2d1 = [[0, 1]]
+        dist2d1 = metrics.torus_l1_distance(points2d1, [2, 2])
+        #print(dist2d1.eval())
+
+    def test_torus_l1_distance_batch(self):
+        points = [[0, 1], [1, 0]]
+        dist = metrics.torus_l1_distance(points, [2, 2])
+        #print(dist.eval())
+
 
 if __name__ == '__main__':
     unittest.main()
