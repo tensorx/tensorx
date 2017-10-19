@@ -14,11 +14,6 @@ from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
 
 
-# math_ops.cast(self._learning_rate_tensor, var.dtype.base_dtype)
-
-
-
-
 class VariableUpdater:
     """ Variable Updater.
 
@@ -53,11 +48,11 @@ class Learner:
         """ Adapts a list of variables
 
         Args:
-            data: a Tensor from which deltas are computed for the given variables
+            data: a Tensor or list of tensors from which deltas are computed for the given variables
             var_list: a list of `tf.Variable` updated on each call to adapt
 
         Returns:
-
+            An `Operation` that applies the deltas.
         """
         if data is None:
             data = self.data
