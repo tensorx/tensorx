@@ -60,7 +60,7 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
 def indices(shape, name="grid"):
     with ops.name_scope(name):
         if len(shape) == 1:
-            return math_ops.range(0, shape[0], 1)
+            return array_ops.expand_dims(math_ops.range(0, shape[0], 1),-1)
         elif len(shape) == 2:
             max_x = shape[0]
             max_y = shape[1]
@@ -463,6 +463,8 @@ def filter_nd(condition, params):
     dense_shape = math_ops.cast(array_ops.shape(params), dtypes.int64)
     sp_result = SparseTensor(indices, values, dense_shape)
     return sp_result
+
+
 
 
 __all__ = ["empty_sparse_tensor",

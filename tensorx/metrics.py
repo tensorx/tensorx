@@ -68,6 +68,7 @@ def pairwise_cosine_distance(tensor1, tensor2, dtype=dtypes.float32, keep_dims=F
     norm1 = linalg_ops.norm(tensor1, axis=-1)
     norm2 = linalg_ops.norm(tensor2, axis=-1)
     norm12 = norm1 * norm2
+
     if keep_dims:
         norm12 = array_ops.expand_dims(norm12, -1)
 

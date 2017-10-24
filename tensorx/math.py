@@ -113,8 +113,26 @@ def sparse_dot(sp_tensor1, tensor2, name=None):
         return dot_prod
 
 
+def sparse_mul(sp_tensor, dense_tensor):
+    """ Multiply a `Sparse Tensor` by a `Tensor`.
+
+    Args:
+        sp_tensor: a `SparseTensor`
+        dense_tensor: a `Tensor` with the same shape as the sp_tensor.dense_shape
+
+    Returns:
+        a `SparseTensor` with the result of the multiplication
+
+    """
+    dense_values = array_ops.gather_nd(dense_tensor, sp_tensor.indices)
+    dense_mul = math_ops.multiply(sp_tensor.values, dense_values)
+    return SparseTensor(sp_tensor.indices, dense_mul, sp_tensor.dense_shape)
+
+
+
 __all__ = ["safe_div",
            "gaussian",
            "sparse_l2_norm",
            "sparse_dot",
-           "batch_sparse_dot"]
+           "batch_sparse_dot",
+           "sparse_mul"]

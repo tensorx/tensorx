@@ -162,7 +162,7 @@ class TestTransform(unittest.TestCase):
         shape = [4]
         xs = transform.indices(shape)
         self.assertTrue(np.ndim(xs.eval()), 1)
-        self.assertTrue(np.array_equal(tf.shape(xs).eval(), shape))
+        self.assertTrue(np.array_equal(tf.shape(xs).eval(), [4,1]))
 
         shape = [4, 4]
         xys = transform.indices(shape)

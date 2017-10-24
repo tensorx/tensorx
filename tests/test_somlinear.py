@@ -5,7 +5,8 @@ from tensorx.metrics import pairwise_cosine_distance, torus_l1_distance
 import numpy as np
 
 from tensorx import transform
-from tensorx.math import gaussian
+from tensorx.math import gaussian, sparse_mul
+from tensorx.som import DSOM_Learner
 
 
 def broadcast_reshape(tensor1, tensor2):
@@ -255,7 +256,7 @@ class MyTestCase(unittest.TestCase):
         n_inputs = 2
         n_hidden = 1
 
-        inputs = tf.constant([[0., -1.], [0., -1.], [ 1., 0.]])
+        inputs = tf.constant([[1., 0.], [ 1., 1.]])
         sp_inputs = transform.to_sparse(inputs)
 
         # the som variable can be flatten since we have the ordered distances
@@ -287,16 +288,30 @@ class MyTestCase(unittest.TestCase):
 
 
 
+        learning_rate = 0.1
+        elasticity = 1.2
+        neighbourhood_threshold = 1e-6
+        dsom_learner = DSOM_Learner(som_shape=som_shape,
+                                    learning_rate=learning_rate,
+                                    elasticity=elasticity,
+                                    distance_metric=pairwise_cosine_distance,
+                                    neighbourhood_threshold=neighbourhood_threshold)
+
+        deltas = dsom_learner.compute_delta(inputs, [som])
+
+
+
     def test_batch_som_indices(self):
         n_partitions = 4
-        n_inputs = 3
+        n_inputs = 2
         n_hidden = 1
+        som_shape = [n_partitions]
 
         som_indices = tf.range(0, n_partitions)
 
-        dense_x = tf.constant([[1., 0., -1.], [1., 0., -1.], [1., 1., 0.]])
-        # dense_x = tf.constant([[1., 0., -1.]])
-        sparse_x = transform.to_sparse(dense_x)
+        inputs = tf.constant([[1., 0.], [1., 1.]])
+        # inputs = tf.constant([[1., 0., -1.]])
+        sp_inputs = transform.to_sparse(inputs)
 
         som = tf.get_variable("som", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
         all_w = tf.get_variable("w", [n_partitions, n_inputs, n_hidden], tf.float32,
@@ -309,7 +324,7 @@ class MyTestCase(unittest.TestCase):
         L1 Neighbourhood and BMU
         """
 
-        distances = pairwise_cosine_distance(dense_x, som)
+        distances = pairwise_cosine_distance(inputs, som)
         bmu = tf.argmin(distances, axis=1)
         bmu_batch = tf.expand_dims(bmu, 1)
         bmu_rows = transform.batch_to_matrix_indices(bmu_batch)
@@ -323,12 +338,15 @@ class MyTestCase(unittest.TestCase):
         winner_distances = tf.gather_nd(distances, bmu_rows)
         print(winner_distances.eval())
 
-        som_l1 = torus_l1_distance(bmu_batch, [n_partitions])
+        print("bmu_batch\n", bmu_batch)
+        som_l1 = torus_l1_distance(bmu_batch, som_shape)
         print("l1 dist\n", som_l1.eval())
+
 
         """ ************************************************************************************************************
         Dynamic SOM Gaussian Neighbourhood
         """
+
         # sigma for gaussian is based on the distance between BMU (winner neuron) and X (data)
         elasticity = 1.2  # parameter for the dynamic SOM
         sigma = elasticity * winner_distances
@@ -345,34 +363,81 @@ class MyTestCase(unittest.TestCase):
         active_neighbourhood = tf.greater(gauss_neighbourhood, gauss_threshold)
         active_indices = tf.where(active_neighbourhood)
 
-        # gauss_neighbourhood = transform.filter_nd(active_neighbourhood,gauss_neighbourhood)
+        sp_gauss_neighbourhood = transform.filter_nd(active_neighbourhood,gauss_neighbourhood)
         # or just clip to 0
         gauss_neighbourhood = tf.where(active_neighbourhood, gauss_neighbourhood,
                                        tf.zeros_like(active_neighbourhood, tf.float32))
+
+        self.assertTrue(np.array_equal(tf.sparse_tensor_to_dense(sp_gauss_neighbourhood).eval(), gauss_neighbourhood.eval()))
         # print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
 
 
-        """ ************************************************************************************************************
-        SOM Delta - how to change the som weights
-        """
+       
         learning_rate = 0.1
-        delta = tf.expand_dims(dense_x, 1) - som
+        delta = tf.expand_dims(inputs, 1) - som
         # since dense x is usually a batch, the delta should be the average
         delta = tf.reduce_mean(delta, axis=0)
-        print("delta x - som_w \n", delta.eval())
+        #print("delta x - som_w \n", delta.eval())
 
         som_delta = learning_rate * distances  # * gauss_neighbourhood * delta
-        print("lr vs dist \n", som_delta.eval())
+        #print("lr vs dist \n", som_delta.eval())
         som_delta *= gauss_neighbourhood
-        print("delta_modulated by neihbourhood \n", som_delta.eval())
+
+        sp_som_delta = sparse_mul(sp_gauss_neighbourhood,som_delta)
+        _, sp_slices = tf.unstack(sp_som_delta.indices, num=2, axis=-1)
+        print("sp_slices\n", sp_slices.eval())
+
+        print("sp_delta\n", sp_som_delta.eval())
+
+        gathered = tf.nn.embedding_lookup(delta,sp_slices)
+        print("gathered \n",gathered.eval())
+
+        gathered_mul = tf.expand_dims(sp_som_delta.values,1) * gathered
+
+        #avg = tf.segment_mean(gathered,sp_slices)
+        print("weighted gathered \n", gathered_mul.eval())
+        # TODO THIS DOESN'T WORK, I NEED TO SEE HOW INDEXED SLICES WORK
+        num_indices, _ = tf.unique(sp_slices)#tf.shape(tf.unique(sp_slices))[0]
+        num_indices = tf.shape(num_indices)[0]
+        #print("uniqyue \n", num_indices.eval())
+        ones_indices = tf.ones_like(gathered_mul)
+        count = tf.unsorted_segment_sum(ones_indices, sp_slices, num_indices)
+        gathered_sum = tf.unsorted_segment_sum(gathered_mul, sp_slices,num_indices)
+        #gathered_mean = tf.divide(gathered_sum,count)
+        print("sum gathered \n", gathered_sum.eval())
+
+
+       # print("delta_modulated by neihbourhood \n", som_delta.eval())
+        #print("delta_modulated by sp neihbourhood \n", sp_som_delta.eval())
+
         som_delta = tf.expand_dims(som_delta, -1)
         som_delta *= delta
-        # for a batch of changes take the mean of the deltas
-        print("delta_modulated by average code-diff \n", som_delta.eval())
         som_delta = tf.reduce_mean(som_delta, 0)
-        print("delta_modulated by average code-diff \n", som_delta.eval())
 
-        # gauss_neighbourhood = tf.boolean_mask(gauss_neighbourhood, active_indices)
+        print("final delta \n", som_delta.eval())
+
+        op = tf.assign_sub(som,som_delta)
+
+
+        print("final som \n", op.eval())
+            
+
+
+        learning_rate = 0.1
+        elasticity = 1.2
+        neighbourhood_threshold = 1e-6
+        dsom_learner = DSOM_Learner(som_shape=som_shape,
+                                    learning_rate=learning_rate,
+                                    elasticity=elasticity,
+                                    distance_metric=pairwise_cosine_distance,
+                                    neighbourhood_threshold=neighbourhood_threshold)
+
+        deltas = dsom_learner.compute_delta(inputs, [som])
+
+        print("final updates learner\n", dsom_learner.apply_delta(deltas).eval())
+
+
+        #print("learner deltas\n", deltas[0].eval())
 
 
 
@@ -391,6 +456,8 @@ class MyTestCase(unittest.TestCase):
 
         # still need an expression to weight the different partitions which depends on
         # both the gaussian distances and the distances to the data of each partition neuron
+
+
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 import unittest
-from tensorx.model import Model
-from tensorx.layers import Input, Linear, Activation, Merge, Add
+from tensorx.training import Model
+from tensorx.layers import Input, Linear, Activation, Add
 from tensorx.activation import tanh, sigmoid
 from tensorx.loss import binary_cross_entropy
 
@@ -160,7 +160,7 @@ class MyTestCase(unittest.TestCase):
         losses = binary_cross_entropy(labels.tensor, h.tensor)
 
         model = Model(input_layer, h)
-        model.config(optimiser, losses, labels)
+        model.config_optimisers(optimiser, losses, labels)
 
         data = np.array([[1, 1, 1, 1]])
         target = np.array([[1, 0]])
