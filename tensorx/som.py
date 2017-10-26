@@ -31,11 +31,12 @@ class DSOM_Learner(Learner):
         self.neighbourhood_threshold = neighbourhood_threshold
 
     def _compute_delta(self, data, var):
+        codebook = var
         som_shape = self.som_shape
 
         # pre-compute the indices for the som grid
         som_indices = transform.indices(som_shape)
-        distances = self.distance_metric(data, var)
+        distances = self.distance_metric(data, codebook)
 
         # compute best-matching unit
         bmu = math_ops.argmin(distances, axis=1)
@@ -65,13 +66,16 @@ class DSOM_Learner(Learner):
         som_delta = self.learning_rate * distances * neighbourhood
         som_delta = array_ops.expand_dims(som_delta, -1)
 
-        delta = array_ops.expand_dims(data, 1) - var
+        # d = x - codebook
+        delta = array_ops.expand_dims(data, 1) - codebook
         delta = math_ops.reduce_mean(delta, axis=0)
+
+        # d = [x-codebook] * lr * dist(
         som_delta *= delta
         som_delta = math_ops.reduce_mean(som_delta, 0)
 
         sp_delta = transform.to_sparse(som_delta)
-        sp_delta = IndexedSlices(sp_delta.indices, sp_delta.values, sp_delta.dense_shape)
+        sp_delta = IndexedSlices(sp_delta.values,sp_delta.indices, sp_delta.dense_shape)
 
         return sp_delta
 

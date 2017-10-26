@@ -165,90 +165,6 @@ class MyTestCase(unittest.TestCase):
         # sparse_h_gather = tf.reshape(sparse_h_gather,[n_partitions,2,1])
         # sparse_h_weighed = tf.multiply(sp_weights.values,sparse_h_gather)
 
-        # TODO correct the operation to take both dense inputs and sparse inputs with batch 1,2,...
-
-        # didn't know but calling global variable int must be done after adding the vars to the graph
-        init_vars = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(init_vars)
-
-            # feed_dict = {inputs: [[1., 0, -1]]}
-            feed_dict = {inputs: [[1., 0, -1], [1., 0, -1]]}
-
-            # print("neigh distances")
-            # print(neigh_distances.eval(feed_dict))
-
-            # print("weights:")
-            # print(weights.eval(feed_dict))
-
-            # print("weights:")
-            # print(weights.eval(feed_dict))
-
-            print("neight indices: ")
-            print(neigh_indices.eval(feed_dict))
-
-            # print("neigh weights:")
-            # print(neigh_weights.eval(feed_dict))
-
-            # print("neigh gather:")
-            # print(w.eval(feed_dict))
-
-            print("neigh gather * weights:")
-            print(w2.eval(feed_dict))
-
-            print("neigh gather * bias:")
-            print(b2.eval(feed_dict))
-
-            print("flat indices 2")
-            print(flat_indices_2.eval(feed_dict))
-
-            print("rows")
-            print(rows.eval(feed_dict))
-
-            print("rows_2")
-            print(rows_2.eval(feed_dict))
-
-            print("indices tiled 2")
-            print(indices_tiled_2.eval(feed_dict))
-
-            print("values 2")
-            print(values_tiled_2.eval(feed_dict))
-
-            print("new_dense_shape")
-            print(dense_shape.eval(feed_dict))
-
-            print("new indices")
-            print(indices_tiled.eval(feed_dict))
-
-            print("sparse h map_fn")
-            print(sparse_h_map_fn.eval(feed_dict))
-
-            print("sparse h gather")
-            print(sparse_h_gather.eval(feed_dict))
-
-            # print("spare h gather weights")
-            # print(tensor_weights.eval(feed_dict))
-
-            print("sparse h weights")
-            print(sparse_h_weighed.eval(feed_dict))
-
-            print("sparse y")
-            print(y.eval(feed_dict))
-
-
-
-
-            # print("som vars:\n", som_w.eval())
-            # print("feature vars:\n", feature_w.eval())
-            # print("dist: \n", som_dist.eval(feed_dict))
-            # print(bmu.eval(feed_dict))
-
-            # print("slices:\n", feature_w_slice.eval(feed_dict))
-            # print("features:\n", features.eval(feed_dict))
-            # hidden
-            # print("result:\n", h.eval(feed_dict))
-
-            # print(gaussian(0., 0.5).eval())
 
     def test_som_2d(self):
         som_shape = [2, 2]
@@ -402,9 +318,9 @@ class MyTestCase(unittest.TestCase):
         #print("uniqyue \n", num_indices.eval())
         ones_indices = tf.ones_like(gathered_mul)
         count = tf.unsorted_segment_sum(ones_indices, sp_slices, num_indices)
-        gathered_sum = tf.unsorted_segment_sum(gathered_mul, sp_slices,num_indices)
+        #gathered_sum = tf.unsorted_segment_sum(gathered_mul, sp_slices,num_indices)
         #gathered_mean = tf.divide(gathered_sum,count)
-        print("sum gathered \n", gathered_sum.eval())
+        #print("sum gathered \n", gathered_sum.eval())
 
 
        # print("delta_modulated by neihbourhood \n", som_delta.eval())
@@ -434,7 +350,7 @@ class MyTestCase(unittest.TestCase):
 
         deltas = dsom_learner.compute_delta(inputs, [som])
 
-        print("final updates learner\n", dsom_learner.apply_delta(deltas).eval())
+        #print("final updates learner\n", dsom_learner.apply_delta(deltas).eval())
 
 
         #print("learner deltas\n", deltas[0].eval())
