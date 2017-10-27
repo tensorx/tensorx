@@ -19,16 +19,22 @@ class MyTestCase(unittest.TestCase):
     def tearDown(self):
         self.ss.close()
 
-    def test_cosine_distance(self):
-        v1_data = np.random.normal(0., 1., [2])
-        v2_data = np.random.normal(0., 1., [2])
-        v3_data = np.random.normal(0., 1., [2])
+    def test_cosine_similarity_rounding(self):
+        v1 = [1.,1.]
+        dist = metrics.cosine_distance(v1, v1)
+        print("{0:.16f}".format(dist.eval()))
+
+    def test_cosine_similarity(self):
+        v1_data = np.random.normal(-1., 1., [100])
+        v2_data = np.random.normal(-1., 1., [100])
+        v3_data = np.random.normal(-1., 1., [100])
 
         v1 = tf.constant(v1_data, dtype=tf.float32)
         v2 = tf.constant(v2_data, dtype=tf.float32)
 
         dist0 = metrics.cosine_distance(v1, v1)
-        self.assertTrue(np.allclose(dist0.eval(), 0., atol=1e-6))
+
+        self.assertTrue(np.allclose(dist0.eval(), 1., atol=1e-6))
 
         v1s = transform.to_sparse(v1)
         self.assertIsInstance(v1s, tf.SparseTensor)

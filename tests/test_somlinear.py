@@ -165,14 +165,13 @@ class MyTestCase(unittest.TestCase):
         # sparse_h_gather = tf.reshape(sparse_h_gather,[n_partitions,2,1])
         # sparse_h_weighed = tf.multiply(sp_weights.values,sparse_h_gather)
 
-
     def test_som_2d(self):
         som_shape = [2, 2]
         n_partitions = som_shape[0] * som_shape[1]
         n_inputs = 2
         n_hidden = 1
 
-        inputs = tf.constant([[1., 0.], [ 1., 1.]])
+        inputs = tf.constant([[1., 0.], [1., 1.]])
         sp_inputs = transform.to_sparse(inputs)
 
         # the som variable can be flatten since we have the ordered distances
@@ -196,13 +195,10 @@ class MyTestCase(unittest.TestCase):
         bmu_rows = transform.batch_to_matrix_indices(bmu)
         winner_distances = tf.gather_nd(distances, bmu_rows)
 
-
-        winner_indices = tf.gather_nd(som_indices,bmu)
+        winner_indices = tf.gather_nd(som_indices, bmu)
         print("winner indices \n", winner_indices.eval())
         som_l1 = torus_l1_distance(winner_indices, som_shape)
         print(som_l1.eval())
-
-
 
         learning_rate = 0.1
         elasticity = 1.2
@@ -214,8 +210,6 @@ class MyTestCase(unittest.TestCase):
                                     neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs, [som])
-
-
 
     def test_batch_som_indices(self):
         n_partitions = 4
@@ -258,7 +252,6 @@ class MyTestCase(unittest.TestCase):
         som_l1 = torus_l1_distance(bmu_batch, som_shape)
         print("l1 dist\n", som_l1.eval())
 
-
         """ ************************************************************************************************************
         Dynamic SOM Gaussian Neighbourhood
         """
@@ -279,52 +272,53 @@ class MyTestCase(unittest.TestCase):
         active_neighbourhood = tf.greater(gauss_neighbourhood, gauss_threshold)
         active_indices = tf.where(active_neighbourhood)
 
-        sp_gauss_neighbourhood = transform.filter_nd(active_neighbourhood,gauss_neighbourhood)
+        sp_gauss_neighbourhood = transform.filter_nd(active_neighbourhood, gauss_neighbourhood)
         # or just clip to 0
         gauss_neighbourhood = tf.where(active_neighbourhood, gauss_neighbourhood,
                                        tf.zeros_like(active_neighbourhood, tf.float32))
 
-        self.assertTrue(np.array_equal(tf.sparse_tensor_to_dense(sp_gauss_neighbourhood).eval(), gauss_neighbourhood.eval()))
+        self.assertTrue(
+            np.array_equal(tf.sparse_tensor_to_dense(sp_gauss_neighbourhood).eval(), gauss_neighbourhood.eval()))
         # print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
 
 
-       
+
         learning_rate = 0.1
         delta = tf.expand_dims(inputs, 1) - som
         # since dense x is usually a batch, the delta should be the average
         delta = tf.reduce_mean(delta, axis=0)
-        #print("delta x - som_w \n", delta.eval())
+        # print("delta x - som_w \n", delta.eval())
 
         som_delta = learning_rate * distances  # * gauss_neighbourhood * delta
-        #print("lr vs dist \n", som_delta.eval())
+        # print("lr vs dist \n", som_delta.eval())
         som_delta *= gauss_neighbourhood
 
-        sp_som_delta = sparse_mul(sp_gauss_neighbourhood,som_delta)
+        sp_som_delta = sparse_mul(sp_gauss_neighbourhood, som_delta)
         _, sp_slices = tf.unstack(sp_som_delta.indices, num=2, axis=-1)
         print("sp_slices\n", sp_slices.eval())
 
         print("sp_delta\n", sp_som_delta.eval())
 
-        gathered = tf.nn.embedding_lookup(delta,sp_slices)
-        print("gathered \n",gathered.eval())
+        gathered = tf.nn.embedding_lookup(delta, sp_slices)
+        print("gathered \n", gathered.eval())
 
-        gathered_mul = tf.expand_dims(sp_som_delta.values,1) * gathered
+        gathered_mul = tf.expand_dims(sp_som_delta.values, 1) * gathered
 
-        #avg = tf.segment_mean(gathered,sp_slices)
+        # avg = tf.segment_mean(gathered,sp_slices)
         print("weighted gathered \n", gathered_mul.eval())
         # TODO THIS DOESN'T WORK, I NEED TO SEE HOW INDEXED SLICES WORK
-        num_indices, _ = tf.unique(sp_slices)#tf.shape(tf.unique(sp_slices))[0]
+        num_indices, _ = tf.unique(sp_slices)  # tf.shape(tf.unique(sp_slices))[0]
         num_indices = tf.shape(num_indices)[0]
-        #print("uniqyue \n", num_indices.eval())
+        # print("uniqyue \n", num_indices.eval())
         ones_indices = tf.ones_like(gathered_mul)
         count = tf.unsorted_segment_sum(ones_indices, sp_slices, num_indices)
-        #gathered_sum = tf.unsorted_segment_sum(gathered_mul, sp_slices,num_indices)
-        #gathered_mean = tf.divide(gathered_sum,count)
-        #print("sum gathered \n", gathered_sum.eval())
+        # gathered_sum = tf.unsorted_segment_sum(gathered_mul, sp_slices,num_indices)
+        # gathered_mean = tf.divide(gathered_sum,count)
+        # print("sum gathered \n", gathered_sum.eval())
 
 
-       # print("delta_modulated by neihbourhood \n", som_delta.eval())
-        #print("delta_modulated by sp neihbourhood \n", sp_som_delta.eval())
+        # print("delta_modulated by neihbourhood \n", som_delta.eval())
+        # print("delta_modulated by sp neihbourhood \n", sp_som_delta.eval())
 
         som_delta = tf.expand_dims(som_delta, -1)
         som_delta *= delta
@@ -332,12 +326,9 @@ class MyTestCase(unittest.TestCase):
 
         print("final delta \n", som_delta.eval())
 
-        op = tf.assign_sub(som,som_delta)
-
+        op = tf.assign_sub(som, som_delta)
 
         print("final som \n", op.eval())
-            
-
 
         learning_rate = 0.1
         elasticity = 1.2
@@ -350,10 +341,10 @@ class MyTestCase(unittest.TestCase):
 
         deltas = dsom_learner.compute_delta(inputs, [som])
 
-        #print("final updates learner\n", dsom_learner.apply_delta(deltas).eval())
+        # print("final updates learner\n", dsom_learner.apply_delta(deltas).eval())
 
 
-        #print("learner deltas\n", deltas[0].eval())
+        # print("learner deltas\n", deltas[0].eval())
 
 
 
@@ -373,7 +364,54 @@ class MyTestCase(unittest.TestCase):
         # still need an expression to weight the different partitions which depends on
         # both the gaussian distances and the distances to the data of each partition neuron
 
+    def test_delta_computing(self):
+        n_partitions = 4
+        n_inputs = 3
+        n_hidden = 1
+        som_shape = [n_partitions]
+        learning_rate = 0.1
+        elasticity = 1.2
+        neighbourhood_threshold = 1e-6
 
+        inputs = tf.constant([[1., 0., 0.], [1., 0., 0.]])
+        som = tf.get_variable("som", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
+
+        init = tf.global_variables_initializer()
+        self.ss.run(init)
+
+        # DISTANCES
+        som_indices = transform.indices(som_shape)
+        distances = pairwise_cosine_distance(inputs, som)
+        print("dist shape: ",tf.shape(distances).eval())
+        print(distances.eval())
+
+        # WINNER l1 DISTANCE
+        bmu = tf.argmin(distances, axis=1)
+        bmu = tf.expand_dims(bmu, 1)
+        bmu_rows = transform.batch_to_matrix_indices(bmu)
+        winner_indices = tf.gather_nd(som_indices, bmu)
+
+        som_l1 = torus_l1_distance(winner_indices, som_shape)
+        print("l1 shape: ",tf.shape(som_l1).eval())
+        # print(som_l1.eval())
+
+        # GAUSS NEIGHBOURHOOD (sigma = elasticity * dist(winner))
+        winner_distances = tf.gather_nd(distances, bmu_rows)
+        sigma = elasticity * winner_distances
+        gauss_neighbourhood = gaussian(som_l1, sigma)
+        print("gauss shape: ", tf.shape(gauss_neighbourhood).eval())
+
+
+
+        # print("dynamic gauss dist\n", gauss_neighbourhood.eval())
+        # gauss_threshold = 1e-6
+        # active_neighbourhood = tf.greater(gauss_neighbourhood, gauss_threshold)
+        # active_indices = tf.where(active_neighbourhood)
+
+        # sp_gauss_neighbourhood = transform.filter_nd(active_neighbourhood, gauss_neighbourhood)
+        # or just clip to 0
+        # gauss_neighbourhood = tf.where(active_neighbourhood, gauss_neighbourhood,
+        #                               tf.zeros_like(active_neighbourhood, tf.float32))
 
 
 if __name__ == '__main__':

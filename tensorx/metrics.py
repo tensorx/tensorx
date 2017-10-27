@@ -3,7 +3,7 @@
 This module contains metrics or distance functions defining a distance between each pair of elements of a set.
 
 """
-from tensorflow.python.ops import math_ops, array_ops, linalg_ops, sparse_ops
+from tensorflow.python.ops import math_ops, array_ops, linalg_ops, sparse_ops, clip_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
@@ -14,7 +14,12 @@ from tensorx.transform import indices
 
 
 def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, keep_dims=False):
-    """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
+    """ Computes the cosine dsitance between two non-zero `SparseTensor` and `Tensor`
+
+        Warning:
+            1 - cosine similarity is not a proper distance metric, but any use where only the relative ordering of
+            similarity or distance within a set of vectors is important, the resulting order will be unaffected
+            by the choice.
 
         Args:
             keep_dims: keeps the original dimension of the input tensor
@@ -41,15 +46,20 @@ def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, ke
         norm12 = array_ops.expand_dims(norm12, -1)
 
     cos12 = dot_prod / norm12
-    distance = 1 - cos12
 
-    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
+    sim = array_ops.where(math_ops.is_nan(cos12), array_ops.zeros_like(cos12), cos12)
+    sim = clip_ops.clip_by_value(sim, -1., 1.)
 
-    return distance
+    return 1 - sim
 
 
 def pairwise_cosine_distance(tensor1, tensor2, dtype=dtypes.float32, keep_dims=False):
-    """ Computes the pairwise cosine distance between two non-zero `Tensor`s
+    """ Computes the pairwise cosine similarity between two non-zero `Tensor`s
+
+    Warning:
+            1 - cosine similarity is not a proper distance metric, but any use where only the relative ordering of
+            similarity or distance within a set of vectors is important, the resulting order will be unaffected
+            by the choice.
 
     Args:
         tensor1: a `Tensor`
@@ -73,17 +83,21 @@ def pairwise_cosine_distance(tensor1, tensor2, dtype=dtypes.float32, keep_dims=F
         norm12 = array_ops.expand_dims(norm12, -1)
 
     cos12 = dot_prod / norm12
-    distance = 1 - cos12
-    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
 
-    return distance
+    sim = array_ops.where(math_ops.is_nan(cos12), array_ops.zeros_like(cos12), cos12)
+    sim = clip_ops.clip_by_value(sim, -1., 1.)
+    return 1 - sim
 
 
 def sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32):
     """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
 
+        Warning:
+            1 - cosine similarity is not a proper distance metric, but any use where only the relative ordering of
+            similarity or distance within a set of vectors is important, the resulting order will be unaffected
+            by the choice.
+
         Args:
-            keep_dims: keeps the original dimension of the input tensor
             sp_tensor: a `SparseTensor`
             tensor2: a `Tensor`
             dim: the dimension along which the distance is computed
@@ -104,14 +118,16 @@ def sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32):
     norm12 = norm1 * norm2
 
     cos12 = dot_prod / norm12
-    distance = 1 - cos12
 
-    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
-    return distance
+    sim = array_ops.where(math_ops.is_nan(cos12), array_ops.zeros_like(cos12), cos12)
+    sim = clip_ops.clip_by_value(sim, -1., 1.)
+    return 1 - sim
 
 
 def cosine_distance(tensor1, tensor2, dtype=dtypes.float32):
     """ Computes the pairwise cosine distance between two non-zero `Tensor`s
+
+    Computed as 1 - cosine_similarity
 
     Args:
         tensor1: a `Tensor`
@@ -126,16 +142,17 @@ def cosine_distance(tensor1, tensor2, dtype=dtypes.float32):
     tensor2 = ops.convert_to_tensor(tensor2, dtype)
 
     dot_prod = math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), -1)
-
     norm1 = linalg_ops.norm(tensor1, axis=-1)
     norm2 = linalg_ops.norm(tensor2, axis=-1)
+
     norm12 = norm1 * norm2
-
     cos12 = dot_prod / norm12
-    distance = 1 - cos12
-    distance = array_ops.where(math_ops.is_nan(distance), array_ops.zeros_like(distance), distance)
 
-    return distance
+    sim = array_ops.where(math_ops.is_nan(cos12), array_ops.zeros_like(cos12), cos12)
+
+    # because of floating point accuracy (if we need to correct this to angular distance, acos(1.000001) is nan)
+    sim = clip_ops.clip_by_value(sim, -1., 1.)
+    return 1 - sim
 
 
 def euclidean_distance(tensor1, tensor2, dim):
