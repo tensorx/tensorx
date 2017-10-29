@@ -465,8 +465,6 @@ def filter_nd(condition, params):
     return sp_result
 
 
-
-
 __all__ = ["empty_sparse_tensor",
            "to_sparse",
            "batch_to_matrix_indices",

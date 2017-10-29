@@ -1,6 +1,6 @@
 import unittest
 import tensorflow as tf
-from tensorx.metrics import pairwise_cosine_distance, torus_l1_distance
+from tensorx.metrics import pairwise_cosine_distance, torus_l1_distance, pairwise_sparse_cosine_distance
 
 import numpy as np
 
@@ -373,7 +373,7 @@ class MyTestCase(unittest.TestCase):
         elasticity = 1.2
         neighbourhood_threshold = 1e-6
 
-        inputs = tf.constant([[1., 0., 0.], [1., 0., 0.]])
+        inputs = tf.constant([[1., 0., 0.], [0., 1., 0.]])
         som = tf.get_variable("som", [n_partitions, n_inputs], tf.float32, tf.random_uniform_initializer(-1., 1.))
 
         init = tf.global_variables_initializer()
@@ -381,9 +381,18 @@ class MyTestCase(unittest.TestCase):
 
         # DISTANCES
         som_indices = transform.indices(som_shape)
-        distances = pairwise_cosine_distance(inputs, som)
-        print("dist shape: ",tf.shape(distances).eval())
-        print(distances.eval())
+        if isinstance(inputs, tf.Tensor):
+            distances = pairwise_cosine_distance(inputs, som)
+        elif isinstance(inputs, tf.SparseTensor):
+            distances = pairwise_sparse_cosine_distance(inputs, som)
+        else:
+            raise TypeError("invalid inputs")
+        # print("distances \n ",distances.eval())
+        max_dist = tf.reduce_max(distances, axis=1, keep_dims=True)
+        # print(max_dist.eval())
+        norm_dist = distances / max_dist
+        # print("normalised distances ",  norm_dist.eval())
+        print("dist shape: ", tf.shape(norm_dist).eval())
 
         # WINNER l1 DISTANCE
         bmu = tf.argmin(distances, axis=1)
@@ -392,7 +401,7 @@ class MyTestCase(unittest.TestCase):
         winner_indices = tf.gather_nd(som_indices, bmu)
 
         som_l1 = torus_l1_distance(winner_indices, som_shape)
-        print("l1 shape: ",tf.shape(som_l1).eval())
+        print("l1 shape: ", tf.shape(som_l1).eval())
         # print(som_l1.eval())
 
         # GAUSS NEIGHBOURHOOD (sigma = elasticity * dist(winner))
@@ -400,18 +409,35 @@ class MyTestCase(unittest.TestCase):
         sigma = elasticity * winner_distances
         gauss_neighbourhood = gaussian(som_l1, sigma)
         print("gauss shape: ", tf.shape(gauss_neighbourhood).eval())
+        clip_neighbourhood = tf.greater(gauss_neighbourhood, neighbourhood_threshold)
+        gauss_neighbourhood = tf.where(clip_neighbourhood, gauss_neighbourhood,
+                                       tf.zeros_like(gauss_neighbourhood, tf.float32))
+
+        lr = learning_rate * norm_dist * gauss_neighbourhood
+        print("lr * norm_dist * gauss_neighbourhood ", tf.shape(lr).eval())
+        print(lr.eval())
+
+        # delta x - som
+        if isinstance(inputs, tf.SparseTensor):
+            inputs = tf.sparse_tensor_to_dense(inputs)
+        delta = tf.expand_dims(inputs, 1) - som
+        print("shape delta x - som ", tf.shape(delta).eval())
+        # print("in \n", inputs.eval())
+        # print("som \n", som.eval())
+        print("delta \n", delta.eval())
+
+        delta = tf.expand_dims(lr, -1) * delta
+        print("shape lr * delta ", tf.shape(delta).eval())
+        print(delta.eval())
+
+        print(tf.reduce_mean(delta,0).eval())
 
 
 
-        # print("dynamic gauss dist\n", gauss_neighbourhood.eval())
-        # gauss_threshold = 1e-6
-        # active_neighbourhood = tf.greater(gauss_neighbourhood, gauss_threshold)
-        # active_indices = tf.where(active_neighbourhood)
 
-        # sp_gauss_neighbourhood = transform.filter_nd(active_neighbourhood, gauss_neighbourhood)
-        # or just clip to 0
-        # gauss_neighbourhood = tf.where(active_neighbourhood, gauss_neighbourhood,
-        #                               tf.zeros_like(active_neighbourhood, tf.float32))
+
+
+
 
 
 if __name__ == '__main__':
