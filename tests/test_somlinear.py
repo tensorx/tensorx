@@ -432,8 +432,18 @@ class MyTestCase(unittest.TestCase):
 
         print(tf.reduce_mean(delta,0).eval())
 
+        dsom_learner = DSOM_Learner(som_shape=som_shape,
+                                    learning_rate=learning_rate,
+                                    elasticity=elasticity,
+                                    metric=pairwise_cosine_distance,
+                                    neighbourhood_threshold=neighbourhood_threshold)
 
+        deltas = dsom_learner.compute_delta(inputs, [som])
 
+        delta,learning_vars = deltas[0]
+        self.assertEqual(learning_vars,som)
+
+        print("learner deltas \n", delta.eval())
 
 
 

@@ -3,8 +3,9 @@
 This module contains metrics or distance functions defining a distance between each pair of elements of a set.
 
 """
-from tensorflow.python.ops import math_ops, array_ops, linalg_ops, sparse_ops, clip_ops
+from tensorflow.python.ops import math_ops, array_ops, linalg_ops, clip_ops
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
@@ -62,10 +63,11 @@ def pairwise_cosine_distance(tensor1, tensor2, dtype=dtypes.float32, keep_dims=F
             by the choice.
 
     Args:
+
         tensor1: a `Tensor`
         tensor2: a `Tensor`
-        dim: the dimension along which the distance is computed
-        dtype:
+        keep_dims: if true maintains the original dims for tensor1
+        dtype: the type for the distance values
 
     Returns:
         a `Tensor` with the cosine distance between two tensors

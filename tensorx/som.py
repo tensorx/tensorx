@@ -1,23 +1,30 @@
 """Operators to build and train SOM networks.
 
 """
-from tensorflow.python.ops import array_ops, math_ops
+from tensorflow.python.ops import array_ops, math_ops, sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.ops import IndexedSlices
 
 from tensorx.training import Learner
 from tensorx import transform
-from tensorx.metrics import pairwise_sparse_cosine_distance, torus_l1_distance
+from tensorx import metrics
 from tensorx.math import gaussian
+from tensorflow.python.framework.ops import Tensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 
 class DSOM_Learner(Learner):
-    def __init__(self, som_shape, learning_rate=0.1, elasticity=1.0, distance_metric=pairwise_sparse_cosine_distance,
-                 neighbourhood_threshold=1e-6):
+    def __init__(self, som_shape, learning_rate=0.1, elasticity=1.0, neighbourhood_threshold=1e-6,
+                 metric=metrics.pairwise_sparse_cosine_distance):
         """ The variable might be a flat version of the som_shape
         usually with som_shape[0]*som_shape[1] neurons but the actual
         shape of the som network needs to be known a prior to compute the neighbourhood
         function.
+
+        Warning:
+            the distance metric has to be compatible with the type of tensor for the given data. Either pass
+            a metric that can handle both `Tensor` and `SparseTensor` instances, or make sure the metric, corresponds
+            to the data that is fed to the learner.
 
         Args:
             som_shape: a list with the shape of the som variable to which this learner will apply updates
@@ -25,10 +32,10 @@ class DSOM_Learner(Learner):
         """
         super().__init__()
         self.som_shape = som_shape
-        self.distance_metric = distance_metric
         self.learning_rate = learning_rate
         self.elasticity = elasticity
         self.neighbourhood_threshold = neighbourhood_threshold
+        self.metric = metric
 
     def _compute_delta(self, data, var):
         codebook = var
@@ -36,48 +43,42 @@ class DSOM_Learner(Learner):
 
         # pre-compute the indices for the som grid
         som_indices = transform.indices(som_shape)
-        distances = self.distance_metric(data, codebook)
 
-        # compute best-matching unit
+        # distances
+        som_indices = transform.indices(som_shape)
+        distances = self.metric(data, codebook)
+
+        max_dist = math_ops.reduce_max(distances, axis=1, keep_dims=True)
+        norm_dist = distances / max_dist
+
+        # l1 distance to winner neuron
         bmu = math_ops.argmin(distances, axis=1)
         bmu = array_ops.expand_dims(bmu, 1)
-
-        bmu_indices = array_ops.gather_nd(som_indices, bmu)
-
-        #print("bmu\n", bmu.eval())
-        #print("bmu_indices \n", bmu_indices.eval())
-
-        # compute l1 distances between units
-        som_l1 = torus_l1_distance(bmu_indices, som_shape)
-
         bmu_rows = transform.batch_to_matrix_indices(bmu)
-        bmu_distances = array_ops.gather_nd(distances, bmu_rows)
-        sigma = self.elasticity * bmu_distances
-        neighbourhood = gaussian(som_l1, sigma)
-        neighbourhood_filter = math_ops.greater(neighbourhood, self.neighbourhood_threshold)
-        active_indices = array_ops.where(neighbourhood_filter)
+        winner_indices = array_ops.gather_nd(som_indices, bmu)
+        som_l1 = metrics.torus_l1_distance(winner_indices, som_shape)
 
-        # sparse tensor with neighbourhood activations
-        # neighbourhood = transform.filter_nd(neighbourhood_filter,neighbourhood)
-        neighbourhood = array_ops.where(neighbourhood_filter, neighbourhood,
-                                        array_ops.zeros_like(neighbourhood_filter, dtypes.float32))
+        # GAUSS NEIGHBOURHOOD (sigma = elasticity * dist(winner))
+        winner_distances = array_ops.gather_nd(distances, bmu_rows)
+        sigma = self.elasticity * winner_distances
+        gauss_neighbourhood = gaussian(som_l1, sigma)
 
-        # compute delta based on neighbourhood and distance between data and codebook of som
-        som_delta = self.learning_rate * distances * neighbourhood
-        som_delta = array_ops.expand_dims(som_delta, -1)
+        clip_neighbourhood = math_ops.greater(gauss_neighbourhood, self.neighbourhood_threshold)
+        gauss_neighbourhood = array_ops.where(clip_neighbourhood, gauss_neighbourhood,
+                                              array_ops.zeros_like(gauss_neighbourhood, dtypes.float32))
 
-        # d = x - codebook
+        lr = self.learning_rate * norm_dist * gauss_neighbourhood
+
+        # delta x - som
+        if isinstance(data, SparseTensor):
+            inputs = sparse_ops.sparse_tensor_to_dense(data)
         delta = array_ops.expand_dims(data, 1) - codebook
-        delta = math_ops.reduce_mean(delta, axis=0)
+        delta = array_ops.expand_dims(lr, -1) * delta
 
-        # d = [x-codebook] * lr * dist(
-        som_delta *= delta
-        som_delta = math_ops.reduce_mean(som_delta, 0)
+        # take the mean of each delta for each sample in a batch
+        delta = math_ops.reduce_mean(delta, 0)
 
-        sp_delta = transform.to_sparse(som_delta)
-        sp_delta = IndexedSlices(sp_delta.values,sp_delta.indices, sp_delta.dense_shape)
-
-        return sp_delta
+        return delta
 
     def compute_delta(self, data, var_list):
         deltas_and_vars = []
