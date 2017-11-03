@@ -14,7 +14,7 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 
 class DSOM_Learner(Learner):
-    def __init__(self, som_shape, learning_rate=0.1, elasticity=1.0, neighbourhood_threshold=1e-6,
+    def __init__(self, var_list, som_shape, learning_rate=0.1, elasticity=1.0, neighbourhood_threshold=1e-6,
                  metric=metrics.pairwise_sparse_cosine_distance):
         """ The variable might be a flat version of the som_shape
         usually with som_shape[0]*som_shape[1] neurons but the actual
@@ -30,7 +30,7 @@ class DSOM_Learner(Learner):
             som_shape: a list with the shape of the som variable to which this learner will apply updates
             neighbourhood_threshold: if a unit falls bellow this neighbourhood threshold, its not updated
         """
-        super().__init__()
+        super().__init__(var_list)
         self.som_shape = som_shape
         self.learning_rate = learning_rate
         self.elasticity = elasticity
@@ -80,9 +80,9 @@ class DSOM_Learner(Learner):
 
         return delta
 
-    def compute_delta(self, data, var_list):
+    def compute_delta(self, data):
         deltas_and_vars = []
-        for var in var_list:
+        for var in self.var_list:
             delta = self._compute_delta(data, var)
             deltas_and_vars.append((delta, var))
 

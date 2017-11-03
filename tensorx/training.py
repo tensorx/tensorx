@@ -50,23 +50,30 @@ class VariableUpdater:
 class Learner:
     __metaclass__ = ABCMeta
 
-    def __init__(self, var_updater=VariableUpdater):
+    def __init__(self, var_list, var_updater=VariableUpdater):
+        """
+
+        Args:
+            var_list: a list of `tf.Variable` to be updated according to the given data
+            var_updater:
+        """
+        self.var_list = var_list
         self.var_updater = var_updater
 
-    def adapt_to(self, var_list, data_list, combined=True, name=None):
+    def adapt_to(self, data_list, name=None):
         """ Adapts a list of variables to a list of data instances
 
         Args:
             data_list: a Tensor or list of tensors from which deltas are computed for the given variables
-            var_list: a list of `tf.Variable` to be updated according to the given data
+
 
         Returns:
              An `Operation` that applies the deltas to the variables according to the given data.
         """
 
         updates = []
-        for var, data in var_list, data_list:
-            deltas_and_vars = self.compute_delta(data, var)
+        for var, data in zip(self.var_list, data_list):
+            deltas_and_vars = self.compute_delta(data)
             vars_with_deltas = [var for var, delta in deltas_and_vars if delta is not None]
             if not vars_with_deltas:
                 raise ValueError("No deltas for any variable.")
@@ -76,12 +83,11 @@ class Learner:
         return control_flow_ops.group(*updates, name=name)
 
     @abstractmethod
-    def compute_delta(self, data, var_list):
+    def compute_delta(self, data):
         """ Computes the deltas for each variable based on the given data
 
         Args:
             data: a `Tensor` containing the data used to compute the deltas for the variables
-            var_list: list or tuple of `tf.Variable` to update
 
         Returns:
             A list of (delta, variable) pairs. Variable is always present, but

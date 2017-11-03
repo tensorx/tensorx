@@ -430,20 +430,26 @@ class MyTestCase(unittest.TestCase):
         print("shape lr * delta ", tf.shape(delta).eval())
         print(delta.eval())
 
-        print(tf.reduce_mean(delta,0).eval())
+        delta = tf.reduce_mean(delta,0)
 
-        dsom_learner = DSOM_Learner(som_shape=som_shape,
+        dsom_learner = DSOM_Learner(var_list=[som],
+                                    som_shape=som_shape,
                                     learning_rate=learning_rate,
                                     elasticity=elasticity,
                                     metric=pairwise_cosine_distance,
                                     neighbourhood_threshold=neighbourhood_threshold)
 
-        deltas = dsom_learner.compute_delta(inputs, [som])
+        deltas = dsom_learner.compute_delta(inputs)
 
-        delta,learning_vars = deltas[0]
+        delta_learner,learning_vars = deltas[0]
         self.assertEqual(learning_vars,som)
+        self.assertTrue(np.array_equal(delta.eval(), delta_learner.eval()))
 
-        print("learner deltas \n", delta.eval())
+        dsom_learner.adapt_to([inputs])
+
+        som2 = tf.identity(som)
+        print("som 2", som2.eval())
+
 
 
 
