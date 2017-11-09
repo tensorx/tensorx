@@ -7,7 +7,7 @@ from tensorflow.python.ops import math_ops, array_ops, linalg_ops, clip_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.sparse_tensor import SparseTensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 
 from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot
 from tensorx.utils import to_tensor_cast
@@ -157,7 +157,7 @@ def cosine_distance(tensor1, tensor2, dtype=dtypes.float32):
     return 1 - sim
 
 
-def euclidean_distance(tensor1, tensor2, dim):
+def euclidean_distance(tensor1, tensor2):
     """ Computes the euclidean distance between two tensors.
 
         Args:
@@ -172,7 +172,55 @@ def euclidean_distance(tensor1, tensor2, dim):
     tensor1 = ops.convert_to_tensor(tensor1)
     tensor2 = ops.convert_to_tensor(tensor2)
 
-    distance = math_ops.sqrt(math_ops.reduce_sum(math_ops.square(tensor1 - tensor2), axis=dim))
+    distance = math_ops.sqrt(math_ops.reduce_sum(math_ops.square(tensor1 - tensor2), axis=-1))
+
+    return distance
+
+def sparse_euclidean_distance(sp_tensor, tensor2):
+    """ Computes the euclidean distance between two tensors.
+
+        Args:
+            tensor1: a ``Tensor``
+            tensor2: a ``Tensor``
+            dim: dimension along which the euclidean distance is computed
+
+        Returns:
+            ``Tensor``: a ``Tensor`` with the euclidean distances between the two tensors
+
+        """
+    tensor1 = SparseTensor.from_value(sp_tensor)
+    if tensor1.values.dtype != dtypes.float32:
+        tensor1.values = math_ops.cast(tensor1.values, dtypes.float32)
+    tensor2 = ops.convert_to_tensor(tensor2)
+
+    sqrt(dot(x, x) - 2 * dot(x, y) + dot(y, y))
+
+    sp_dot = sparse_dot()
+
+
+    distance = math_ops.sqrt(math_ops.reduce_sum(math_ops.square(tensor1 - tensor2), axis=-1))
+
+    return distance
+
+
+def pairwise_euclidean_distance(tensor1, tensor2, keep_dims=False):
+    """ Computes the euclidean distance between two tensors.
+
+        Args:
+            tensor1: a ``Tensor``
+            tensor2: a ``Tensor``
+            keep_dims: if True, the result maintains the dimensions of the original result
+
+
+        Returns:
+            ``Tensor``: a ``Tensor`` with the euclidean distances between the two tensors
+
+        """
+    tensor1 = ops.convert_to_tensor(tensor1)
+    tensor2 = ops.convert_to_tensor(tensor2)
+    tensor1 = array_ops.expand_dims(tensor1, 1)
+
+    distance = math_ops.sqrt(math_ops.reduce_sum(math_ops.square(tensor1 - tensor2), axis=-1, keep_dims=keep_dims))
 
     return distance
 

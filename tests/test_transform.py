@@ -162,7 +162,7 @@ class TestTransform(unittest.TestCase):
         shape = [4]
         xs = transform.indices(shape)
         self.assertTrue(np.ndim(xs.eval()), 1)
-        self.assertTrue(np.array_equal(tf.shape(xs).eval(), [4,1]))
+        self.assertTrue(np.array_equal(tf.shape(xs).eval(), [4, 1]))
 
         shape = [4, 4]
         xys = transform.indices(shape)
@@ -173,6 +173,31 @@ class TestTransform(unittest.TestCase):
         xys = transform.indices(shape)
         self.assertTrue(np.ndim(xys.eval()), 2)
         self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
+
+    def test_sparse_overlapping(self):
+        tensor1 = tf.SparseTensor([[1, 0]], [1], [2, 3])
+        tensor2 = tf.SparseTensor([[0, 0], [1, 0], [1, 1]], [3, 4, 5], [2, 3])
+
+        overlap = transform.sparse_overlap(tensor1, tensor2)
+        expected_overlap_value = [1]
+        self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
+
+        overlap2 = transform.sparse_overlap(tensor2, tensor1)
+        self.assertTrue(np.array_equal(overlap.indices.eval(), overlap2.indices.eval()))
+
+
+        # sparse overlapping with no overlapping
+        tensor3 = tf.SparseTensor([[0, 1], [1, 1]], [3, 4], [2, 3])
+        overlap = transform.sparse_overlap(tensor1, tensor3)
+        expected_overlap_value = []
+        self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
+
+        overlap = transform.sparse_overlap(tensor2, tensor3)
+        expected_overlap_value = [5]
+        self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
+
+
+
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 
 Utilities to create, convert between, and combine tensors
 """
-
+from tensorflow.contrib.layers.python.ops import sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import sparse_ops
@@ -60,7 +60,7 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
 def indices(shape, name="grid"):
     with ops.name_scope(name):
         if len(shape) == 1:
-            return array_ops.expand_dims(math_ops.range(0, shape[0], 1),-1)
+            return array_ops.expand_dims(math_ops.range(0, shape[0], 1), -1)
         elif len(shape) == 2:
             max_x = shape[0]
             max_y = shape[1]
@@ -297,6 +297,24 @@ def sparse_ones(indices, dense_shape, dtype=dtypes.float32):
     return SparseTensor(indices, values, dense_shape)
 
 
+def sparse_zeros(indices, dense_shape, dtype=dtypes.float32):
+    """ Creates a new ``SparseTensor`` where the values are 0
+
+    Args:
+        indices: a 2-D ``Tensor`` with the indices for the resulting sparse tensor
+        dense_shape: the ``SparseTensor`` dense shape
+        dtype: the tensor type for the values
+
+    Returns:
+        ``SparseTensor``: a new SparseTensor with the values set to 1.
+    """
+    indices = to_tensor_cast(indices, dtypes.int64)
+    dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
+    indices_shape = complete_shape(indices)
+    values = array_ops.zeros([indices_shape[0]], dtype)
+    return SparseTensor(indices, values, dense_shape)
+
+
 def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
     """Transforms a batch of indices to a one-hot encoding ``SparseTensor``.
 
@@ -463,6 +481,30 @@ def filter_nd(condition, params):
     dense_shape = math_ops.cast(array_ops.shape(params), dtypes.int64)
     sp_result = SparseTensor(indices, values, dense_shape)
     return sp_result
+
+
+def sparse_overlap(sp_tensor1, sp_tensor2):
+    """ Returns a `SparseTensor` where the indices of the two tensors overlap with the values of the first
+
+    Args:
+        sp_tensor1: a `SparseTensor`
+        sp_tensor2: a `SparseTensor`
+
+    Returns:
+        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
+    """
+    ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
+    ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
+
+    indice_union = sparse_ops.sparse_add(ones1, ones2)
+
+    index_filter = math_ops.equal(indice_union.values, 2.)
+
+    zeros1 = sparse_zeros(indice_union.indices,indice_union.dense_shape,sp_tensor1.values.dtype)
+    expand1 = sparse_ops.sparse_add(zeros1,sp_tensor1)
+
+    filtered = sparse_ops.sparse_retain(expand1, index_filter)
+    return filtered
 
 
 __all__ = ["empty_sparse_tensor",

@@ -677,20 +677,6 @@ class Concat(Layer):
 
 
 class SOMLinear(Layer):
-    @staticmethod
-    def l1_distance(center, points):
-        """ Manhattan (L1) distance with continuous 1D vector (coordinates wrap around)
-
-        Args:
-            center: the coordinate to which we wish to compute the distance to all the other points
-            points: a 1D tensor with all the coordinates [0,1,2,3,...,n]
-            size:
-        """
-        center = ops.convert_to_tensor(center)
-        points = ops.convert_to_tensor(points)
-
-        size = points.get_shape()
-        return math_ops.minimum(math_ops.abs(center - points), math_ops.mod(-math_ops.abs(center - points), size))
 
     def __init__(self,
                  layer,

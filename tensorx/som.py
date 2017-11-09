@@ -3,14 +3,12 @@
 """
 from tensorflow.python.ops import array_ops, math_ops, sparse_ops
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.ops import IndexedSlices
+from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.training import Learner
 from tensorx import transform
 from tensorx import metrics
 from tensorx.math import gaussian
-from tensorflow.python.framework.ops import Tensor
-from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 
 class DSOM_Learner(Learner):
@@ -40,9 +38,6 @@ class DSOM_Learner(Learner):
     def _compute_delta(self, data, var):
         codebook = var
         som_shape = self.som_shape
-
-        # pre-compute the indices for the som grid
-        som_indices = transform.indices(som_shape)
 
         # distances
         som_indices = transform.indices(som_shape)

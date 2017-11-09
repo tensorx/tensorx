@@ -5,7 +5,7 @@ from tensorx.metrics import pairwise_cosine_distance, torus_l1_distance, pairwis
 import numpy as np
 
 from tensorx import transform
-from tensorx.math import gaussian, sparse_mul
+from tensorx.math import gaussian, sparse_multiply
 from tensorx.som import DSOM_Learner
 
 
@@ -293,7 +293,7 @@ class MyTestCase(unittest.TestCase):
         # print("lr vs dist \n", som_delta.eval())
         som_delta *= gauss_neighbourhood
 
-        sp_som_delta = sparse_mul(sp_gauss_neighbourhood, som_delta)
+        sp_som_delta = sparse_multiply(sp_gauss_neighbourhood, som_delta)
         _, sp_slices = tf.unstack(sp_som_delta.indices, num=2, axis=-1)
         print("sp_slices\n", sp_slices.eval())
 

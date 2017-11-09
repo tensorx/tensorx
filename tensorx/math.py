@@ -7,7 +7,9 @@ Arithmetic operators, linear algebra operators, etc.
 from tensorflow.python.ops import math_ops, array_ops, sparse_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.sparse_tensor import SparseTensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor, convert_to_tensor_or_sparse_tensor
+
+from tensorx.transform import sparse_overlap
 
 
 def safe_div(numerator, denominator, name="value"):
@@ -113,21 +115,53 @@ def sparse_dot(sp_tensor1, tensor2, name=None):
         return dot_prod
 
 
-def sparse_mul(sp_tensor, dense_tensor):
-    """ Multiply a `Sparse Tensor` by a `Tensor`.
+def sparse_multiply(sp_tensor1, tensor2, name="sparse_multiply"):
+    """ Element-wise multiplication of a `Sparse Tensor` by a `Tensor` or a `SparseTensor`
 
     Args:
-        sp_tensor: a `SparseTensor`
-        dense_tensor: a `Tensor` with the same shape as the sp_tensor.dense_shape
+        sp_tensor1: a `SparseTensor`
+        tensor2: a `Tensor` with the same shape as the sp_tensor.dense_shape
 
     Returns:
         a `SparseTensor` with the result of the multiplication
 
     """
-    dense_values = array_ops.gather_nd(dense_tensor, sp_tensor.indices)
-    dense_mul = math_ops.multiply(sp_tensor.values, dense_values)
-    return SparseTensor(sp_tensor.indices, dense_mul, sp_tensor.dense_shape)
+    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        sp_tensor1 = convert_to_tensor_or_sparse_tensor(sp_tensor1)
+        assert (isinstance(sp_tensor1, SparseTensor))
 
+        tensor2 = convert_to_tensor_or_sparse_tensor(tensor2)
+
+        if isinstance(tensor2, ops.Tensor):
+            dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
+            dense_mul = math_ops.multiply(sp_tensor1.values, dense_values)
+            result = SparseTensor(sp_tensor1.indices, dense_mul, sp_tensor1.dense_shape)
+            result = sparse_ops.sparse_retain(result, math_ops.greater(dense_mul, 0.))
+
+            return result
+        else:
+            return sparse_sparse_multiply(sp_tensor1, tensor2)
+
+
+def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
+    """ Element-wise multiplication of two sparse tensors
+
+    Note:
+        if the two sparse tensors don't overlap, returns an empty sparse tensor.
+
+    Args:
+        sp_tensor1: a `SparseTensor`
+        sp_tensor2: a `SparseTensor`
+
+    Returns:
+        a `SparseTensor` with the element-wise multiplication of the two sparse tensors
+
+    """
+    overlap1 = sparse_overlap(sp_tensor1, sp_tensor2)
+    overlap2 = sparse_overlap(sp_tensor2, sp_tensor1)
+
+    values = math_ops.multiply(overlap1.values, overlap2.values)
+    return SparseTensor(overlap1.indices, values, overlap1.dense_shape)
 
 
 __all__ = ["safe_div",
@@ -135,4 +169,4 @@ __all__ = ["safe_div",
            "sparse_l2_norm",
            "sparse_dot",
            "batch_sparse_dot",
-           "sparse_mul"]
+           "sparse_multiply"]
