@@ -328,6 +328,9 @@ class Linear(Layer):
                 self.tensor = bias_add(self.tensor, self.bias, name="a")
 
 
+
+
+
 class ToSparse(Layer):
     """ Transforms the previous layer into a sparse layer.
 

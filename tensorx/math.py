@@ -94,12 +94,16 @@ def batch_sparse_dot(sp_tensor1, tensor2, name=None, keep_dims=True):
         return dot_prod
 
 
+def dot(tensor1, tensor2, name=None):
+    return math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), axis=-1)
+
+
 def sparse_dot(sp_tensor1, tensor2, name=None):
     """ Returns the dot product between two tensors with the same shape
 
     Args:
         sp_tensor1: a ``SparseTensor``
-        tensor2: a ``Tensor
+        tensor2: a ``Tensor`` or ``SparseTensor``
         name: the name for this op
 
     Returns:
@@ -107,11 +111,37 @@ def sparse_dot(sp_tensor1, tensor2, name=None):
 
     """
     with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
-        dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
-        radial_dif = math_ops.multiply(sp_tensor1.values, dense_values)
-        radial_dif_sp = SparseTensor(indices=sp_tensor1.indices, values=radial_dif, dense_shape=sp_tensor1.dense_shape)
-        dot_prod = sparse_ops.sparse_reduce_sum(radial_dif_sp, axis=-1)
+        if isinstance(tensor2, ops.Tensor):
+            # sp_radial_dif = sparse_multiply(sp_tensor1,tensor2)
+            dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
+            radial_dif = math_ops.multiply(sp_tensor1.values, dense_values)
+            sp_radial_dif = SparseTensor(indices=sp_tensor1.indices, values=radial_dif,
+                                         dense_shape=sp_tensor1.dense_shape)
+            dot_prod = sparse_ops.sparse_reduce_sum(sp_radial_dif, axis=-1)
+            return dot_prod
+        elif isinstance(tensor2, SparseTensor):
+            return sparse_sparse_dot(sp_tensor1, tensor2)
+        else:
+            raise TypeError(
+                "inputs must be of type Tensor or SparseTensor: tensor2 == {t} found".format(t=type(tensor2)))
 
+
+def sparse_sparse_dot(sp_tensor1, sp_tensor2, name=None):
+    """ Returns the dot product between two tensors with the same shape
+
+    Args:
+        sp_tensor1: a ``SparseTensor``
+        sp_tensor2: a ``SparseTensor``
+        name: the name for this op
+
+    Returns:
+        ``Tensor``: a ``Tensor`` with the result of the dot product
+
+    """
+    with ops.name_scope(name, "sparse_dot", [sp_tensor1, sp_tensor2]):
+        # sparse multiply computes the overlap between two sparse tensors
+        radial_dif = sparse_sparse_multiply(sp_tensor1, sp_tensor2)
+        dot_prod = sparse_ops.sparse_reduce_sum(radial_dif, axis=-1)
         return dot_prod
 
 
@@ -136,7 +166,7 @@ def sparse_multiply(sp_tensor1, tensor2, name="sparse_multiply"):
             dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
             dense_mul = math_ops.multiply(sp_tensor1.values, dense_values)
             result = SparseTensor(sp_tensor1.indices, dense_mul, sp_tensor1.dense_shape)
-            result = sparse_ops.sparse_retain(result, math_ops.greater(dense_mul, 0.))
+            result = sparse_ops.sparse_retain(result, math_ops.not_equal(dense_mul, 0.))
 
             return result
         else:

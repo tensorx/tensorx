@@ -9,9 +9,11 @@ from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 
-from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot
+from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot, dot
 from tensorx.utils import to_tensor_cast
 from tensorx.transform import indices
+
+from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
 
 
 def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, keep_dims=False):
@@ -118,7 +120,6 @@ def sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32):
     norm2 = linalg_ops.norm(tensor2, axis=-1)
 
     norm12 = norm1 * norm2
-
     cos12 = dot_prod / norm12
 
     sim = array_ops.where(math_ops.is_nan(cos12), array_ops.zeros_like(cos12), cos12)
@@ -176,6 +177,7 @@ def euclidean_distance(tensor1, tensor2):
 
     return distance
 
+
 def sparse_euclidean_distance(sp_tensor, tensor2):
     """ Computes the euclidean distance between two tensors.
 
@@ -192,11 +194,6 @@ def sparse_euclidean_distance(sp_tensor, tensor2):
     if tensor1.values.dtype != dtypes.float32:
         tensor1.values = math_ops.cast(tensor1.values, dtypes.float32)
     tensor2 = ops.convert_to_tensor(tensor2)
-
-    sqrt(dot(x, x) - 2 * dot(x, y) + dot(y, y))
-
-    sp_dot = sparse_dot()
-
 
     distance = math_ops.sqrt(math_ops.reduce_sum(math_ops.square(tensor1 - tensor2), axis=-1))
 
