@@ -44,3 +44,4 @@ def complete_shape(tensor, dtype=None):
         shape = to_tensor_cast(shape, dtype)
 
     return shape
+

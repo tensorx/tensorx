@@ -20,7 +20,7 @@ from tensorflow.python.ops import variable_scope
 from tensorflow.python.framework.ops import name_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout
+from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout, embedding_lookup
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
@@ -241,6 +241,7 @@ class SparseInput(Layer):
             dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
             name: name for the layer
         """
+
         shape = [batch_size, n_units]
         super().__init__(None, n_units, shape, dtype, name)
 
@@ -328,7 +329,76 @@ class Linear(Layer):
                 self.tensor = bias_add(self.tensor, self.bias, name="a")
 
 
+class Lookup(Layer):
+    """
+    Note:
+        If the input is a ``SparseInput`` it expects on element of an n-sequence per row of the ``SparseTensor``
+        this is because of how embedding lookup works. Since this layer requires us to supply an exact batch_size
+        it will aggregate the final result according to this batch.
 
+        If we want to lookup a batch of sequences of 4 elements, the ``SparseInput`` must have the shape
+        [4*2,m] where m is the n_features.
+
+        If the input is ``Input``, for a sequence of 4 elements and batch size of 2, the shape should be [2,4].
+
+    Returns:
+        A ``Tensor`` with shape [batch_size,seq_size*n_features] with the features of all elements in the sequence concatenated
+
+    Args:
+        input_layer: an ``Input`` layer or ``SparseInput`` layers.
+        seq_size: size of the sequence to be looked-up
+        n_features: lookup table feature dimension
+        batch_size: number of sequences to be looked up
+
+    """
+
+    def __init__(self,
+                 input_layer,
+                 seq_size,
+                 n_features,
+                 batch_size,
+                 init=random_uniform,
+                 weights=None,
+                 dtype=dtypes.float32,
+                 name="seq_lookup"):
+
+        self.weight_shape = [input_layer.shape[1], n_features]
+        n_units = seq_size * n_features
+        self.batch_size = batch_size
+        shape = [batch_size, n_units]
+
+        super().__init__(input_layer, n_units, shape, dtype, name)
+
+        # if weights are passed, check that their shape matches the layer shape
+        if weights is not None:
+            (_, s) = weights.get_shape()
+            if s != n_features:
+                raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
+
+        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+            # init weights
+            if weights is not None:
+                self.weights = weights
+            else:
+                self.weights = variable_scope.get_variable("w", initializer=init(self.weight_shape))
+
+            # y = xW
+            if input_layer.is_sparse():
+                sp_values = input_layer.tensor
+                sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
+
+                # sums the lookups for the same row
+                lookup_sum = embedding_lookup_sparse(params=self.weights,
+                                                     sp_ids=sp_indices,
+                                                     sp_weights=sp_values,
+                                                     combiner="sum",
+                                                     name=self.name + "_embeddings")
+
+                self.tensor = array_ops.reshape(lookup_sum, [self.batch_size, -1])
+            else:
+                lookup = embedding_lookup(params=self.weights,
+                                          ids=input_layer.tensor)
+                self.tensor = array_ops.reshape(lookup, [self.batch_size, -1])
 
 
 class ToSparse(Layer):
@@ -680,7 +750,6 @@ class Concat(Layer):
 
 
 class SOMLinear(Layer):
-
     def __init__(self,
                  layer,
                  n_units,

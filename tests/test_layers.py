@@ -2,6 +2,8 @@ import unittest
 import tensorflow as tf
 import numpy as np
 from tensorx.layers import *
+from tensorx.layers import Lookup
+
 from tensorx.layers import layers_to_list
 from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
@@ -268,12 +270,12 @@ class TestLayers(unittest.TestCase):
         act = Activation(inputs, relu, max_value=2.0)
 
         r0 = act.tensor.eval({inputs.tensor: [[-1]]})
-        r1 = act.tensor.eval({inputs.tensor:[[1]]})
-        r2 = act.tensor.eval({inputs.tensor:[[3]]})
+        r1 = act.tensor.eval({inputs.tensor: [[1]]})
+        r2 = act.tensor.eval({inputs.tensor: [[3]]})
 
-        self.assertEqual(r0[0],0)
-        self.assertEqual(r1[0],1)
-        self.assertEqual(r2[0],2)
+        self.assertEqual(r0[0], 0)
+        self.assertEqual(r1[0], 1)
+        self.assertEqual(r2[0], 2)
 
     def test_layers_to_list(self):
         """ layers_to_list returns the layers without repetition using a breadth first search from the last layer
@@ -301,6 +303,129 @@ class TestLayers(unittest.TestCase):
         self.assertEqual(layers[4], l41)
         self.assertEqual(layers[5], l42)
         self.assertEqual(layers[6], l5)
+
+    def test_sparse_lookup_stage_implementation(self):
+        vocab_size = 4
+        n_features = 3
+
+        # input_data = np.array([[2, 0], [1, 2]])
+
+        weight_shape = [vocab_size, n_features]
+        params = tf.get_variable("w", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
+
+        sp_indices = np.array([[0, 0, 2], [1, 1, 0], [2, 0, 1], [3, 1, 2]], np.int64)
+        sp_values = np.array([2, 0, 1, 2], np.int64)
+        dense_shape = np.array([2, 2, vocab_size], np.int64)
+        sp_ids = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+
+        indices = tf.sparse_placeholder(tf.int64, shape=[1, 1, vocab_size])
+        embed = tf.nn.embedding_lookup_sparse(params, sp_ids=indices, sp_weights=None, combiner="sum")
+
+        self.ss.run(tf.global_variables_initializer())
+        res_embed = embed.eval({indices: sp_ids})
+        print(res_embed)
+
+    def test_lookup_layer(self):
+        vocab_size = 4
+        n_features = 3
+        seq_size = 2
+        batch_size = 2
+
+        sp_inputs = SparseInput(n_features, dtype=tf.int64)
+        # INPUT DATA
+        sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
+        sp_values = np.array([1, 1, 1, 1], np.int64)
+        dense_shape = np.array([4, vocab_size], np.int64)
+        sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+
+        # SPARSE LOOKUP
+        sp_lookup = Lookup(sp_inputs, seq_size, n_features, batch_size)
+
+        inputs = Input(seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2]])
+
+        # DENSE LOOKUP
+        lookup = Lookup(inputs, seq_size, n_features, batch_size, weights=sp_lookup.weights)
+
+        self.ss.run(tf.global_variables_initializer())
+
+        self.assertTrue(np.array_equal(sp_lookup.tensor.eval({sp_inputs.tensor: sp_values}),
+                                       lookup.tensor.eval({inputs.tensor: input_data})))
+
+    def test_lookup_stage_implementation(self):
+        vocab_size = 4
+        n_input_words = 2
+        n_features = 3
+
+        indices = Input(n_input_words, dtype=tf.int32)
+
+        weight_shape = [vocab_size, n_features]
+        params = tf.get_variable("w", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
+        embed = tf.nn.embedding_lookup(params, indices.tensor)
+
+        self.ss.run(tf.global_variables_initializer())
+        input_data = np.array([[2, 0], [1, 2]])
+
+        print("input \n", input_data)
+
+        print("embed \n", params.eval())
+        # input_data = np.array([[0, 2]])
+
+        # concat = tf.reshape(tf.concat(embed,axis=-1),[sh[0],-1])
+        sh = tf.shape(embed)
+        concat = tf.reshape(embed, [sh[0], -1])
+
+        res_embed = embed.eval({indices.tensor: input_data})
+        res_concat = concat.eval({indices.tensor: input_data})
+        # print("embed\n", res_embed)
+        print("concat\n", res_concat)
+
+        # *********************************************************
+        """
+        batch_size = 2
+        #sp_indices = np.array([[0, 2], [0, 0], [1, 1], [1, 2]],np.int64)
+        #sp_values = np.array([2, 0, 1, 2],np.int64)
+        sp_indices = np.array([[0, 0], [1, 2]], np.int64)
+        sp_values = np.array([0, 2], np.int64)
+        dense_shape = np.array([2, vocab_size],np.int64)
+        sp_ids = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+
+        indices = SparseInput(vocab_size,dtype=tf.int64)
+        embed = tf.nn.embedding_lookup_sparse(params, sp_ids=indices.tensor, sp_weights=None, combiner="sum")
+
+
+        res_embed = embed.eval({indices.tensor: sp_ids})
+
+        print("sp embed\n",res_embed)
+
+        print("params\n", params.eval())
+
+        # *********************************************************
+        n = 2
+        sp_indices = np.array([[0, 0, 0], [1, 2]], np.int64)
+        sp_values = np.array([0, 2], np.int64)
+        dense_shape = np.array([2, n, vocab_size], np.int64)
+        sp_ids = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+        """
+
+        # sp_indices = np.array([[0, 0, 2], [1, 1, 0], [2, 0, 1], [3, 1, 2]], np.int64)
+        sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
+        print("sp input \n", sp_indices)
+        sp_values = np.array([2, 0, 1, 2], np.int64)
+        # dense_shape = np.array([2, 2, vocab_size], np.int64)
+        dense_shape = np.array([4, vocab_size], np.int64)
+        sp_ids = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+
+        # indices = tf.sparse_placeholder(tf.int64, shape=[1, 1, vocab_size])
+        # indices = tf.sparse_placeholder(tf.int64, shape=[4, vocab_size])
+        indices = SparseInput(vocab_size, dtype=tf.int64)
+        indices = indices.tensor
+        embed = tf.nn.embedding_lookup_sparse(params, sp_ids=indices, sp_weights=None, combiner="sum",
+                                              partition_strategy="mod")
+        embed = tf.reshape(embed, [2, -1])
+
+        res_embed = embed.eval({indices: sp_ids})
+        print("sp_embed\n", res_embed)
 
 
 if __name__ == '__main__':
