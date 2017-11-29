@@ -431,7 +431,7 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
 
     ..transforms a python list of indices::
 
-        idx =[[0,5],[0,2,7],[1]]
+        idx =[[0,5],[0,2],[1,7]]
 
     into a ``SparseTensorValue`` as follows::
 

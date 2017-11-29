@@ -331,6 +331,14 @@ class TestLayers(unittest.TestCase):
         seq_size = 2
         batch_size = 2
 
+        inputs = Input(seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2]])
+
+        # DENSE LOOKUP
+        lookup = Lookup(inputs, seq_size, [vocab_size,n_features], batch_size)
+
+
+
         sp_inputs = SparseInput(n_features, dtype=tf.int64)
         # INPUT DATA
         sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
@@ -339,16 +347,11 @@ class TestLayers(unittest.TestCase):
         sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
 
         # SPARSE LOOKUP
-        sp_lookup = Lookup(sp_inputs, seq_size, n_features, batch_size)
+        sp_lookup = Lookup(sp_inputs, seq_size, [vocab_size,n_features], batch_size,weights=lookup.weights)
 
-        inputs = Input(seq_size, dtype=tf.int32)
-        input_data = np.array([[2, 0], [1, 2]])
 
-        # DENSE LOOKUP
-        lookup = Lookup(inputs, seq_size, n_features, batch_size, weights=sp_lookup.weights)
 
         self.ss.run(tf.global_variables_initializer())
-
         self.assertTrue(np.array_equal(sp_lookup.tensor.eval({sp_inputs.tensor: sp_values}),
                                        lookup.tensor.eval({inputs.tensor: input_data})))
 

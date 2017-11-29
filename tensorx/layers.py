@@ -347,23 +347,23 @@ class Lookup(Layer):
     Args:
         input_layer: an ``Input`` layer or ``SparseInput`` layers.
         seq_size: size of the sequence to be looked-up
-        n_features: lookup table feature dimension
+        feature_shape: lookup table feature dimension
         batch_size: number of sequences to be looked up
 
     """
-
+    # TODO adaptive feature shape based on input if input has n_active
     def __init__(self,
                  input_layer,
                  seq_size,
-                 n_features,
+                 feature_shape,
                  batch_size,
                  init=random_uniform,
                  weights=None,
                  dtype=dtypes.float32,
                  name="seq_lookup"):
 
-        self.weight_shape = [input_layer.shape[1], n_features]
-        n_units = seq_size * n_features
+        self.weight_shape = feature_shape
+        n_units = seq_size * feature_shape[1]
         self.batch_size = batch_size
         shape = [batch_size, n_units]
 
@@ -372,7 +372,7 @@ class Lookup(Layer):
         # if weights are passed, check that their shape matches the layer shape
         if weights is not None:
             (_, s) = weights.get_shape()
-            if s != n_features:
+            if s != feature_shape[1]:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
         with name_scope(name) as scope, variable_scope.variable_scope(scope):
@@ -791,5 +791,6 @@ __all__ = ["Input",
            "Dropout",
            "GaussianNoise",
            "SparseGaussianNoise",
-           "SaltPepperNoise"
+           "SaltPepperNoise",
+           "Lookup"
            ]
