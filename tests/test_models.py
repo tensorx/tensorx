@@ -1,11 +1,15 @@
 import unittest
 from tensorx.training import Model
 from tensorx.layers import Input, Linear, Activation, Add
+
 from tensorx.activation import tanh, sigmoid
 from tensorx.loss import binary_cross_entropy
+from tensorx import init
 
 import numpy as np
 import tensorflow as tf
+
+import os
 
 """TODO 
     - consider how models can be visualised on each layer
@@ -113,9 +117,52 @@ class MyTestCase(unittest.TestCase):
         self.assertIsInstance(result, np.ndarray)
         self.assertTrue(np.ndim(result), 2)
 
+    def test_model_save(self):
+        session = tf.InteractiveSession()
+
+        def build_model():
+            inputs = Input(4)
+            linear = Linear(inputs, 2)
+            h = Activation(linear, fn=tanh)
+            logits = Linear(h, 4)
+            outputs = Activation(logits, fn=sigmoid)
+            model = Model(inputs, outputs)
+            return model
+
+        model = build_model()
+        model.set_session(session)
+        model.init_vars()
+        for layer in model.layers:
+            print(layer)
+
+        w1, w2 = model.layers[1].weights, model.layers[3].weights
+
+        w1 = w1.eval()
+        w2 = w2.eval()
+
+        model_file = "/tmp/test.ckpt"
+        model.save(model_file)
+        model.init_vars()
+
+        tf.reset_default_graph()
+        # session = tf.InteractiveSession()
+
+        # model = build_model()
+        # self.assertEqual(model.session, None)
+        # model.set_session(session)
+
+        model.load(model_file, load_graph=False)
+        w3, w4 = model.layers[1].weights, model.layers[3].weights
+        w3 = w3.eval()
+        w4 = w4.eval()
+
+        self.assertTrue(np.array_equal(w1, w3))
+        self.assertTrue(np.array_equal(w2, w4))
+
     def test_model_io(self):
         inputs = Input(1)
-        model = Model(inputs, inputs)
+        layer = Linear(inputs, n_units=1, init=init.ones_init())
+        model = Model(inputs, layer)
         result = model.run([[1], [1]])
         self.assertEqual(len(result), 2)
         self.assertIsInstance(result, np.ndarray)

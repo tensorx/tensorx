@@ -277,7 +277,7 @@ class Linear(Layer):
     Args:
         layer: an input :class:`Layer` used to build a fully connected layer
         n_units: an :obj:`int` with the number of units for this layer
-        init: an initialisation function for the weights of this layer
+        init: an initializer for the weights of this layer
         weights: None if we wish the layer to create a new variable or a tensorflow variable otherwise
         bias: if true creates a bias variable and the transformation becomes an affine transformation
         dtype: dtype for the output of this layer
@@ -287,7 +287,7 @@ class Linear(Layer):
     def __init__(self,
                  layer,
                  n_units,
-                 init=random_uniform,
+                 init=random_uniform(),
                  weights=None,
                  bias=True,
                  dtype=dtypes.float32,
@@ -307,26 +307,32 @@ class Linear(Layer):
             if weights is not None:
                 self.weights = weights
             else:
-                self.weights = variable_scope.get_variable("w", initializer=init(self.shape))
+                self.weights = variable_scope.get_variable("w",
+                                                           shape=self.shape,
+                                                           dtype=self.dtype,
+                                                           initializer=init)
 
-            # y = xW
-            if layer.is_sparse():
-                sp_values = layer.tensor
-                sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
+                # y = xW
+                if layer.is_sparse():
+                    sp_values = layer.tensor
+                    sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
 
-                lookup_sum = embedding_lookup_sparse(params=self.weights,
-                                                     sp_ids=sp_indices,
-                                                     sp_weights=sp_values,
-                                                     combiner="sum",
-                                                     name=self.name + "_embeddings")
-                self.tensor = lookup_sum
-            else:
-                self.tensor = math_ops.matmul(layer.tensor, self.weights)
+                    lookup_sum = embedding_lookup_sparse(params=self.weights,
+                                                         sp_ids=sp_indices,
+                                                         sp_weights=sp_values,
+                                                         combiner="sum",
+                                                         name=self.name + "_embeddings")
+                    self.tensor = lookup_sum
+                else:
+                    self.tensor = math_ops.matmul(layer.tensor, self.weights)
 
-            # y = xW + [b]
-            if bias:
-                self.bias = variable_scope.get_variable("b", shape=[self.n_units], initializer=zero_init())
-                self.tensor = bias_add(self.tensor, self.bias, name="a")
+                # y = xW + [b]
+                if bias:
+                    self.bias = variable_scope.get_variable("b",
+                                                            shape=[self.n_units],
+                                                            dtype=self.dtype,
+                                                            initializer=zero_init())
+                    self.tensor = bias_add(self.tensor, self.bias, name="a")
 
 
 class Lookup(Layer):
@@ -351,6 +357,7 @@ class Lookup(Layer):
         batch_size: number of sequences to be looked up
 
     """
+
     # TODO adaptive feature shape based on input if input has n_active
     def __init__(self,
                  input_layer,

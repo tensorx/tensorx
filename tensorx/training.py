@@ -17,7 +17,8 @@ from tensorflow.python.ops import array_ops, math_ops, control_flow_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
 from tensorflow.python.ops.variables import global_variables_initializer
-from tensorflow.python.client.session import Session
+from tensorflow.python.client.session import Session, InteractiveSession
+from tensorflow.python.training.saver import Saver, import_meta_graph
 
 from tensorx.layers import layers_to_list
 
@@ -218,8 +219,50 @@ class Model:
         self.loss_weights = 1.0
         self.joint_loss = None
         self.train_step = None
+        self.target_labels = None
 
         self.layers = layers_to_list(self.outputs)
+
+        # op for model saving and restoring
+        self.saver = Saver()
+
+    def save(self, save_path="./model.ckpt", global_step=None, write_meta_graph=True, write_state=True):
+        """ Saves all the variables by default
+        # TODO add capacity to save only some variables this requires init vars to run only
+        on some variables
+
+        Note:
+            if no session exists it creates a new default session
+
+        Args:
+            save_path: path to a ckpt file where the model is to be stored
+
+        """
+        if self.session is None:
+            self.set_session()
+
+        self.saver.save(self.session, save_path, global_step,
+                        write_meta_graph=write_meta_graph,
+                        write_state=write_state)
+
+    def load(self, save_path="./model.ckpt", load_graph=False):
+        """ Loads the variables on the given path to the current graph
+
+        Note:
+            if a current session does not exist, creates a new session.
+            declares the current model as initialised
+
+        Args:
+            save_path: the path where the model is to be restored
+        """
+        if self.session is None:
+            self.set_session()
+
+        if load_graph:
+            import_meta_graph(save_path + ".meta")
+        self.saver.restore(self.session, save_path)
+        # we don't need to init vars after loading a model
+        self._var_inited = (True, self.session)
 
     def set_session(self, session=None):
         """ Sets the session being used by :class:`Model` class.
@@ -235,7 +278,7 @@ class Model:
             ``Session``: the current ``Session`` being used by the model class.
 
         """
-        if session is not None and not isinstance(session, Session):
+        if session is not None and not isinstance(session, (Session, InteractiveSession)):
             raise TypeError("Expecting a tensorflow Session object, got {} instead".format(type(session)))
 
         if session is None:
@@ -330,18 +373,18 @@ class Model:
             result = result[0]
         return result
 
-    def config_optimisers(self, optimiser, losses, target_inputs=None, loss_weights=1.0):
+    def config_optimisers(self, optimiser, losses, target_labels=None, loss_weights=1.0):
         """ Configures the model for training
 
         Args:
             losses: a :obj:`list` or single loss `Tensor` instances to be used to train the model variables
-            target_inputs: a :obj:`list` or single input layers that will be used with the loss function
+            target_labels: a :obj:`list` or single input layers that will be used with the loss function
             optimiser: the tensorflow optimiser used to train the model
             loss_weights: weights used to create a join loss if we configure the model with multiple losses
 
         """
         self.losses = _as_list(losses)
-        self.target_inputs = _as_list(target_inputs)
+        self.target_labels = _as_list(target_labels)
 
         self.optimiser = optimiser
         self.loss_weights = loss_weights
@@ -401,12 +444,12 @@ class Model:
         if targets is not None:
             targets = _as_list(targets)
             n_targets = len(targets)
-            n_target_inputs = len(self.target_inputs)
-            if n_targets != n_target_inputs:
+            target_labels = len(self.target_labels)
+            if n_targets != target_labels:
                 raise ValueError(
-                    "target items received {} != {} model target inputs".format(n_targets, n_target_inputs))
+                    "target items received {} != {} model target inputs".format(n_targets, target_labels))
 
-            label_dict = {target.tensor: label for target, label in zip(self.target_inputs, targets)}
+            label_dict = {target.tensor: label for target, label in zip(self.target_labels, targets)}
             feed_dict.update(label_dict)
 
         for epoch in range(n_epochs):
