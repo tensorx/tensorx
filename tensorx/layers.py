@@ -364,7 +364,7 @@ class Lookup(Layer):
                  seq_size,
                  feature_shape,
                  batch_size,
-                 init=random_uniform,
+                 init=random_uniform(),
                  weights=None,
                  dtype=dtypes.float32,
                  name="seq_lookup"):
@@ -387,7 +387,7 @@ class Lookup(Layer):
             if weights is not None:
                 self.weights = weights
             else:
-                self.weights = variable_scope.get_variable("w", initializer=init(self.weight_shape))
+                self.weights = variable_scope.get_variable("w", shape=self.weight_shape, initializer=init)
 
             # y = xW
             if input_layer.is_sparse():
@@ -762,7 +762,7 @@ class SOMLinear(Layer):
                  n_units,
                  map_size,
                  map_distance=pairwise_cosine_distance,
-                 init=random_uniform, weights=None, bias=True, dtype=dtypes.float32, name="som_linear"):
+                 init=random_uniform(), weights=None, bias=True, dtype=dtypes.float32, name="som_linear"):
         shape = [layer.shape[1], n_units]
         super().__init__(layer, n_units, shape, dtype, name)
 
@@ -774,8 +774,8 @@ class SOMLinear(Layer):
 
         with name_scope(name) as scope, variable_scope.variable_scope(scope):
             # init weights
-            self.weights = variable_scope.get_variable("w", initializer=init(self.weights_shape))
-            self.map_weights = variable_scope.get_variable("som_w", initializer=init(self.map_shape))
+            self.weights = variable_scope.get_variable("w", shape=self.weights_shape, initializer=init)
+            self.map_weights = variable_scope.get_variable("som_w", shape=self.map_shape, initializer=init)
 
             if layer.is_sparse():
                 self.tensor = None
