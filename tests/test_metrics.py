@@ -95,7 +95,7 @@ class MyTestCase(unittest.TestCase):
         #
         # self.assertTrue(np.allclose(dist33.eval(), 0., atol=1.e-6))
 
-        dense_shape = [1000, 100000]
+        dense_shape = [1000, 10000]
         v4s = tf.SparseTensor(indices=[[0, 0], [1, 0], [1, 1]], values=[1., 2., 1.], dense_shape=dense_shape)
         v4 = tf.sparse_tensor_to_dense(v4s)
 

@@ -64,6 +64,30 @@ class TestLayers(unittest.TestCase):
         np.testing.assert_array_equal(result[sp_data.indices], [1, 1])
         np.testing.assert_array_equal(result.shape, dense_shape)
 
+    def test_tensor_input(self):
+        indices = [[0, 1], [1, 1]]
+        values = [1, 1]
+        dense_shape = [4, 4]
+        sp_data = tf.SparseTensorValue(indices, values, dense_shape)
+
+        # test with sparse tensor value
+        tensor_input = TensorInput(tensor=sp_data, n_units=4)
+        sparse_input = SparseInput(n_units=4)
+
+        self.assertTrue(tensor_input.is_sparse())
+        self.assertTrue(sparse_input.is_sparse())
+
+        result_tensor = tf.sparse_tensor_to_dense(tensor_input.tensor).eval()
+        result_sparse = tf.sparse_tensor_to_dense(sparse_input.tensor).eval({sparse_input.tensor: sp_data})
+
+        np.testing.assert_array_equal(result_sparse, result_tensor)
+
+        dense_input = TensorInput(result_tensor, n_units=4)
+        np.testing.assert_array_equal(dense_input.tensor.eval(), result_tensor)
+
+        # np.testing.assert_array_equal(result_tensor[sp_data.indices], [1, 1])
+        # np.testing.assert_array_equal(result.shape, dense_shape)
+
     def test_linear_equal_sparse_dense(self):
         index = 0
         dim = 10
@@ -74,9 +98,9 @@ class TestLayers(unittest.TestCase):
         x3 = SparseInput(10)
 
         # two layers with shared weights, one uses a sparse input layer, the other the dense one
-        y1 = Linear(x1, 4)
-        y2 = Linear(x2, 4, weights=y1.weights)
-        y3 = Linear(x3, 4, weights=y1.weights)
+        y1 = Linear(x1, 4, name="linear1")
+        y2 = Linear(x2, 4, weights=y1.weights, name="linear2")
+        y3 = Linear(x3, 4, weights=y1.weights, name="linear3")
 
         self.ss.run(tf.global_variables_initializer())
 
@@ -305,13 +329,20 @@ class TestLayers(unittest.TestCase):
         self.assertEqual(layers[6], l5)
 
     def test_sparse_lookup_stage_implementation(self):
+        # TODO, I forgot that tensorflow operates in parallel, and when I'm testing
+        # it creates variables in the same graph so to stage something, getting variables
+        # leads to problems if other tests already used those variables
+        # also stage implementations should be moved somewhere else
+        # tf.reset_default_graph()
+        # self.ss = tf.InteractiveSession()
+
         vocab_size = 4
         n_features = 3
 
         # input_data = np.array([[2, 0], [1, 2]])
 
         weight_shape = [vocab_size, n_features]
-        params = tf.get_variable("w", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
+        params = tf.get_variable("w_test", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
 
         sp_indices = np.array([[0, 0, 2], [1, 1, 0], [2, 0, 1], [3, 1, 2]], np.int64)
         sp_values = np.array([2, 0, 1, 2], np.int64)
@@ -321,7 +352,8 @@ class TestLayers(unittest.TestCase):
         indices = tf.sparse_placeholder(tf.int64, shape=[1, 1, vocab_size])
         embed = tf.nn.embedding_lookup_sparse(params, sp_ids=indices, sp_weights=None, combiner="sum")
 
-        self.ss.run(tf.global_variables_initializer())
+        var_init = tf.global_variables_initializer()
+        self.ss.run(var_init)
         res_embed = embed.eval({indices: sp_ids})
         print(res_embed)
 
@@ -335,9 +367,7 @@ class TestLayers(unittest.TestCase):
         input_data = np.array([[2, 0], [1, 2]])
 
         # DENSE LOOKUP
-        lookup = Lookup(inputs, seq_size, [vocab_size,n_features], batch_size)
-
-
+        lookup = Lookup(inputs, seq_size, [vocab_size, n_features], batch_size)
 
         sp_inputs = SparseInput(n_features, dtype=tf.int64)
         # INPUT DATA
@@ -347,9 +377,7 @@ class TestLayers(unittest.TestCase):
         sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
 
         # SPARSE LOOKUP
-        sp_lookup = Lookup(sp_inputs, seq_size, [vocab_size,n_features], batch_size,weights=lookup.weights)
-
-
+        sp_lookup = Lookup(sp_inputs, seq_size, [vocab_size, n_features], batch_size, weights=lookup.weights)
 
         self.ss.run(tf.global_variables_initializer())
         self.assertTrue(np.array_equal(sp_lookup.tensor.eval({sp_inputs.tensor: sp_values}),
@@ -363,15 +391,15 @@ class TestLayers(unittest.TestCase):
         indices = Input(n_input_words, dtype=tf.int32)
 
         weight_shape = [vocab_size, n_features]
-        params = tf.get_variable("w", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
+        params = tf.get_variable("w_test2", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
         embed = tf.nn.embedding_lookup(params, indices.tensor)
 
         self.ss.run(tf.global_variables_initializer())
         input_data = np.array([[2, 0], [1, 2]])
 
-        print("input \n", input_data)
+        # print("input \n", input_data)
 
-        print("embed \n", params.eval())
+        # print("embed \n", params.eval())
         # input_data = np.array([[0, 2]])
 
         # concat = tf.reshape(tf.concat(embed,axis=-1),[sh[0],-1])
@@ -381,7 +409,7 @@ class TestLayers(unittest.TestCase):
         res_embed = embed.eval({indices.tensor: input_data})
         res_concat = concat.eval({indices.tensor: input_data})
         # print("embed\n", res_embed)
-        print("concat\n", res_concat)
+        # print("concat\n", res_concat)
 
         # *********************************************************
         """
@@ -413,7 +441,7 @@ class TestLayers(unittest.TestCase):
 
         # sp_indices = np.array([[0, 0, 2], [1, 1, 0], [2, 0, 1], [3, 1, 2]], np.int64)
         sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
-        print("sp input \n", sp_indices)
+        # print("sp input \n", sp_indices)
         sp_values = np.array([2, 0, 1, 2], np.int64)
         # dense_shape = np.array([2, 2, vocab_size], np.int64)
         dense_shape = np.array([4, vocab_size], np.int64)
@@ -428,7 +456,7 @@ class TestLayers(unittest.TestCase):
         embed = tf.reshape(embed, [2, -1])
 
         res_embed = embed.eval({indices: sp_ids})
-        print("sp_embed\n", res_embed)
+        # print("sp_embed\n", res_embed)
 
 
 if __name__ == '__main__':

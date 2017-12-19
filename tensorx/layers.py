@@ -221,6 +221,33 @@ class Input(Layer):
         return str
 
 
+class TensorInput(Layer):
+    """ Tensor Input Layer
+
+    Creates a layer from a given tensor that one can then integrate with other layers
+    """
+
+    def __init__(self, tensor, n_units, batch_size=None, dtype=dtypes.float32, name="tensor_input"):
+        tensor = txutils.to_tensor_cast(tensor, dtype)
+        shape = [batch_size, n_units]
+
+        try:
+            assert (tensor.get_shape().as_list()[1] == n_units)
+            if batch_size is not None:
+                assert (tensor.get_shape().as_list()[0] == batch_size)
+        except AssertionError:
+            raise ValueError(
+                "Tensor shape {shape} does not match [batch_size, n_units] = [{batch_size}, {n_units}]".format(
+                    shape=tensor.get_shape().as_list(),
+                    n_units=n_units,
+                    batch_size=batch_size
+                ))
+
+        super().__init__(None, n_units, shape, dtype, name)
+
+        self.tensor = tensor
+
+
 class SparseInput(Layer):
     """ Sparse Input Layer.
 
@@ -312,27 +339,28 @@ class Linear(Layer):
                                                            dtype=self.dtype,
                                                            initializer=init)
 
-                # y = xW
-                if layer.is_sparse():
-                    sp_values = layer.tensor
-                    sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
+            # y = xW
+            if layer.is_sparse():
+                sp_values = layer.tensor
+                sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
 
-                    lookup_sum = embedding_lookup_sparse(params=self.weights,
-                                                         sp_ids=sp_indices,
-                                                         sp_weights=sp_values,
-                                                         combiner="sum",
-                                                         name=self.name + "_embeddings")
-                    self.tensor = lookup_sum
-                else:
-                    self.tensor = math_ops.matmul(layer.tensor, self.weights)
+                lookup_sum = embedding_lookup_sparse(params=self.weights,
+                                                     sp_ids=sp_indices,
+                                                     sp_weights=sp_values,
+                                                     combiner="sum",
+                                                     name=self.name + "_embeddings")
+                self.tensor = lookup_sum
+            else:
+                self.tensor = math_ops.matmul(layer.tensor, self.weights)
 
-                # y = xW + [b]
-                if bias:
-                    self.bias = variable_scope.get_variable("b",
-                                                            shape=[self.n_units],
-                                                            dtype=self.dtype,
-                                                            initializer=zero_init())
-                    self.tensor = bias_add(self.tensor, self.bias, name="a")
+            # y = xW + [b]
+            if bias:
+                self.bias = variable_scope.get_variable("b",
+                                                        shape=[self.n_units],
+                                                        dtype=self.dtype,
+                                                        initializer=zero_init())
+                self.tensor = bias_add(self.tensor, self.bias, name="a")
+
 
 
 class Lookup(Layer):
@@ -786,6 +814,7 @@ class SOMLinear(Layer):
 
 
 __all__ = ["Input",
+           "TensorInput",
            "SparseInput",
            "Activation",
            "ToSparse",
@@ -799,5 +828,6 @@ __all__ = ["Input",
            "GaussianNoise",
            "SparseGaussianNoise",
            "SaltPepperNoise",
-           "Lookup"
+           "Lookup",
+           "layers_to_list"
            ]

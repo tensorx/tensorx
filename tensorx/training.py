@@ -13,6 +13,7 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 from abc import ABCMeta, abstractmethod
 
 from tensorflow.python.framework import ops
+from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops import array_ops, math_ops, control_flow_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
@@ -21,6 +22,8 @@ from tensorflow.python.client.session import Session, InteractiveSession
 from tensorflow.python.training.saver import Saver, import_meta_graph
 
 from tensorx.layers import layers_to_list
+
+import os
 
 
 class VariableUpdater:
@@ -188,25 +191,37 @@ def _as_list(elems):
 
 
 class Model:
-    """ Model
+    """ Model.
 
-    A model is a container for an network graph. It stores the endpoints (input-output) of a model
-    and facilitates its training and evaluation.
+    A `Model` is a container for tensorx graph. It stores the endpoints (input-output) of a model
+    and facilitates its visualisation and manipulation.
+
+    Args:
+        inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
+        outputs: a :obj:`list` of :class:`Layer` with the outputs for the model
+
+    """
+
+    def __init__(self, inputs, outputs):
+        self.inputs = _as_list(inputs)
+        self.outputs = _as_list(outputs)
+        self.layers = layers_to_list(outputs)
+
+
+class ModelRunner:
+    """ Model Runner
+
+    A model runner takes a model container and facilitates its training and session manager.
 
     Properties:
         inputs: a single instance or :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
         outputs: a single instance or :obj:`list` of :class:`Layer` with the outputs for the model
 
-    Args:
-        inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
-        outputs: a :obj:`list` of :class:`Layer` with the outputs for the model
+
     """
 
-    def __init__(self, inputs, outputs):
-
-        self.inputs = _as_list(inputs)
-        self.outputs = _as_list(outputs)
-
+    def __init__(self, model):
+        self.model = model
         self.session = None
 
         # var inited = ([true|false], session)
@@ -221,15 +236,35 @@ class Model:
         self.train_step = None
         self.target_labels = None
 
-        self.layers = layers_to_list(self.outputs)
-
         # op for model saving and restoring
         self.saver = Saver()
+        self.init_var_op = None
 
-    def save(self, save_path="./model.ckpt", global_step=None, write_meta_graph=True, write_state=True):
+    def _set_vars_inited(self):
+        """ Set variables as inited
+        Marks the current model as inited
+        """
+        self._var_inited = (True, self.session)
+
+    def vars_inited(self):
+        """ Checks if global variables have been initialised.
+
+        Warning:
+            This takes into account the current session under which the model is operating.
+            If the session changes,this will return ``False`` since the variables have to be initialised in
+            the new session.
+
+        Returns:
+            bool: returns true if the variables have been initialised
+        """
+        inited, init_sess = self._var_inited
+        return inited and init_sess == self.session
+
+    def save_model(self, save_dir=None, model_name="model.ckpt", global_step=None, write_meta_graph=False,
+                   write_state=True):
         """ Saves all the variables by default
-        # TODO add capacity to save only some variables this requires init vars to run only
-        on some variables
+        # TODO add feature to save only some variables this requires init vars to run only
+        # on some variables
 
         Note:
             if no session exists it creates a new default session
@@ -241,28 +276,51 @@ class Model:
         if self.session is None:
             self.set_session()
 
-        self.saver.save(self.session, save_path, global_step,
+        if save_dir is None:
+            save_dir = os.path.dirname(os.path.realpath(__file__))
+        else:
+            assert (os.path.exists(save_dir) and os.path.isdir(save_dir))
+
+        model_path = os.path.join(save_dir, model_name)
+
+        self.saver.save(self.session, model_path, global_step,
                         write_meta_graph=write_meta_graph,
                         write_state=write_state)
 
-    def load(self, save_path="./model.ckpt", load_graph=False):
-        """ Loads the variables on the given path to the current graph
+    def load_model(self, save_dir=None, model_name="model.ckpt", global_step=None, load_graph=False):
+        """ Loads the variables on the given path to the current graph, if
+        global_step is provided loads that particular checkpoint (if it exists)
+        otherwise tries to load the most recent checkpoint with the given name
 
         Note:
             if a current session does not exist, creates a new session.
             declares the current model as initialised
 
         Args:
-            save_path: the path where the model is to be restored
+            save_dir: path to the directory where the model is to be saved
+            model_name: the path where the model is to be restored
         """
         if self.session is None:
             self.set_session()
 
+        if save_dir is None:
+            save_dir = os.path.dirname(os.path.realpath(__file__))
+        else:
+            assert (os.path.exists(save_dir) and os.path.isdir(save_dir))
+
+        model_path = os.path.join(save_dir, model_name)
+
+        if global_step is not None:
+            if isinstance(global_step, Variable):
+                step = self.session.run(global_step)
+            model_path = "{path}-{i}".format(path=model_path, i=step)
+
         if load_graph:
-            import_meta_graph(save_path + ".meta")
-        self.saver.restore(self.session, save_path)
+            import_meta_graph(model_path + ".meta")
+
+        self.saver.restore(self.session, model_path)
         # we don't need to init vars after loading a model
-        self._var_inited = (True, self.session)
+        self._set_vars_inited()
 
     def set_session(self, session=None):
         """ Sets the session being used by :class:`Model` class.
@@ -320,22 +378,11 @@ class Model:
         if self.session is None:
             self.set_session()
 
-        self.session.run(global_variables_initializer())
+        if self.init_var_op is None:
+            self.init_var_op = global_variables_initializer()
+
+        self.session.run(self.init_var_op)
         self._var_inited = (True, self.session)
-
-    def vars_inited(self):
-        """ Checks if global variables have been initialised.
-
-        Warning:
-            This takes into account the current session under which the model is operating.
-            If the session changes,this will return ``False`` since the variables have to be initialised in
-            the new session.
-
-        Returns:
-            bool: returns true if the variables have been initialised
-        """
-        inited, init_sess = self._var_inited
-        return inited and init_sess == self.session
 
     def run(self, *data):
         """ run the model
@@ -360,16 +407,16 @@ class Model:
         if not self.vars_inited():
             self.init_vars()
 
-        n_inputs = len(self.inputs)
+        n_inputs = len(self.model.inputs)
         n_data = len(data)
 
         if n_data != n_inputs:
             raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
-        output_tensors = [output.tensor for output in self.outputs]
+        feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.model.inputs, data)}
+        output_tensors = [output.tensor for output in self.model.outputs]
         result = self.session.run(output_tensors, feed_dict)
-        if len(self.outputs) == 1:
+        if len(self.model.outputs) == 1:
             result = result[0]
         return result
 
@@ -435,12 +482,12 @@ class Model:
         data = _as_list(data)
 
         n_data = len(data)
-        n_inputs = len(self.inputs)
+        n_inputs = len(self.model.inputs)
 
         if n_data != n_inputs:
             raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.inputs, data)}
+        feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.model.inputs, data)}
         if targets is not None:
             targets = _as_list(targets)
             n_targets = len(targets)
@@ -456,4 +503,4 @@ class Model:
             self.session.run(self.train_step, feed_dict)
 
 
-__all__ = ["Model", "Learner"]
+__all__ = ["Model", "ModelRunner", "Learner"]

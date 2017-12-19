@@ -1,5 +1,5 @@
 import unittest
-from tensorx.training import Model
+from tensorx.training import ModelRunner, Model
 from tensorx.layers import Input, Linear, Activation, Add
 
 from tensorx.activation import tanh, sigmoid
@@ -10,6 +10,7 @@ import numpy as np
 import tensorflow as tf
 
 import os
+import glob
 
 """TODO 
     - consider how models can be visualised on each layer
@@ -25,82 +26,79 @@ class MyTestCase(unittest.TestCase):
         data = [[1]]
         inputs = Input(1)
         linear = Linear(inputs, 1)
-        model = Model(inputs, linear)
+        model = Model(inputs=inputs, outputs=linear)
+        runner = ModelRunner(model)
 
         # creates a new session or uses the default session
-        self.assertIsNone(model.session)
-        self.assertFalse(model.vars_inited())
-        model.run(data)
-        self.assertIsNotNone(model.session)
-        self.assertTrue(model.vars_inited())
+        self.assertIsNone(runner.session)
+        self.assertFalse(runner.vars_inited())
+        runner.run(data)
+        self.assertIsNotNone(runner.session)
+        self.assertTrue(runner.vars_inited())
 
         # consecutive runs do not change the session
-        session1 = model.session
-        result1 = model.run(data)
+        session1 = runner.session
+        result1 = runner.run(data)
         # weights1 = session1.run(linear.weights, {inputs.tensor: data})
-        self.assertEqual(model.session, session1)
+        self.assertEqual(runner.session, session1)
 
         # this creates a new session
-        session2 = model.set_session()
-        self.assertEqual(session2, model.session)
-        self.assertIsNotNone(model.session)
+        session2 = runner.set_session()
+        self.assertEqual(session2, runner.session)
+        self.assertIsNotNone(runner.session)
         self.assertNotEqual(session1, session2)
         # setting a new session resets the variables
-        self.assertFalse(model.vars_inited())
+        self.assertFalse(runner.vars_inited())
 
         # different sessions init the variables again
-        result2 = model.run(data)
+        result2 = runner.run(data)
         self.assertFalse(np.array_equal(result1, result2))
 
-        session3 = model.set_session()
+        runner.set_session()
         # explicitly initialise variables with the new session
-        model.init_vars()
-        self.assertTrue(model.vars_inited())
-        result31 = model.run(data)
+        runner.init_vars()
+        self.assertTrue(runner.vars_inited())
+        result31 = runner.run(data)
         # if the session doesn't change and variables are not re-initialised, the result should be the same
-        result32 = model.run(data)
-        model.init_vars()
-        result33 = model.run(data)
+        result32 = runner.run(data)
+        runner.init_vars()
+        result33 = runner.run(data)
         self.assertTrue(np.array_equal(result31, result32))
         self.assertFalse(np.array_equal(result31, result33))
 
         # to use the model in a new session, either call reset or model.set_session(session)
-        model.reset_session()
+        runner.reset_session()
 
         with tf.Session() as session4:
-            model.run(data)
-            self.assertEqual(model.session, session4)
+            runner.run(data)
+            self.assertEqual(runner.session, session4)
 
-        model.reset_session()
-        self.assertIsNone(model.session)
+        runner.reset_session()
+        self.assertIsNone(runner.session)
         session5 = tf.InteractiveSession()
-        model.run(data)
-        self.assertEqual(model.session, session5)
+        runner.run(data)
+        self.assertEqual(runner.session, session5)
 
     def test_model_var_init(self):
         inputs = Input(1)
         linear = Linear(inputs, 2)
-        model = Model(inputs, linear)
+        model = Model(inputs=inputs, outputs=linear)
+        runner = ModelRunner(model)
 
         with tf.Session() as session1:
             self.assertFalse(session1.run(tf.is_variable_initialized(linear.bias)))
-            model.init_vars()
+            runner.init_vars()
             self.assertTrue(session1.run(tf.is_variable_initialized(linear.bias)))
-            model.run([[1.]])
+            runner.run([[1.]])
 
         # if reset is not called, init vars tries to use session1
-        model.reset_session()
+        runner.reset_session()
         session2 = tf.Session()
-        model.set_session(session2)
-        model.init_vars()
+        runner.set_session(session2)
+        runner.init_vars()
         self.assertTrue(session2.run(tf.is_variable_initialized(linear.bias)))
 
         session2.close()
-
-        # self.assertFalse(model.vars_initialised)
-
-        # model.init_vars()
-        # self.assertTrue(session2.run(tf.is_variable_initialized(linear.bias)))
 
     def test_model_run(self):
         inputs = Input(4)
@@ -110,28 +108,30 @@ class MyTestCase(unittest.TestCase):
         out = Activation(logits, fn=sigmoid)
 
         model = Model(inputs, out)
+        runner = ModelRunner(model)
 
         data1 = [[1, -1, 1, -1]]
 
-        result = model.run(data1)
+        result = runner.run(data1)
         self.assertIsInstance(result, np.ndarray)
         self.assertTrue(np.ndim(result), 2)
 
     def test_model_save(self):
         session = tf.InteractiveSession()
 
+        with session:
         def build_model():
             inputs = Input(4)
             linear = Linear(inputs, 2)
             h = Activation(linear, fn=tanh)
             logits = Linear(h, 4)
             outputs = Activation(logits, fn=sigmoid)
-            model = Model(inputs, outputs)
-            return model
+            return Model(inputs, outputs)
 
         model = build_model()
-        model.set_session(session)
-        model.init_vars()
+        runner = ModelRunner(model)
+        runner.set_session(session)
+        runner.init_vars()
         for layer in model.layers:
             print(layer)
 
@@ -140,18 +140,20 @@ class MyTestCase(unittest.TestCase):
         w1 = w1.eval()
         w2 = w2.eval()
 
-        model_file = "/tmp/test.ckpt"
-        model.save(model_file)
-        model.init_vars()
+        save_dir = "/tmp"
+        model_name = "test.ckpt"
+        model_path = os.path.join(save_dir, model_name)
+        print(model_path)
+        self.assertFalse(os.path.exists(model_path))
+        runner.save_model(save_dir, model_name)
 
-        tf.reset_default_graph()
-        # session = tf.InteractiveSession()
+        model_files = glob.glob('{model}*'.format(model=model_path))
+        self.assertTrue(len(model_files) != 0)
+        runner.init_vars()
 
-        # model = build_model()
-        # self.assertEqual(model.session, None)
-        # model.set_session(session)
+        #tf.reset_default_graph()
 
-        model.load(model_file, load_graph=False)
+        runner.load_model(save_dir, model_name)
         w3, w4 = model.layers[1].weights, model.layers[3].weights
         w3 = w3.eval()
         w4 = w4.eval()
@@ -159,11 +161,18 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(np.array_equal(w1, w3))
         self.assertTrue(np.array_equal(w2, w4))
 
+        os.remove(os.path.join(save_dir, "checkpoint"))
+        for file in model_files:
+            os.remove(file)
+
     def test_model_io(self):
         inputs = Input(1)
         layer = Linear(inputs, n_units=1, init=init.ones_init())
+
         model = Model(inputs, layer)
-        result = model.run([[1], [1]])
+
+        model_runner = ModelRunner(model)
+        result = model_runner.run([[1], [1]])
         self.assertEqual(len(result), 2)
         self.assertIsInstance(result, np.ndarray)
 
@@ -171,7 +180,8 @@ class MyTestCase(unittest.TestCase):
         linear2 = Linear(inputs, 2)
 
         model = Model(inputs, outputs=[linear1, linear2])
-        result = model.run([[1]])
+        model_runner = ModelRunner(model)
+        result = model_runner.run([[1]])
 
         self.assertEqual(len(result), 2)
         self.assertIsInstance(result, list)
@@ -181,7 +191,7 @@ class MyTestCase(unittest.TestCase):
         data1 = [[1]]
         data2 = [[-1]]
         with self.assertRaises(ValueError):
-            model.run(data1, data2)
+            model_runner.run(data1, data2)
 
         inputs1 = Input(1)
         inputs2 = Input(1)
@@ -189,11 +199,12 @@ class MyTestCase(unittest.TestCase):
         merge = Add([inputs1, inputs2])
 
         model = Model([inputs1, inputs2], merge)
+        model_runner = ModelRunner(model)
 
         with self.assertRaises(ValueError):
-            model.run(data1)
+            model_runner.run(data1)
 
-        result = model.run(data1, data2)
+        result = model_runner.run(data1, data2)
         self.assertEqual(result[0][0], 0)
 
     def test_model_train(self):
@@ -207,20 +218,21 @@ class MyTestCase(unittest.TestCase):
         losses = binary_cross_entropy(labels.tensor, h.tensor)
 
         model = Model(input_layer, h)
-        model.config_optimisers(optimiser, losses, labels)
+        runner = ModelRunner(model)
+        runner.config_optimisers(optimiser, losses, labels)
 
         data = np.array([[1, 1, 1, 1]])
         target = np.array([[1, 0]])
 
-        # session = model.session
+        # session = runner.session
         # weights = session.run(linear.weights)
-        model.init_vars()
-        weights1 = model.session.run(linear.weights)
+        runner.init_vars()
+        weights1 = runner.session.run(linear.weights)
 
         for i in range(100):
-            model.train(data, target, n_epochs=1)
+            runner.train(data, target, n_epochs=1)
 
-        weights2 = model.session.run(linear.weights)
+        weights2 = runner.session.run(linear.weights)
 
         self.assertFalse(np.array_equal(weights1, weights2))
 

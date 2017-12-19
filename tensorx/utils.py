@@ -1,9 +1,10 @@
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops, array_ops
 from tensorflow.python.framework import dtypes
+from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
 
 
-def to_tensor_cast(x, dtype):
+def to_tensor_cast(x, dtype=None):
     """ Converts to tensor and casts to a given type if possible
 
     Args:
@@ -13,9 +14,11 @@ def to_tensor_cast(x, dtype):
     Returns:
         ``Tensor``: a tensor with the given dtype
     """
-    x = ops.convert_to_tensor(x)
-    if x.dtype != dtype:
-        x = math_ops.cast(x, dtype)
+    x = convert_to_tensor_or_sparse_tensor(x)
+
+    if dtype is not None:
+        if x.dtype != dtype:
+            x = math_ops.cast(x, dtype)
     return x
 
 
@@ -44,4 +47,3 @@ def complete_shape(tensor, dtype=None):
         shape = to_tensor_cast(shape, dtype)
 
     return shape
-
