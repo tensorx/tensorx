@@ -511,13 +511,15 @@ class ModelRunner:
 
         data = _as_list(data)
 
+        feedable_inputs = self.model.feedable_inputs()
+        n_feedable = len(feedable_inputs)
         n_data = len(data)
-        n_inputs = len(self.model.inputs)
 
-        if n_data != n_inputs:
-            raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
+        if n_data != len(n_feedable):
+            raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.model.inputs, data)}
+        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+
         if targets is not None:
             targets = _as_list(targets)
             n_targets = len(targets)
@@ -533,4 +535,4 @@ class ModelRunner:
             self.session.run(self.train_step, feed_dict)
 
 
-__all__ = ["Model", "ModelRunner", "Learner"]
+__all__ = ["Model", "ModelRunner"]
