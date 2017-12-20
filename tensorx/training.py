@@ -10,20 +10,20 @@ This module contains learning procedures different from loss functions used
 with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organising Maps
 """
 
+import os
 from abc import ABCMeta, abstractmethod
+from typing import Tuple, Union, List
 
+from tensorflow.python.client.session import Session, InteractiveSession
 from tensorflow.python.framework import ops
-from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops import array_ops, math_ops, control_flow_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
+from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops.variables import global_variables_initializer
-from tensorflow.python.client.session import Session, InteractiveSession
 from tensorflow.python.training.saver import Saver, import_meta_graph
 
-from tensorx.layers import layers_to_list
-
-import os
+from tensorx.layers import layers_to_list, Layer, TensorInput
 
 
 class VariableUpdater:
@@ -65,7 +65,7 @@ class Learner:
         self.var_updater = var_updater
 
     def adapt_to(self, data_list, name=None):
-        """ Adapts a list of variables to a list of data instances
+        """ Adapts a list of variables to a list of data tensors
 
         Args:
             data_list: a Tensor or list of tensors from which deltas are computed for the given variables
@@ -98,7 +98,7 @@ class Learner:
             delta can be `None`.
 
         """
-        raise NotImplemented
+        return
 
     def apply_delta(self, deltas_and_vars, name=None):
         """ Apply deltas to variables.
@@ -152,7 +152,7 @@ class Learner:
 
 
 """ ********************************************************************************************************************
- Models
+ Model Container and Model Execution
 *********************************************************************************************************************"""
 
 
@@ -183,7 +183,9 @@ def _as_list(elems):
     Returns:
         a :obj:`list` with the elements in elems
     """
-    if isinstance(elems, (list, tuple)):
+    if elems is None:
+        elems = []
+    elif isinstance(elems, (list, tuple)):
         elems = list(elems)
     else:
         elems = [elems]
@@ -193,19 +195,45 @@ def _as_list(elems):
 class Model:
     """ Model.
 
+    # TODO add support for learners, if the model contains layers that are trainable without using optimisers like SGD
+
     A `Model` is a container for tensorx graph. It stores the endpoints (input-output) of a model
     and facilitates its visualisation and manipulation.
+
+    Note:
+        The basic idea is to show that both loss and eval could be implemented in child Models,
+        the default being these to be set to []. It also provides access to inputs, outputs and
+        layers which is a list of existing `Layer` instances in the model
 
     Args:
         inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
         outputs: a :obj:`list` of :class:`Layer` with the outputs for the model
+        loss_tensors: a single loss tensor or list of loss tensors
+        eval_tensors: a single eval tensor or list of tensors
 
+    Attributes:
+        loss_tensors: a :obj:`list` of `Tensor` instances with loss functions for the model
+        eval_tensors: a :obj:`list` of `Tensor` instances with evaluation functions for the model
     """
 
-    def __init__(self, inputs, outputs):
+    def __init__(self, inputs, outputs, loss_tensors=None, eval_tensors=None):
         self.inputs = _as_list(inputs)
         self.outputs = _as_list(outputs)
         self.layers = layers_to_list(outputs)
+
+        self.loss_tensors = _as_list(loss_tensors)
+        self.eval_tensors = _as_list(eval_tensors)
+
+    def feedable_inputs(self):
+        """ Returns a list of all inputs in the model that are feedable
+
+        The inputs that use tensorflow placeholders
+
+        Returns:
+            a :obj:`list` of input `Layer` instances
+
+        """
+        return [input_layer for input_layer in self.inputs if not isinstance(input_layer, TensorInput)]
 
 
 class ModelRunner:
@@ -229,7 +257,7 @@ class ModelRunner:
 
         # properties for training
         self.optimiser = None
-        self.losses = None
+        self.losses = model.loss_tensors
         self.targets = None
         self.loss_weights = 1.0
         self.joint_loss = None
@@ -297,6 +325,8 @@ class ModelRunner:
             declares the current model as initialised
 
         Args:
+            load_graph:
+            global_step: step from which the model should be restored
             save_dir: path to the directory where the model is to be saved
             model_name: the path where the model is to be restored
         """
@@ -387,7 +417,9 @@ class ModelRunner:
     def run(self, *data):
         """ run the model
 
-        Uses a tensorflow ``Session`` to run the model by feeding the given data to the respective model inputs.
+        Runs the model from the output layers and feeding the data to the input layers
+
+        Uses the current tensorflow ``Session`` to run the model by feeding the given data to the respective inputs.
         the number of data inputs must be the same as the number of inputs.
 
         Note: it uses the default session if available, if not, creates a new session which is stored in `self.session`
@@ -407,36 +439,44 @@ class ModelRunner:
         if not self.vars_inited():
             self.init_vars()
 
-        n_inputs = len(self.model.inputs)
+        feedable_inputs = self.model.feedable_inputs()
+        n_feedable = len(feedable_inputs)
         n_data = len(data)
 
-        if n_data != n_inputs:
-            raise ValueError("data items received {} != {} model inputs".format(n_data, n_inputs))
+        if n_data != len(n_feedable):
+            raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(self.model.inputs, data)}
+        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
         output_tensors = [output.tensor for output in self.model.outputs]
         result = self.session.run(output_tensors, feed_dict)
+
+        # for convenience if we have a single output layer return the result, not a list of results
         if len(self.model.outputs) == 1:
             result = result[0]
         return result
 
-    def config_optimisers(self, optimiser, losses, target_labels=None, loss_weights=1.0):
+    def config_training(self, optimiser, losses=None, target_labels=None, loss_weights=1.0):
         """ Configures the model for training
+
+        # TODO add support for other Variable Learners (for SOMs or Free-energy minimisation)
 
         Args:
             losses: a :obj:`list` or single loss `Tensor` instances to be used to train the model variables
             target_labels: a :obj:`list` or single input layers that will be used with the loss function
             optimiser: the tensorflow optimiser used to train the model
             loss_weights: weights used to create a join loss if we configure the model with multiple losses
+            learner: in case the model uses a learner function to change variables, include it here
 
         """
-        self.losses = _as_list(losses)
+        # if losses are provided override the model losses
+        if losses is not None:
+            self.losses = _as_list(losses)
         self.target_labels = _as_list(target_labels)
 
         self.optimiser = optimiser
         self.loss_weights = loss_weights
 
-        # the default behaviour is to create a (optionally weighted) joint loss functionz
+        # if more than one loss is passed, create a (optionally weighted) joint loss function
         if len(self.losses) > 1:
             t_losses = ops.convert_to_tensor(self.losses)
             loss_weights = math_ops.to_float(loss_weights)
@@ -446,16 +486,6 @@ class ModelRunner:
             self.joint_loss = self.losses[0]
 
         self.train_step = self.optimiser.minimize(self.joint_loss)
-
-    def config_learners(self, learner_data):
-        """
-
-        Args:
-            learner_data: a :obj:`list` of `(Learner, data)` pairs to be used with the model
-
-        Returns:
-
-        """
 
     def train(self, data, targets=None, n_epochs=1):
         """ Trains the model on the given data.

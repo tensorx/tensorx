@@ -117,9 +117,9 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(np.ndim(result), 2)
 
     def test_model_save(self):
-        session = tf.InteractiveSession()
 
-        with session:
+        session = tf.Session()
+
         def build_model():
             inputs = Input(4)
             linear = Linear(inputs, 2)
@@ -132,18 +132,19 @@ class MyTestCase(unittest.TestCase):
         runner = ModelRunner(model)
         runner.set_session(session)
         runner.init_vars()
-        for layer in model.layers:
-            print(layer)
+        # for layer in model.layers:
+        #    print(layer)
+        self.assertEqual(len(model.layers), 5)
 
         w1, w2 = model.layers[1].weights, model.layers[3].weights
 
-        w1 = w1.eval()
-        w2 = w2.eval()
+        w1 = session.run(w1)
+        w2 = session.run(w2)
 
         save_dir = "/tmp"
         model_name = "test.ckpt"
         model_path = os.path.join(save_dir, model_name)
-        print(model_path)
+
         self.assertFalse(os.path.exists(model_path))
         runner.save_model(save_dir, model_name)
 
@@ -151,12 +152,10 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(len(model_files) != 0)
         runner.init_vars()
 
-        #tf.reset_default_graph()
-
         runner.load_model(save_dir, model_name)
         w3, w4 = model.layers[1].weights, model.layers[3].weights
-        w3 = w3.eval()
-        w4 = w4.eval()
+        w3 = session.run(w3)
+        w4 = session.run(w4)
 
         self.assertTrue(np.array_equal(w1, w3))
         self.assertTrue(np.array_equal(w2, w4))
@@ -219,7 +218,7 @@ class MyTestCase(unittest.TestCase):
 
         model = Model(input_layer, h)
         runner = ModelRunner(model)
-        runner.config_optimisers(optimiser, losses, labels)
+        runner.config_training(optimiser, losses, labels)
 
         data = np.array([[1, 1, 1, 1]])
         target = np.array([[1, 0]])
