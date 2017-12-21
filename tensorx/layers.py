@@ -16,6 +16,7 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import check_ops
 
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import variables
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.framework.ops import name_scope
 
@@ -88,6 +89,7 @@ class Layer:
         tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
         dtype: the tensorflow dtype for the output tensor
         name: a name used to build a tensorflow named_scope for the layer
+        variable_names: a list of `tf.Variable` names that get be get with get_variable without a scope
 
 
 
@@ -100,6 +102,7 @@ class Layer:
         name: layer name (used to nam the placeholder)
 
 
+
     """
 
     def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
@@ -108,6 +111,9 @@ class Layer:
         self.name = name
         self.dtype = dtype
         self.input_layers = _as_list(input_layers)
+
+        # stores the variables if this layer has any
+        self.variable_names = []
 
         if shape is None:
             self.shape = [None, n_units]
@@ -118,6 +124,11 @@ class Layer:
 
         # has an tensor (tensor) attribute
         self.tensor = None
+
+    def _add_variable(self, var):
+        if not isinstance(var, variables.Variable):
+            raise TypeError("Expected a tf.Variable got {t} instead".format(t=type(var)))
+        self.variable_names.append(var.op.name)
 
     def is_sparse(self):
         """ Checks if the current layer is sparse
@@ -339,6 +350,7 @@ class Linear(Layer):
                                                            dtype=self.dtype,
                                                            initializer=init)
 
+            self._add_variable(self.weights)
             # y = xW
             if layer.is_sparse():
                 sp_values = layer.tensor
@@ -359,8 +371,8 @@ class Linear(Layer):
                                                         shape=[self.n_units],
                                                         dtype=self.dtype,
                                                         initializer=zero_init())
+                self._add_variable(self.bias)
                 self.tensor = bias_add(self.tensor, self.bias, name="a")
-
 
 
 class Lookup(Layer):

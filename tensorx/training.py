@@ -214,9 +214,11 @@ class Model:
     Attributes:
         loss_tensors: a :obj:`list` of `Tensor` instances with loss functions for the model
         eval_tensors: a :obj:`list` of `Tensor` instances with evaluation functions for the model
+        name: a :obj:`str` with the name for this model
     """
 
-    def __init__(self, inputs, outputs, loss_tensors=None, eval_tensors=None):
+    def __init__(self, inputs, outputs, loss_tensors=None, eval_tensors=None, name='Model'):
+        self.name = name
         self.inputs = _as_list(inputs)
         self.outputs = _as_list(outputs)
         self.layers = layers_to_list(outputs)
@@ -234,6 +236,19 @@ class Model:
 
         """
         return [input_layer for input_layer in self.inputs if not isinstance(input_layer, TensorInput)]
+
+    def __str__(self):
+        lines = ["===== {name} =====".format(name=self.name)]
+        for layer in self.layers:
+            lines.append(str(layer))
+
+        lines.append("=" * len(lines[0]))
+        return "\n".join(lines)
+
+    def __repr__(self):
+        return "({name}):({inputs})->({outputs})".format(name=self.name,
+                                                         inputs=",".join([l.name for l in self.inputs]),
+                                                         outputs=",".join([l.name for l in self.outputs]))
 
 
 class ModelRunner:
@@ -443,7 +458,7 @@ class ModelRunner:
         n_feedable = len(feedable_inputs)
         n_data = len(data)
 
-        if n_data != len(n_feedable):
+        if n_data != n_feedable:
             raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
         feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
@@ -487,7 +502,7 @@ class ModelRunner:
 
         self.train_step = self.optimiser.minimize(self.joint_loss)
 
-    def train(self, data, targets=None, n_epochs=1):
+    def train(self, data=None, targets=None):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -501,7 +516,6 @@ class ModelRunner:
         Args:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             targets: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
-            n_epochs: number of times the training op is run on the model
         """
         if self.session is None:
             self.set_session()
@@ -510,29 +524,28 @@ class ModelRunner:
             self.init_vars()
 
         data = _as_list(data)
+        if len(data) > 0:
+            feedable_inputs = self.model.feedable_inputs()
+            n_feedable = len(feedable_inputs)
+            n_data = len(data)
 
-        feedable_inputs = self.model.feedable_inputs()
-        n_feedable = len(feedable_inputs)
-        n_data = len(data)
+            if n_data != n_feedable:
+                raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-        if n_data != len(n_feedable):
-            raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
+            feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+            if targets is not None:
+                targets = _as_list(targets)
+                n_targets = len(targets)
+                target_labels = len(self.target_labels)
+                if n_targets != target_labels:
+                    raise ValueError(
+                        "target items received {} != {} model target inputs".format(n_targets, target_labels))
 
-        if targets is not None:
-            targets = _as_list(targets)
-            n_targets = len(targets)
-            target_labels = len(self.target_labels)
-            if n_targets != target_labels:
-                raise ValueError(
-                    "target items received {} != {} model target inputs".format(n_targets, target_labels))
+                label_dict = {target.tensor: label for target, label in zip(self.target_labels, targets)}
+                feed_dict.update(label_dict)
 
-            label_dict = {target.tensor: label for target, label in zip(self.target_labels, targets)}
-            feed_dict.update(label_dict)
-
-        for epoch in range(n_epochs):
-            self.session.run(self.train_step, feed_dict)
+        self.session.run(self.train_step, feed_dict)
 
 
 __all__ = ["Model", "ModelRunner"]

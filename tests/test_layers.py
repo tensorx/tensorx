@@ -29,8 +29,10 @@ class TestLayers(unittest.TestCase):
 
         ones = np.ones(shape=(2, 10))
         result = self.ss.run(in_layer.tensor, feed_dict={in_layer.tensor: ones})
-
         np.testing.assert_array_equal(ones, result)
+
+        variables = in_layer.variable_names
+        self.assertEqual(len(variables), 0)
 
         ones_wrong_shape = np.ones(shape=(2, 11))
         try:
@@ -119,6 +121,27 @@ class TestLayers(unittest.TestCase):
         # the result should be the same
         np.testing.assert_array_equal(y1_output, y2_output)
         np.testing.assert_array_equal(y2_output, y3_output)
+
+    def test_linear_variable_names(self):
+        inputs = TensorInput([[1]], 1, batch_size=1)
+        layer = Linear(inputs, 10)
+        layer2 = Linear(inputs,10)
+        layer_shared = Linear(inputs, 10, weights=layer.weights)
+
+        var_names = layer.variable_names
+        var_names_2 = layer2.variable_names
+        shared_names = layer_shared.variable_names
+
+        self.assertEqual(var_names[0], shared_names[0])
+
+        print(var_names)
+        print(var_names_2)
+        print(shared_names)
+
+        #weights1 = tf.get_variable("linear//w")
+        #weights2 = tf.get_variable(shared_names[0])
+
+        #self.assertIs(weights1,weights2)
 
     def test_to_sparse(self):
         index = 0
