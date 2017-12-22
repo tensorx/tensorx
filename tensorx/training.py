@@ -21,9 +21,9 @@ from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
 from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops.variables import global_variables_initializer
-from tensorflow.python.training.saver import Saver, import_meta_graph
+from tensorflow.python.training.saver import Saver, import_meta_graph, export_meta_graph
 
-from tensorx.layers import layers_to_list, Layer, TensorInput
+from tensorx.layers import layers_to_list, Layer, TensorLayer
 
 
 class VariableUpdater:
@@ -215,6 +215,7 @@ class Model:
         loss_tensors: a :obj:`list` of `Tensor` instances with loss functions for the model
         eval_tensors: a :obj:`list` of `Tensor` instances with evaluation functions for the model
         name: a :obj:`str` with the name for this model
+        variables: set of all the variables in the model
     """
 
     def __init__(self, inputs, outputs, loss_tensors=None, eval_tensors=None, name='Model'):
@@ -222,6 +223,8 @@ class Model:
         self.inputs = _as_list(inputs)
         self.outputs = _as_list(outputs)
         self.layers = layers_to_list(outputs)
+
+        self.variables = {var for layer in self.layers for var in layer.variable_names}
 
         self.loss_tensors = _as_list(loss_tensors)
         self.eval_tensors = _as_list(eval_tensors)
@@ -235,7 +238,7 @@ class Model:
             a :obj:`list` of input `Layer` instances
 
         """
-        return [input_layer for input_layer in self.inputs if not isinstance(input_layer, TensorInput)]
+        return [input_layer for input_layer in self.inputs if not isinstance(input_layer, TensorLayer)]
 
     def __str__(self):
         lines = ["===== {name} =====".format(name=self.name)]
@@ -280,7 +283,9 @@ class ModelRunner:
         self.target_labels = None
 
         # op for model saving and restoring
-        self.saver = Saver()
+
+        if len(model.variables) != 0:
+            self.saver = Saver()
         self.init_var_op = None
 
     def _set_vars_inited(self):
@@ -303,7 +308,7 @@ class ModelRunner:
         inited, init_sess = self._var_inited
         return inited and init_sess == self.session
 
-    def save_model(self, save_dir=None, model_name="model.ckpt", global_step=None, write_meta_graph=False,
+    def save_model(self, save_dir=None, model_name="model.ckpt", global_step=None, save_graph=False,
                    write_state=True):
         """ Saves all the variables by default
         # TODO add feature to save only some variables this requires init vars to run only
@@ -313,9 +318,16 @@ class ModelRunner:
             if no session exists it creates a new default session
 
         Args:
-            save_path: path to a ckpt file where the model is to be stored
+            write_state: if true writes the checkpoint file with a list of all checkpoints
+            save_graph: if true also exports the graph to model_Name.meta
+            model_name: name for the model to be saved
+            save_dir: path to a ckpt file where the model is to be stored
+            global_step: integer or tensor with the current step for the model checkpoint
 
         """
+        if len(self.model.variables) == 0 and not save_graph:
+            raise ValueError("The model has no variables to save and save_graph was set to False: Nothing to save")
+
         if self.session is None:
             self.set_session()
 
@@ -326,9 +338,12 @@ class ModelRunner:
 
         model_path = os.path.join(save_dir, model_name)
 
-        self.saver.save(self.session, model_path, global_step,
-                        write_meta_graph=write_meta_graph,
-                        write_state=write_state)
+        if save_graph:
+            meta_path = "{model_path}.meta".format(model_path=model_path)
+            export_meta_graph(meta_path)
+
+        if len(self.model.variables) > 0:
+            self.saver.save(self.session, model_path, global_step, write_meta_graph=False, write_state=write_state)
 
     def load_model(self, save_dir=None, model_name="model.ckpt", global_step=None, load_graph=False):
         """ Loads the variables on the given path to the current graph, if
@@ -361,9 +376,11 @@ class ModelRunner:
             model_path = "{path}-{i}".format(path=model_path, i=step)
 
         if load_graph:
-            import_meta_graph(model_path + ".meta")
+            meta_path = "{model_path}.meta".format(model_path=model_path)
+            self.saver = import_meta_graph(meta_path)
 
-        self.saver.restore(self.session, model_path)
+        if len(self.model.variables) > 0:
+            self.saver.restore(self.session, model_path)
         # we don't need to init vars after loading a model
         self._set_vars_inited()
 
@@ -451,7 +468,7 @@ class ModelRunner:
         if self.session is None:
             self.set_session()
 
-        if not self.vars_inited():
+        if not self.vars_inited() and len(self.model.variables) > 0:
             self.init_vars()
 
         feedable_inputs = self.model.feedable_inputs()

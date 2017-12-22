@@ -285,7 +285,7 @@ class Input(Layer):
         return str
 
 
-class TensorInput(Layer):
+class TensorLayer(Layer):
     """ Tensor Input Layer
 
     Creates a layer from a given tensor that one can then integrate with other layers
@@ -293,19 +293,10 @@ class TensorInput(Layer):
 
     def __init__(self, tensor, n_units, batch_size=None, dtype=dtypes.float32, name="tensor_input"):
         tensor = txutils.to_tensor_cast(tensor, dtype)
-        shape = [batch_size, n_units]
 
-        try:
-            assert (tensor.get_shape().as_list()[1] == n_units)
-            if batch_size is not None:
-                assert (tensor.get_shape().as_list()[0] == batch_size)
-        except AssertionError:
-            raise ValueError(
-                "Tensor shape {shape} does not match [batch_size, n_units] = [{batch_size}, {n_units}]".format(
-                    shape=tensor.get_shape().as_list(),
-                    n_units=n_units,
-                    batch_size=batch_size
-                ))
+        shape = tensor.get_shape()
+        shape.assert_is_compatible_with([batch_size, n_units])
+        shape = shape.as_list()
 
         super().__init__(None, n_units, shape, dtype, name)
 
@@ -884,7 +875,7 @@ class SOMLinear(Layer):
 
 
 __all__ = ["Input",
-           "TensorInput",
+           "TensorLayer",
            "SparseInput",
            "Activation",
            "ToSparse",

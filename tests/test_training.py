@@ -1,6 +1,6 @@
 import unittest
 from tensorx.training import ModelRunner, Model
-from tensorx.layers import Input, Linear, Activation, Add
+from tensorx.layers import Input, Linear, Activation, Add, TensorLayer
 
 from tensorx.activation import tanh, sigmoid
 from tensorx.loss import binary_cross_entropy
@@ -116,6 +116,34 @@ class MyTestCase(unittest.TestCase):
         self.assertIsInstance(result, np.ndarray)
         self.assertTrue(np.ndim(result), 2)
 
+    def test_model_graph_save(self):
+        tf.reset_default_graph()
+        const = tf.ones([1, 10], name="const")
+        wrap = TensorLayer(const, 10)
+        model = Model(inputs=wrap, outputs=wrap)
+
+        all_ops = tf.get_default_graph().get_operations()
+        self.assertEqual(len(all_ops), 1)
+
+        run = ModelRunner(model)
+
+        result = run.run()
+
+        run.save_model(save_dir="/tmp/", model_name="graph_only", save_graph=True)
+
+        tf.reset_default_graph()
+        all_ops = tf.get_default_graph().get_operations()
+        self.assertEqual(len(all_ops), 0)
+
+        tf.train.import_meta_graph("/tmp/graph_only.meta")
+        all_ops = tf.get_default_graph().get_operations()
+
+        self.assertEqual(len(all_ops), 1)
+        t = tf.get_default_graph().get_tensor_by_name("const:0")
+        with tf.Session() as sess:
+            result2 = sess.run(t)
+            np.testing.assert_array_equal(result, result2)
+
     def test_model_save(self):
 
         session = tf.Session()
@@ -229,7 +257,7 @@ class MyTestCase(unittest.TestCase):
         weights1 = runner.session.run(linear.weights)
 
         for i in range(100):
-            runner.train(data, target, n_epochs=1)
+            runner.train(data, target)
 
         weights2 = runner.session.run(linear.weights)
 

@@ -73,7 +73,7 @@ class TestLayers(unittest.TestCase):
         sp_data = tf.SparseTensorValue(indices, values, dense_shape)
 
         # test with sparse tensor value
-        tensor_input = TensorInput(tensor=sp_data, n_units=4)
+        tensor_input = TensorLayer(tensor=sp_data, n_units=4)
         sparse_input = SparseInput(n_units=4)
 
         self.assertTrue(tensor_input.is_sparse())
@@ -84,7 +84,7 @@ class TestLayers(unittest.TestCase):
 
         np.testing.assert_array_equal(result_sparse, result_tensor)
 
-        dense_input = TensorInput(result_tensor, n_units=4)
+        dense_input = TensorLayer(result_tensor, n_units=4)
         np.testing.assert_array_equal(dense_input.tensor.eval(), result_tensor)
 
         # np.testing.assert_array_equal(result_tensor[sp_data.indices], [1, 1])
@@ -125,7 +125,7 @@ class TestLayers(unittest.TestCase):
     def test_linear_variable_names(self):
         tf.reset_default_graph()
 
-        inputs = TensorInput([[1]], 1, batch_size=1)
+        inputs = TensorLayer([[1]], 1, batch_size=1)
         layer = Linear(inputs, 10)
         layer2 = Linear(inputs, 10)
         layer_shared = Linear(inputs, 10, weights=layer.weights)
