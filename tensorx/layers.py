@@ -31,6 +31,53 @@ from tensorx import transform
 from tensorx import utils as txutils
 from tensorx.metrics import pairwise_cosine_distance
 
+from contextlib import ExitStack
+
+
+class LayerScope:
+    """ LayerScope
+
+    Combines name_scope and var_scope and handles layer renaming if name already exists
+    (since the name is used as a tensorflow name_scope)
+
+    Args:
+        layer: layer to be used in this scope, the layer name is used as scope name for tensorflow name_scope
+        and variable_scope, also modifies the layer name if the scope name clashes with existing names
+
+        var_scope: if True creates a variable_scope along with the named scope
+        var_reuse: if True the variable scopes are created with the reuse option
+    """
+
+    def __init__(self, layer, values=None, var_scope=False, var_reuse=False):
+        self.layer = layer
+        self.values = values
+        self.var_scope = var_scope
+        self._stack = None
+        self.var_reuse = var_reuse
+
+    def __enter__(self):
+        with ExitStack() as stack:
+            layer_name_scope = name_scope(self.layer.name, values=self.values)
+
+            unique_name = stack.enter_context(layer_name_scope)
+            unique_name = unique_name[:-1]
+            self.layer.name = unique_name
+
+            if self.var_scope:
+                layer_var_scope = variable_scope.variable_scope(self.layer.name, reuse=self.var_reuse)
+                stack.enter_context(layer_var_scope)
+
+            self._stack = stack.pop_all()
+
+            return unique_name
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._stack.__exit__(exc_type, exc_val, exc_tb)
+
+
+# alias for layer scopes
+layer_scope = LayerScope
+
 
 def _as_list(elems):
     """ returns a list from the given element(s)
@@ -89,9 +136,15 @@ class Layer:
         tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
         dtype: the tensorflow dtype for the output tensor
         name: a name used to build a tensorflow named_scope for the layer
-        variable_names: a list of `tf.Variable` names that get be get with get_variable without a scope
+        variable_names: a list of `tf.Variable` with the fully qualified name `layer_name/var_name'
 
+    Note:
+        Variables can be re-used elsewhere based on variable_names as follows::
+            var_names = layer.var_names
+            some_var = var_names[0]
 
+            with tf.variable_scope('',reuse=True):
+                v = tf.get_variable(some_var)
 
 
     Args:
@@ -112,9 +165,6 @@ class Layer:
         self.dtype = dtype
         self.input_layers = _as_list(input_layers)
 
-        # stores the variables if this layer has any
-        self.variable_names = []
-
         if shape is None:
             self.shape = [None, n_units]
         else:
@@ -124,6 +174,9 @@ class Layer:
 
         # has an tensor (tensor) attribute
         self.tensor = None
+
+        # stores the variables if this layer has any
+        self.variable_names = []
 
     def _add_variable(self, var):
         if not isinstance(var, variables.Variable):
@@ -340,7 +393,8 @@ class Linear(Layer):
             if s != n_units:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
-        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+        with layer_scope(self, var_scope=True):
+            # with name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
             # init weights
             if weights is not None:
                 self.weights = weights
@@ -349,7 +403,7 @@ class Linear(Layer):
                                                            shape=self.shape,
                                                            dtype=self.dtype,
                                                            initializer=init)
-
+            # store variables for easy access
             self._add_variable(self.weights)
             # y = xW
             if layer.is_sparse():
@@ -422,13 +476,15 @@ class Lookup(Layer):
             if s != feature_shape[1]:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
-        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+        with layer_scope(self, var_scope=True):
+            # with name_scope(name) as scope, variable_scope.variable_scope(scope):
             # init weights
             if weights is not None:
                 self.weights = weights
             else:
                 self.weights = variable_scope.get_variable("w", shape=self.weight_shape, initializer=init)
 
+            self._add_variable(self.weights)
             # y = xW
             if input_layer.is_sparse():
                 sp_values = input_layer.tensor
@@ -457,7 +513,7 @@ class ToSparse(Layer):
     def __init__(self, layer):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sparse")
 
-        with name_scope(self.name):
+        with layer_scope(self):
             if layer.is_sparse():
                 self._forward(layer)
             else:
@@ -475,7 +531,7 @@ class ToDense(Layer):
     def __init__(self, layer):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dense")
 
-        with name_scope(self.name):
+        with layer_scope(self):
             if layer.is_sparse():
                 self.tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
@@ -516,7 +572,7 @@ class Dropout(Layer):
         if keep_prob == 0:
             self._forward(layer)
         else:
-            with name_scope(self.name):
+            with layer_scope(self):
                 if layer.is_sparse():
                     self.tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
                 else:
@@ -553,7 +609,7 @@ class GaussianNoise(Layer):
         self.stddev = stddev
         self.seed = seed
 
-        with name_scope(self.name):
+        with layer_scope(self):
             if layer.is_sparse():
                 self.tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
@@ -588,7 +644,7 @@ class SparseGaussianNoise(Layer):
         self.stddev = stddev
         self.seed = seed
 
-        with name_scope(self.name):
+        with layer_scope(self):
             noise_shape = layer.shape
             noise = sparse_random_normal(noise_shape, density, mean, stddev, self.dtype, seed)
 
@@ -630,20 +686,21 @@ class SaltPepperNoise(Layer):
         if density == 0.0 or self.num_corrupted() > 0:
             self._forward(layer)
         else:
-            noise_shape = layer.shape
+            with layer_scope(self):
+                noise_shape = layer.shape
 
-            if noise_shape[0] is None:
-                batch_size = array_ops.shape(layer.tensor, out_type=dtypes.int64)[0]
-            else:
-                batch_size = noise_shape[0]
+                if noise_shape[0] is None:
+                    batch_size = array_ops.shape(layer.tensor, out_type=dtypes.int64)[0]
+                else:
+                    batch_size = noise_shape[0]
 
-            noise_shape = [batch_size, noise_shape[1]]
-            noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
+                noise_shape = [batch_size, noise_shape[1]]
+                noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
 
-            if layer.is_sparse(layer):
-                self.tensor = transform.sparse_put(layer.tensor, noise)
-            else:
-                self.tensor = transform.dense_put(layer.tensor, noise)
+                if layer.is_sparse(layer):
+                    self.tensor = transform.sparse_put(layer.tensor, noise)
+                else:
+                    self.tensor = transform.dense_put(layer.tensor, noise)
 
     def num_corrupted(self):
         """ Returns the number of entries corrupted by noise per sample"""
@@ -682,7 +739,7 @@ class Activation(Layer):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
         self.fn = partial(fn, **keywords)
 
-        with name_scope(self.name):
+        with layer_scope(self):
             if layer.is_sparse():
                 tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
@@ -709,7 +766,7 @@ class Bias(Layer):
         bias_name = layer.dtype, "{}_{}".format(layer.name, name)
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, bias_name)
 
-        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+        with layer_scope(self, var_scope=True):
             self.bias = variable_scope.get_variable("b", shape=[self.n_units], initializer=zero_init())
             if layer.is_sparse():
                 tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
@@ -753,7 +810,7 @@ class Merge(Layer):
 
         super().__init__(layers, layers[0].n_units, layers[0].shape, layers[0].dtype, name)
 
-        with name_scope(name):
+        with layer_scope(self):
             if weights is not None:
                 tensors = [math_ops.scalar_mul(weights[i], layers[i].tensor) for i in range(len(layers))]
             else:
@@ -792,8 +849,9 @@ class Concat(Layer):
         total_units = sum([layer.n_units for layer in layers])
         super().__init__(layers, total_units, dtype=first.dtype, name=name)
 
-        tensors = [layer.tensor for layer in layers]
-        self.tensor = array_ops.concat(tensors, axis=-1)
+        with layer_scope(self):
+            tensors = [layer.tensor for layer in layers]
+            self.tensor = array_ops.concat(tensors, axis=-1)
 
 
 class SOMLinear(Layer):
@@ -812,7 +870,7 @@ class SOMLinear(Layer):
         self.map_shape = [map_size, layer.shape[1]]
         self.bias = None
 
-        with name_scope(name) as scope, variable_scope.variable_scope(scope):
+        with layer_scope(self):
             # init weights
             self.weights = variable_scope.get_variable("w", shape=self.weights_shape, initializer=init)
             self.map_weights = variable_scope.get_variable("som_w", shape=self.map_shape, initializer=init)

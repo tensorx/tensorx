@@ -123,9 +123,11 @@ class TestLayers(unittest.TestCase):
         np.testing.assert_array_equal(y2_output, y3_output)
 
     def test_linear_variable_names(self):
+        tf.reset_default_graph()
+
         inputs = TensorInput([[1]], 1, batch_size=1)
         layer = Linear(inputs, 10)
-        layer2 = Linear(inputs,10)
+        layer2 = Linear(inputs, 10)
         layer_shared = Linear(inputs, 10, weights=layer.weights)
 
         var_names = layer.variable_names
@@ -135,13 +137,23 @@ class TestLayers(unittest.TestCase):
         self.assertEqual(var_names[0], shared_names[0])
 
         print(var_names)
+        # print(layer.name)
         print(var_names_2)
+        # print(layer2.name)
         print(shared_names)
+        # print(layer_shared.name)
 
-        #weights1 = tf.get_variable("linear//w")
-        #weights2 = tf.get_variable(shared_names[0])
+        # with tf.variable_scope():
+        # with tf.variable_scope('',reuse=True):
+        #    v = tf.get_variable(var_names[0])
+        #    print(v.name)
 
-        #self.assertIs(weights1,weights2)
+        with tf.variable_scope("", reuse=True):
+            weights1 = tf.get_variable("linear//w")
+
+        weights2 = tf.get_variable(shared_names[0])
+
+        # self.assertIs(weights1,weights2)
 
     def test_to_sparse(self):
         index = 0
