@@ -237,29 +237,32 @@ class MyTestCase(unittest.TestCase):
     def test_model_train(self):
         input_layer = Input(4, name="x")
         linear = Linear(input_layer, 2)
-        h = Activation(linear, fn=tanh)
+        h = Activation(linear, fn=sigmoid)
 
         # configure training
-        optimiser = tf.train.GradientDescentOptimizer(learning_rate=0.5)
+        optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)
         labels = Input(2, name="y_")
         losses = binary_cross_entropy(labels.tensor, h.tensor)
 
-        model = Model(input_layer, h)
+        model = Model(input_layer, h, loss_tensors=losses, loss_inputs=labels, eval_tensors=losses,eval_inputs=labels)
         runner = ModelRunner(model)
-        runner.config_training(optimiser, losses, labels)
+        runner.config_training(optimiser)
 
         data = np.array([[1, 1, 1, 1]])
-        target = np.array([[1, 0]])
+        target = np.array([[1.0, 0.0]])
 
         # session = runner.session
         # weights = session.run(linear.weights)
         runner.init_vars()
         weights1 = runner.session.run(linear.weights)
 
-        for i in range(100):
+        for i in range(10000):
             runner.train(data, target)
+            print(runner.eval(data,target))
+            print(runner.run(data))
 
         weights2 = runner.session.run(linear.weights)
+
 
         self.assertFalse(np.array_equal(weights1, weights2))
 

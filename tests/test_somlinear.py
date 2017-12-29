@@ -333,26 +333,17 @@ class MyTestCase(unittest.TestCase):
         learning_rate = 0.1
         elasticity = 1.2
         neighbourhood_threshold = 1e-6
-        dsom_learner = DSOM_Learner(som_shape=som_shape,
+        dsom_learner = DSOM_Learner(var_list=[som],
+                                    som_shape=som_shape,
                                     learning_rate=learning_rate,
                                     elasticity=elasticity,
-                                    distance_metric=pairwise_cosine_distance,
+                                    metric=pairwise_cosine_distance,
                                     neighbourhood_threshold=neighbourhood_threshold)
 
-        deltas = dsom_learner.compute_delta(inputs, [som])
+        deltas = dsom_learner.compute_delta(inputs)
+        print(deltas[0][0].eval())
 
         # print("final updates learner\n", dsom_learner.apply_delta(deltas).eval())
-
-
-        # print("learner deltas\n", deltas[0].eval())
-
-
-
-        """ ************************************************************************************************************
-                    
-        """
-
-
 
         # TODO review index selection and weights to create a batch of indices ?
         # this should result in a sparse tensor since we might have different indices active for different layers

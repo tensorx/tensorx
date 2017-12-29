@@ -23,7 +23,7 @@ from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.training.saver import Saver, import_meta_graph, export_meta_graph
 
-from tensorx.layers import layers_to_list, Layer, TensorLayer
+from tensorx.layers import layers_to_list, Layer, TensorLayer, Input, SparseInput
 
 
 class VariableUpdater:
@@ -192,6 +192,16 @@ def _as_list(elems):
     return elems
 
 
+def get_feedable(inputs):
+    feedable = []
+    for input_layer in inputs:
+        if not isinstance(input_layer, (TensorLayer, Input, SparseInput)):
+            raise TypeError("Expected list of input layers, {} found in the list instead".format(type(input_layer)))
+        if not isinstance(input_layer, TensorLayer):
+            feedable.append(input_layer)
+    return feedable
+
+
 class Model:
     """ Model.
 
@@ -218,7 +228,14 @@ class Model:
         variables: set of all the variables in the model
     """
 
-    def __init__(self, inputs, outputs, loss_tensors=None, eval_tensors=None, name='Model'):
+    def __init__(self,
+                 inputs,
+                 outputs,
+                 loss_tensors=None,
+                 loss_inputs=None,
+                 eval_tensors=None,
+                 eval_inputs=None,
+                 name='Model'):
         self.name = name
         self.inputs = _as_list(inputs)
         self.outputs = _as_list(outputs)
@@ -227,7 +244,9 @@ class Model:
         self.variables = {var for layer in self.layers for var in layer.variable_names}
 
         self.loss_tensors = _as_list(loss_tensors)
+        self.loss_inputs = _as_list(loss_inputs)
         self.eval_tensors = _as_list(eval_tensors)
+        self.eval_inputs = _as_list(eval_inputs)
 
     def feedable_inputs(self):
         """ Returns a list of all inputs in the model that are feedable
@@ -238,7 +257,13 @@ class Model:
             a :obj:`list` of input `Layer` instances
 
         """
-        return [input_layer for input_layer in self.inputs if not isinstance(input_layer, TensorLayer)]
+        return get_feedable(self.inputs)
+
+    def feedable_eval_inputs(self):
+        return get_feedable(self.eval_inputs)
+
+    def feedable_loss_inputs(self):
+        return get_feedable(self.loss_inputs)
 
     def __str__(self):
         lines = ["===== {name} =====".format(name=self.name)]
@@ -275,12 +300,9 @@ class ModelRunner:
 
         # properties for training
         self.optimiser = None
-        self.losses = model.loss_tensors
-        self.targets = None
         self.loss_weights = 1.0
         self.joint_loss = None
         self.train_step = None
-        self.target_labels = None
 
         # op for model saving and restoring
 
@@ -447,7 +469,7 @@ class ModelRunner:
         self._var_inited = (True, self.session)
 
     def run(self, *data):
-        """ run the model
+        """ run the model (inference graph)
 
         Runs the model from the output layers and feeding the data to the input layers
 
@@ -487,7 +509,7 @@ class ModelRunner:
             result = result[0]
         return result
 
-    def config_training(self, optimiser, losses=None, target_labels=None, loss_weights=1.0):
+    def config_training(self, optimiser, loss_weights=1.0):
         """ Configures the model for training
 
         # TODO add support for other Variable Learners (for SOMs or Free-energy minimisation)
@@ -500,26 +522,21 @@ class ModelRunner:
             learner: in case the model uses a learner function to change variables, include it here
 
         """
-        # if losses are provided override the model losses
-        if losses is not None:
-            self.losses = _as_list(losses)
-        self.target_labels = _as_list(target_labels)
-
         self.optimiser = optimiser
         self.loss_weights = loss_weights
 
         # if more than one loss is passed, create a (optionally weighted) joint loss function
-        if len(self.losses) > 1:
-            t_losses = ops.convert_to_tensor(self.losses)
+        if len(self.model.loss_tensors) > 1:
+            t_losses = ops.convert_to_tensor(self.model.loss_tensors)
             loss_weights = math_ops.to_float(loss_weights)
             weighted_losses = math_ops.multiply(t_losses, loss_weights)
             self.joint_loss = math_ops.reduce_sum(weighted_losses)
         else:
-            self.joint_loss = self.losses[0]
+            self.joint_loss = self.model.loss_tensors[0]
 
         self.train_step = self.optimiser.minimize(self.joint_loss)
 
-    def train(self, data=None, targets=None):
+    def train(self, data=None, loss_input_data=None):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -532,7 +549,7 @@ class ModelRunner:
 
         Args:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
-            targets: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
+            loss_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
         """
         if self.session is None:
             self.set_session()
@@ -541,28 +558,76 @@ class ModelRunner:
             self.init_vars()
 
         data = _as_list(data)
-        if len(data) > 0:
-            feedable_inputs = self.model.feedable_inputs()
-            n_feedable = len(feedable_inputs)
-            n_data = len(data)
 
-            if n_data != n_feedable:
-                raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
+        feedable_inputs = self.model.feedable_inputs()
+        n_feedable = len(feedable_inputs)
+        n_data = len(data)
 
-            feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+        if n_data != n_feedable:
+            raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-            if targets is not None:
-                targets = _as_list(targets)
-                n_targets = len(targets)
-                target_labels = len(self.target_labels)
-                if n_targets != target_labels:
-                    raise ValueError(
-                        "target items received {} != {} model target inputs".format(n_targets, target_labels))
+        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
 
-                label_dict = {target.tensor: label for target, label in zip(self.target_labels, targets)}
-                feed_dict.update(label_dict)
+        loss_input_data = _as_list(loss_input_data)
+        feedable_loss_inputs = self.model.feedable_loss_inputs()
+        n_feedable_targets = len(feedable_loss_inputs)
+        n_targets = len(loss_input_data)
+
+        if n_targets != n_feedable_targets:
+            raise ValueError(
+                "loss input data received {} != {} model expected loss inputs".format(n_feedable_targets, n_targets))
+
+        target_dict = {loss_input.tensor: loss_input_data for loss_input, loss_input_data in
+                       zip(feedable_loss_inputs, loss_input_data)}
+        feed_dict.update(target_dict)
 
         self.session.run(self.train_step, feed_dict)
+
+    def eval(self, data=None, eval_input_data=None):
+        """ Evaluates the model on the given data.
+
+        If multiple loss functions are provided, it performs joint training by summing the loss functions.
+
+        Args:
+            data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
+            eval_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to the evaluation ops.
+        """
+        if self.session is None:
+            self.set_session()
+
+        if not self.vars_inited():
+            self.init_vars()
+
+        data = _as_list(data)
+
+        feedable_inputs = self.model.feedable_inputs()
+        n_feedable = len(feedable_inputs)
+        n_data = len(data)
+
+        if n_data != n_feedable:
+            raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
+
+        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+
+        eval_input_data = _as_list(eval_input_data)
+        feedable_eval_inputs = self.model.feedable_eval_inputs()
+        n_feedable_targets = len(feedable_eval_inputs)
+        n_targets = len(eval_input_data)
+
+        if n_targets != n_feedable_targets:
+            raise ValueError(
+                "eval input data received {} != {} model expected loss inputs".format(n_feedable_targets, n_targets))
+
+        target_dict = {eval_input.tensor: loss_input_data for eval_input, loss_input_data in
+                       zip(feedable_eval_inputs, eval_input_data)}
+        feed_dict.update(target_dict)
+
+        result = self.session.run(self.model.eval_tensors, feed_dict)
+
+        # for convenience if we have a single output layer return the result, not a list of results
+        if len(self.model.eval_tensors) == 1:
+            result = result[0]
+        return result
 
 
 __all__ = ["Model", "ModelRunner"]

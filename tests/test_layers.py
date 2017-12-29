@@ -149,11 +149,10 @@ class TestLayers(unittest.TestCase):
         #    print(v.name)
 
         with tf.variable_scope("", reuse=True):
-            weights1 = tf.get_variable("linear//w")
+            weights1 = tf.get_variable("linear/w")
+            weights2 = tf.get_variable(shared_names[0])
 
-        weights2 = tf.get_variable(shared_names[0])
-
-        # self.assertIs(weights1,weights2)
+            self.assertIs(weights1,weights2)
 
     def test_to_sparse(self):
         index = 0
