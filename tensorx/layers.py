@@ -294,9 +294,12 @@ class TensorLayer(Layer):
     def __init__(self, tensor, n_units, batch_size=None, dtype=dtypes.float32, name="tensor_input"):
         tensor = txutils.to_tensor_cast(tensor, dtype)
 
-        shape = tensor.get_shape()
-        shape.assert_is_compatible_with([batch_size, n_units])
-        shape = shape.as_list()
+        if batch_size is not None:
+            shape = [batch_size,n_units]
+        else:
+            shape = tensor.get_shape()
+            shape.assert_is_compatible_with([batch_size, n_units])
+            shape = shape.as_list()
 
         super().__init__(None, n_units, shape, dtype, name)
 
