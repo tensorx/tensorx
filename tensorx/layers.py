@@ -229,6 +229,33 @@ class Layer:
                                                                       sparse_dense=sparse_dense)
 
 
+class WrapLayer(Layer):
+    """ Wraps another layer with tf code
+
+    Utility layer used to wrap arbitrary layers with another tensorflow graph op
+    this might be useful to customize existing layers without creating a new layer from scratch
+
+    Attributes:
+        tensor: like any other layer, the tensor is the application of the given tensorflow op to the output of the
+        given layer
+        placeholder: if the given layer is feedable (has the placeholder attribute) forwards that attribute (useful to
+        create custom input pipelines
+
+
+    """
+
+    def __init__(self, layer, n_units, tf_op, name=None):
+        if name is None:
+            name = "wrap_{}".format(layer.name)
+        shape = [layer.shape[0], n_units]
+        super().__init__(layer, n_units, shape, dtype=tf_op.dtype, name=name)
+
+        if hasattr(layer, "placeholder"):
+            self.placeholder = layer.placeholder
+
+        self.tensor = tf_op(layer.tensor)
+
+
 class Input(Layer):
     """ Input Layer
 
@@ -260,29 +287,31 @@ class Input(Layer):
         shape = [batch_size, n_units]
         super().__init__(None, n_units, shape, dtype, name)
 
-        # if n_active is not None convert to SparseTensor
-        if n_active is None:
-            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
-            self.tensor = self.placeholder
-        else:
-            self.n_active = n_active
-            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
+        with layer_scope(self):
+            # if n_active is not None convert to SparseTensor
+            if n_active is None:
+                self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
+                self.tensor = self.placeholder
+            else:
+                self.n_active = n_active
+                self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
 
-            indices_shape = txutils.complete_shape(self.placeholder)
-            dense_shape = [indices_shape[0], self.shape[1]]
-            self.tensor = transform.sparse_one_hot(self.placeholder, dense_shape, dtype=self.dtype)
+                indices_shape = txutils.complete_shape(self.placeholder)
+                dense_shape = [indices_shape[0], self.shape[1]]
+                self.tensor = transform.sparse_one_hot(self.placeholder, dense_shape, dtype=self.dtype)
 
     def __str__(self):
         class_name = type(self).__name__
         if self.is_sparse():
-            str = "{class_name}({n_active}/{n_units},{dtype})[Sparse]".format(class_name=class_name,
-                                                                              n_active=self.n_active,
-                                                                              n_units=self.n_units,
-                                                                              dtype=self.dtype)
+            str_representation = "{class_name}({n_active}/{n_units},{dtype})[Sparse]".format(class_name=class_name,
+                                                                                             n_active=self.n_active,
+                                                                                             n_units=self.n_units,
+                                                                                             dtype=self.dtype)
         else:
-            str = "{class_name}({n_units},{dtype})[Dense]".format(class_name=class_name, n_units=self.n_units,
-                                                                  dtype=self.dtype)
-        return str
+            str_representation = "{class_name}({n_units},{dtype})[Dense]".format(class_name=class_name,
+                                                                                 n_units=self.n_units,
+                                                                                 dtype=self.dtype)
+        return str_representation
 
 
 class TensorLayer(Layer):
@@ -295,7 +324,7 @@ class TensorLayer(Layer):
         tensor = txutils.to_tensor_cast(tensor, dtype)
 
         if batch_size is not None:
-            shape = [batch_size,n_units]
+            shape = [batch_size, n_units]
         else:
             shape = tensor.get_shape()
             shape.assert_is_compatible_with([batch_size, n_units])
@@ -311,6 +340,17 @@ class SparseInput(Layer):
 
     Creates an op that depends on a `sparse_placeholder` to which one must feed a ``SparseTensorValue``.
 
+    Attributes:
+        placeholder: like all feedable layer, this has a placeholder attribute which one can (must) supply to feed_dict
+        tensor: as with all layers there's a tensor attribute, not necessarily equivalent to the placeholder one
+
+    Args:
+        n_units (int): the number of output units for this layer
+        batch_size (int): batch_size for the input, helps to define the shape for this sparse layer
+        dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
+        name: name for the layer
+
+
     Notes:
         ``SparseTensorValues`` can be created with empty values, but this layer will require the number of values
         to be the same as the number of indices. If this is not the case, an ``InvalidArgumentError`` will be thrown
@@ -318,19 +358,10 @@ class SparseInput(Layer):
     """
 
     def __init__(self, n_units, batch_size=None, dtype=dtypes.float32, name="sparse_input"):
-        """
-
-        Args:
-            n_units (int): the number of output units for this layer
-            batch_size (int): batch_size for the input, helps to define the shape for this sparse layer
-            dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
-            name: name for the layer
-        """
-
         shape = [batch_size, n_units]
         super().__init__(None, n_units, shape, dtype, name)
 
-        with ops.name_scope(name):
+        with layer_scope(self):
             self.placeholder = array_ops.sparse_placeholder(dtype, self.shape, name)
             n_indices = array_ops.shape(self.placeholder.indices)[0]
             n_values = array_ops.shape(self.placeholder.values)[0]

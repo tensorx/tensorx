@@ -194,11 +194,10 @@ def _as_list(elems):
 
 def get_feedable(inputs):
     feedable = []
-    for input_layer in inputs:
-        if not isinstance(input_layer, (TensorLayer, Input, SparseInput)):
-            raise TypeError("Expected list of input layers, {} found in the list instead".format(type(input_layer)))
-        if not isinstance(input_layer, TensorLayer):
-            feedable.append(input_layer)
+    for layers in inputs:
+        if not hasattr(layers, 'property'):
+            raise TypeError("Expected list of feedable layers, {} found in the list instead".format(type(layers)))
+        feedable.append(layers)
     return feedable
 
 
@@ -500,7 +499,7 @@ class ModelRunner:
         if n_data != n_feedable:
             raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+        feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
         output_tensors = [output.tensor for output in self.model.outputs]
         result = self.session.run(output_tensors, feed_dict)
 
@@ -566,7 +565,7 @@ class ModelRunner:
         if n_data != n_feedable:
             raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+        feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
 
         loss_input_data = _as_list(loss_input_data)
         feedable_loss_inputs = self.model.feedable_loss_inputs()
@@ -577,7 +576,7 @@ class ModelRunner:
             raise ValueError(
                 "loss input data received {} != {} model expected loss inputs".format(n_feedable_targets, n_targets))
 
-        target_dict = {loss_input.tensor: loss_input_data for loss_input, loss_input_data in
+        target_dict = {loss_input.placeholder: loss_input_data for loss_input, loss_input_data in
                        zip(feedable_loss_inputs, loss_input_data)}
         feed_dict.update(target_dict)
 
@@ -607,7 +606,7 @@ class ModelRunner:
         if n_data != n_feedable:
             raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
-        feed_dict = {in_layer.tensor: data for in_layer, data in zip(feedable_inputs, data)}
+        feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
 
         eval_input_data = _as_list(eval_input_data)
         feedable_eval_inputs = self.model.feedable_eval_inputs()
@@ -618,7 +617,7 @@ class ModelRunner:
             raise ValueError(
                 "eval input data received {} != {} model expected loss inputs".format(n_feedable_targets, n_targets))
 
-        target_dict = {eval_input.tensor: loss_input_data for eval_input, loss_input_data in
+        target_dict = {eval_input.placeholder: loss_input_data for eval_input, loss_input_data in
                        zip(feedable_eval_inputs, eval_input_data)}
         feed_dict.update(target_dict)
 
