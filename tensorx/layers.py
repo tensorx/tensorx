@@ -173,7 +173,7 @@ class Layer:
             self.shape = shape
 
         # has an tensor (tensor) attribute
-        self.tensor = None
+        # self.tensor = None
 
         # stores the variables if this layer has any
         self.variable_names = []
@@ -241,19 +241,37 @@ class WrapLayer(Layer):
         placeholder: if the given layer is feedable (has the placeholder attribute) forwards that attribute (useful to
         create custom input pipelines
 
+    Args:
+        layer: a `Layer` to be wrapped by this Layer
+        n_units: the new number of units this layer will have
+        tf_fn: a callable returning a `Tensor` or `SparseTensor`
+        name: name for this layer, defaults to wrap_[layer]
+
 
     """
 
-    def __init__(self, layer, n_units, tf_op, name=None):
+    def __init__(self, layer, n_units, tf_fn, name=None):
         if name is None:
             name = "wrap_{}".format(layer.name)
-        shape = [layer.shape[0], n_units]
-        super().__init__(layer, n_units, shape, dtype=tf_op.dtype, name=name)
+        self.name = name
 
-        if hasattr(layer, "placeholder"):
-            self.placeholder = layer.placeholder
+        with layer_scope(self):
+            if hasattr(layer, "placeholder"):
+                self.placeholder = layer.placeholder
 
-        self.tensor = tf_op(layer.tensor)
+            self.tensor = tf_fn(layer.tensor)
+
+            if not isinstance(self.tensor, (ops.Tensor, SparseTensor)):
+                raise TypeError(
+                    "tf_fn must return Tensor or SparseTensor, returned {} instead".format(type(self.tensor)))
+
+            shape = [layer.shape[0], n_units]
+            tf_fn_shape = self.tensor.get_shape()
+
+            if not tf_fn_shape.is_compatible_with(shape):
+                raise ValueError("shape from tf_fn {s1} incompatible with {s2}".format(s1=tf_fn_shape, s2=shape))
+
+            super().__init__(layer, n_units, shape, dtype=self.tensor.dtype, name=name)
 
 
 class Input(Layer):
@@ -924,5 +942,6 @@ __all__ = ["Input",
            "SparseGaussianNoise",
            "SaltPepperNoise",
            "Lookup",
-           "layers_to_list"
+           "layers_to_list",
+           "WrapLayer"
            ]

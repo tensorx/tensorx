@@ -152,7 +152,7 @@ class TestLayers(unittest.TestCase):
             weights1 = tf.get_variable("linear/w")
             weights2 = tf.get_variable(shared_names[0])
 
-            self.assertIs(weights1,weights2)
+            self.assertIs(weights1, weights2)
 
     def test_to_sparse(self):
         index = 0
@@ -362,34 +362,19 @@ class TestLayers(unittest.TestCase):
         self.assertEqual(layers[5], l42)
         self.assertEqual(layers[6], l5)
 
-    def test_sparse_lookup_stage_implementation(self):
-        # TODO, I forgot that tensorflow operates in parallel, and when I'm testing
-        # it creates variables in the same graph so to stage something, getting variables
-        # leads to problems if other tests already used those variables
-        # also stage implementations should be moved somewhere else
-        # tf.reset_default_graph()
-        # self.ss = tf.InteractiveSession()
+    def test_wrap_layer(self):
+        data = np.random.uniform(-1, 1, [1, 4])
 
-        vocab_size = 4
-        n_features = 3
+        input_layer = Input(4)
+        wrap_layer = WrapLayer(input_layer, 4, lambda layer: tf.identity(layer))
+        self.assertIs(input_layer.placeholder, wrap_layer.placeholder)
 
-        # input_data = np.array([[2, 0], [1, 2]])
+        with tf.Session() as sess:
+            t1 = sess.run(input_layer.tensor, feed_dict={input_layer.placeholder: data})
+            t2 = sess.run(wrap_layer.tensor, feed_dict={wrap_layer.placeholder: data})
 
-        weight_shape = [vocab_size, n_features]
-        params = tf.get_variable("w_test", weight_shape, initializer=tf.random_uniform_initializer(-1., 1.))
-
-        sp_indices = np.array([[0, 0, 2], [1, 1, 0], [2, 0, 1], [3, 1, 2]], np.int64)
-        sp_values = np.array([2, 0, 1, 2], np.int64)
-        dense_shape = np.array([2, 2, vocab_size], np.int64)
-        sp_ids = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
-
-        indices = tf.sparse_placeholder(tf.int64, shape=[1, 1, vocab_size])
-        embed = tf.nn.embedding_lookup_sparse(params, sp_ids=indices, sp_weights=None, combiner="sum")
-
-        var_init = tf.global_variables_initializer()
-        self.ss.run(var_init)
-        res_embed = embed.eval({indices: sp_ids})
-        print(res_embed)
+            np.testing.assert_array_almost_equal(t1, data, decimal=6)
+            np.testing.assert_array_almost_equal(t1, t2, decimal=6)
 
     def test_lookup_layer(self):
         vocab_size = 4
@@ -404,6 +389,7 @@ class TestLayers(unittest.TestCase):
         lookup = Lookup(inputs, seq_size, [vocab_size, n_features], batch_size)
 
         sp_inputs = SparseInput(n_features, dtype=tf.int64)
+
         # INPUT DATA
         sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
         sp_values = np.array([1, 1, 1, 1], np.int64)
@@ -413,10 +399,12 @@ class TestLayers(unittest.TestCase):
         # SPARSE LOOKUP
         sp_lookup = Lookup(sp_inputs, seq_size, [vocab_size, n_features], batch_size, weights=lookup.weights)
 
-        self.ss.run(tf.global_variables_initializer())
-        self.assertTrue(np.array_equal(sp_lookup.tensor.eval({sp_inputs.tensor: sp_values}),
-                                       lookup.tensor.eval({inputs.tensor: input_data})))
-
+        var_init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(var_init)
+            v1 = sess.run(sp_lookup.tensor, {sp_inputs.placeholder: sp_values})
+            v2 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
+            self.assertTrue(np.array_equal(v1, v2))
 
 
 if __name__ == '__main__':
