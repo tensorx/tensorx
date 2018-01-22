@@ -12,6 +12,7 @@ Types of layers:
 """
 from functools import partial
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import check_ops
 
@@ -159,7 +160,6 @@ class Layer:
     """
 
     def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
-
         self.n_units = n_units
         self.name = name
         self.dtype = dtype
@@ -172,11 +172,25 @@ class Layer:
                 raise ValueError("Shape mismatch: shape[1] < n_units")
             self.shape = shape
 
-        # has an tensor (tensor) attribute
-        # self.tensor = None
-
         # stores the variables if this layer has any
         self.variable_names = []
+
+        self._tensor = None
+
+    @property
+    def tensor(self):
+        return self._tensor
+
+    @tensor.setter
+    def tensor(self, tensor):
+        """ Tensor Attribute Setter
+
+        Prevents the setting of tensor to anything other than Tensor or Sparse Tensor
+        """
+        if not isinstance(tensor, (Tensor, SparseTensor)):
+            raise TypeError(
+                "tensor can only be set to Tensor or SparseTensor: {} found ".format(type(self.tensor)))
+        self._tensor = tensor
 
     def _add_variable(self, var):
         if not isinstance(var, variables.Variable):
@@ -250,28 +264,25 @@ class WrapLayer(Layer):
 
     """
 
-    def __init__(self, layer, n_units, tf_fn, name=None):
-        if name is None:
+    def __init__(self, layer, n_units, tf_fn, name="wrap"):
+        if name == "wrap":
             name = "wrap_{}".format(layer.name)
         self.name = name
 
+        if hasattr(layer, "placeholder"):
+            self.placeholder = layer.placeholder
+
+        shape = [layer.shape[0], n_units]
+        super().__init__(layer, n_units, shape, dtype=layer.tensor.dtype, name=name)
+
         with layer_scope(self):
-            if hasattr(layer, "placeholder"):
-                self.placeholder = layer.placeholder
-
             self.tensor = tf_fn(layer.tensor)
+            output_shape = self.tensor.get_shape()
+            if not output_shape.is_compatible_with(shape):
+                raise ValueError("shape from tf_fn {s1} incompatible with {s2}".format(s1=output_shape, s2=shape))
 
-            if not isinstance(self.tensor, (ops.Tensor, SparseTensor)):
-                raise TypeError(
-                    "tf_fn must return Tensor or SparseTensor, returned {} instead".format(type(self.tensor)))
-
-            shape = [layer.shape[0], n_units]
-            tf_fn_shape = self.tensor.get_shape()
-
-            if not tf_fn_shape.is_compatible_with(shape):
-                raise ValueError("shape from tf_fn {s1} incompatible with {s2}".format(s1=tf_fn_shape, s2=shape))
-
-            super().__init__(layer, n_units, shape, dtype=self.tensor.dtype, name=name)
+            if layer.dtype != self.tensor.dtype:
+                self.dtype = self.tensor.dtype
 
 
 class Input(Layer):

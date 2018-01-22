@@ -195,9 +195,9 @@ def _as_list(elems):
 def get_feedable(inputs):
     feedable = []
     for layers in inputs:
-        if not hasattr(layers, 'property'):
-            raise TypeError("Expected list of feedable layers, {} found in the list instead".format(type(layers)))
-        feedable.append(layers)
+        if hasattr(layers, 'placeholder'):
+            feedable.append(layers)
+        #    raise TypeError("Expected list of feedable layers, {} found in the list instead".format(type(layers)))
     return feedable
 
 
