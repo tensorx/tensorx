@@ -18,6 +18,10 @@ def ones_init(dtype=dt.float32):
     return init_ops.ones_initializer(dtype=dtype)
 
 
+def random_normal(mean=0.0, stdev=1.0, seed=None, dtype=dt.float32):
+    return init_ops.random_normal_initializer(mean, stdev, seed, dtype)
+
+
 def random_uniform(maxval=1, minval=-1, seed=None, dtype=dt.float32):
     """ Random Uniform Initialisation between minval and maxval.
 
