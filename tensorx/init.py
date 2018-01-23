@@ -107,4 +107,4 @@ class ReLUInit(init_ops.Initializer):
 
 relu_init = ReLUInit
 
-__all__ = ["zero_init", "ones_init", "random_uniform", "relu_init", "xavier_init"]
+__all__ = ["zero_init", "ones_init", "random_normal", "random_uniform", "relu_init", "xavier_init"]
