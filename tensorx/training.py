@@ -214,10 +214,11 @@ class Model:
         the default being these to be set to []. It also provides access to inputs, outputs and
         layers which is a list of existing `Layer` instances in the model
 
+    TODO change this documentation accordingly
     Args:
-        inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
-        outputs: a :obj:`list` of :class:`Layer` with the outputs for the model
-        loss_tensors: a single loss tensor or list of loss tensors
+        run_input: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
+        run_output: a :obj:`list` of :class:`Layer` or `Tensor` with the outputs for the model
+        train_inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
         eval_tensors: a single eval tensor or list of tensors
 
     Attributes:
@@ -228,26 +229,61 @@ class Model:
     """
 
     def __init__(self,
-                 inputs,
-                 outputs,
-                 loss_tensors=None,
-                 loss_inputs=None,
+                 run_in_layers,
+                 run_out_layers,
+                 train_in_layers=None,
+                 train_out_layers=None,
+                 train_loss_in=None,
+                 train_loss_tensors=None,
+                 eval_in_layers=None,
+                 eval_out_layers=None,
+                 eval_tensors_in=None,
                  eval_tensors=None,
-                 eval_inputs=None,
                  name='Model'):
         self.name = name
-        self.inputs = _as_list(inputs)
-        self.outputs = _as_list(outputs)
-        self.layers = layers_to_list(outputs)
+        # run layers
+        self.run_in_layers = _as_list(run_in_layers)
+        self.run_out_layers = _as_list(run_out_layers)
 
-        self.variables = {var for layer in self.layers for var in layer.variable_names}
+        # train graph and ops
+        if train_in_layers is None:
+            self.train_in_layers = self.run_in_layers
+        else:
+            self.train_in_layers = _as_list(train_in_layers)
 
-        self.loss_tensors = _as_list(loss_tensors)
-        self.loss_inputs = _as_list(loss_inputs)
+        if train_out_layers is None:
+            self.train_out_layers = self.run_out_layers
+        else:
+            self.train_out_layers = _as_list(train_out_layers)
+
+        self.train_loss_in = _as_list(train_loss_in)
+        self.train_loss_tensors = _as_list(train_loss_tensors)
+
+        # eval graph and ops
+        if eval_in_layers is None:
+            self.eval_in_layers = self.run_in_layers
+        else:
+            self.eval_in_layers = _as_list(eval_in_layers)
+
+        if eval_out_layers is None:
+            self.eval_out_layers = self.run_out_layers
+        else:
+            self.eval_out_layers = _as_list(eval_out_layers)
+
+        self.eval_tensors_in = _as_list(eval_tensors_in)
         self.eval_tensors = _as_list(eval_tensors)
-        self.eval_inputs = _as_list(eval_inputs)
 
-    def feedable_inputs(self):
+        # list layers from run, train, and eval
+        self.run_layers = layers_to_list(self.run_out_layers)
+        self.train_layers = layers_to_list(self.train_out_layers)
+        self.eval_layers = layers_to_list(self.eval_out_layers)
+
+        # list graph variables for run, train, and eval
+        self.run_vars = {var for layer in self.run_layers for var in layer.variable_names}
+        self.train_vars = {var for layer in self.train_layers for var in layer.variable_names}
+        self.eval_vars = {var for layer in self.eval_layers for var in layer.variable_names}
+
+    def feedable_run(self):
         """ Returns a list of all inputs in the model that are feedable
 
         The inputs that use tensorflow placeholders
@@ -256,26 +292,65 @@ class Model:
             a :obj:`list` of input `Layer` instances
 
         """
-        return get_feedable(self.inputs)
+        return get_feedable(self.run_in_layers)
 
-    def feedable_eval_inputs(self):
-        return get_feedable(self.eval_inputs)
+    def feedable_eval(self):
+        return get_feedable(self.eval_in_layers)
 
-    def feedable_loss_inputs(self):
-        return get_feedable(self.loss_inputs)
+    def feedable_eval_tensors(self):
+        return get_feedable(self.eval_tensors_in)
+
+    def feedable_train(self):
+        return get_feedable(self.train_in_layers)
+
+    def feedable_train_tensors(self):
+        return get_feedable(self.train_loss_in)
 
     def __str__(self):
-        lines = ["===== {name} =====".format(name=self.name)]
-        for layer in self.layers:
+        lines = ["===== {name}/RUN =====".format(name=self.name)]
+        for layer in self.run_layers:
             lines.append(str(layer))
-
         lines.append("=" * len(lines[0]))
+
+        if len(self.train_layers) > 0:
+            lines = ["===== {name}/TRAIN =====".format(name=self.name)]
+            for layer in self.train_layers:
+                lines.append(str(layer))
+            lines.append("=" * len(lines[0]))
+
+        if len(self.eval_layers) > 0:
+            lines = ["===== {name}/EVAL =====".format(name=self.name)]
+            for layer in self.eval_layers:
+                lines.append(str(layer))
+            lines.append("=" * len(lines[0]))
+
         return "\n".join(lines)
 
     def __repr__(self):
-        return "({name}):({inputs})->({outputs})".format(name=self.name,
-                                                         inputs=",".join([l.name for l in self.inputs]),
-                                                         outputs=",".join([l.name for l in self.outputs]))
+        lines = ["({name}):({inputs})->({outputs})".format(name=self.name,
+                                                           inputs=",".join([l.name for l in self.run_in_layers]),
+                                                           outputs=",".join([l.name for l in self.run_out_layers]))]
+
+        if self.train_in_layers is not None:
+            lines.append("({name}):({inputs})->({outputs})".format(name=self.name,
+                                                                   inputs=",".join(
+                                                                       [l.name for l in self.train_in_layers]),
+                                                                   outputs=",".join(
+                                                                       [l.name for l in self.train_out_layers])))
+
+        if self.eval_in_layers is not None:
+            lines.append("({name}):({inputs})->({outputs})".format(name=self.name,
+                                                                   inputs=",".join(
+                                                                       [l.name for l in self.eval_in_layers]),
+                                                                   outputs=",".join(
+                                                                       [l.name for l in self.eval_out_layers])))
+
+        return "\n".join(lines)
+
+    def has_vars(self):
+        return (len(self.run_vars) != 0
+                or len(self.train_vars) != 0
+                or len(self.eval_vars) != 0)
 
 
 class ModelRunner:
@@ -305,7 +380,7 @@ class ModelRunner:
 
         # op for model saving and restoring
 
-        if len(model.variables) != 0:
+        if self.model.has_vars():
             self.saver = Saver()
         self.init_var_op = None
 
@@ -346,7 +421,8 @@ class ModelRunner:
             global_step: integer or tensor with the current step for the model checkpoint
 
         """
-        if len(self.model.variables) == 0 and not save_graph:
+
+        if not (self.model.has_vars() or save_graph):
             raise ValueError("The model has no variables to save and save_graph was set to False: Nothing to save")
 
         if self.session is None:
@@ -363,7 +439,7 @@ class ModelRunner:
             meta_path = "{model_path}.meta".format(model_path=model_path)
             export_meta_graph(meta_path)
 
-        if len(self.model.variables) > 0:
+        if self.model.has_vars():
             self.saver.save(self.session, model_path, global_step, write_meta_graph=False, write_state=write_state)
 
     def load_model(self, save_dir=None, model_name="model.ckpt", global_step=None, load_graph=False):
@@ -400,7 +476,7 @@ class ModelRunner:
             meta_path = "{model_path}.meta".format(model_path=model_path)
             self.saver = import_meta_graph(meta_path)
 
-        if len(self.model.variables) > 0:
+        if self.model.has_vars():
             self.saver.restore(self.session, model_path)
         # we don't need to init vars after loading a model
         self._set_vars_inited()
@@ -489,10 +565,10 @@ class ModelRunner:
         if self.session is None:
             self.set_session()
 
-        if not self.vars_inited() and len(self.model.variables) > 0:
+        if not self.vars_inited() and self.model.has_vars():
             self.init_vars()
 
-        feedable_inputs = self.model.feedable_inputs()
+        feedable_inputs = self.model.feedable_run()
         n_feedable = len(feedable_inputs)
         n_data = len(data)
 
@@ -500,15 +576,15 @@ class ModelRunner:
             raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
 
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
-        output_tensors = [output.tensor for output in self.model.outputs]
+        output_tensors = [output.tensor for output in self.model.run_out_layers]
         result = self.session.run(output_tensors, feed_dict)
 
         # for convenience if we have a single output layer return the result, not a list of results
-        if len(self.model.outputs) == 1:
+        if len(self.model.run_out_layers) == 1:
             result = result[0]
         return result
 
-    def config_training(self, optimiser, loss_weights=1.0):
+    def config_optimizer(self, optimiser, loss_weights=1.0):
         """ Configures the model for training
 
         # TODO add support for other Variable Learners (for SOMs or Free-energy minimisation)
@@ -525,13 +601,13 @@ class ModelRunner:
         self.loss_weights = loss_weights
 
         # if more than one loss is passed, create a (optionally weighted) joint loss function
-        if len(self.model.loss_tensors) > 1:
-            t_losses = ops.convert_to_tensor(self.model.loss_tensors)
+        if len(self.model.train_loss_tensors) > 1:
+            t_losses = ops.convert_to_tensor(self.model.train_loss_tensors)
             loss_weights = math_ops.to_float(loss_weights)
             weighted_losses = math_ops.multiply(t_losses, loss_weights)
             self.joint_loss = math_ops.reduce_sum(weighted_losses)
         else:
-            self.joint_loss = self.model.loss_tensors[0]
+            self.joint_loss = self.model.train_loss_tensors[0]
 
         self.train_step = self.optimiser.minimize(self.joint_loss)
 
@@ -558,7 +634,7 @@ class ModelRunner:
 
         data = _as_list(data)
 
-        feedable_inputs = self.model.feedable_inputs()
+        feedable_inputs = self.model.feedable_train()
         n_feedable = len(feedable_inputs)
         n_data = len(data)
 
@@ -568,7 +644,7 @@ class ModelRunner:
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
 
         loss_input_data = _as_list(loss_input_data)
-        feedable_loss_inputs = self.model.feedable_loss_inputs()
+        feedable_loss_inputs = self.model.feedable_train_tensors()
         n_feedable_targets = len(feedable_loss_inputs)
         n_targets = len(loss_input_data)
 
@@ -599,7 +675,7 @@ class ModelRunner:
 
         data = _as_list(data)
 
-        feedable_inputs = self.model.feedable_inputs()
+        feedable_inputs = self.model.feedable_eval()
         n_feedable = len(feedable_inputs)
         n_data = len(data)
 
@@ -609,7 +685,7 @@ class ModelRunner:
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
 
         eval_input_data = _as_list(eval_input_data)
-        feedable_eval_inputs = self.model.feedable_eval_inputs()
+        feedable_eval_inputs = self.model.feedable_eval_tensors()
         n_feedable_targets = len(feedable_eval_inputs)
         n_targets = len(eval_input_data)
 

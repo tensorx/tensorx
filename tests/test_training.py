@@ -26,7 +26,7 @@ class MyTestCase(unittest.TestCase):
         data = [[1]]
         inputs = Input(1)
         linear = Linear(inputs, 1)
-        model = Model(inputs=inputs, outputs=linear)
+        model = Model(run_in_layers=inputs, run_out_layers=linear)
         runner = ModelRunner(model)
 
         # creates a new session or uses the default session
@@ -82,7 +82,7 @@ class MyTestCase(unittest.TestCase):
     def test_model_var_init(self):
         inputs = Input(1)
         linear = Linear(inputs, 2)
-        model = Model(inputs=inputs, outputs=linear)
+        model = Model(run_in_layers=inputs, run_out_layers=linear)
         runner = ModelRunner(model)
 
         with tf.Session() as session1:
@@ -120,7 +120,7 @@ class MyTestCase(unittest.TestCase):
         tf.reset_default_graph()
         const = tf.ones([1, 10], name="const")
         wrap = TensorLayer(const, 10)
-        model = Model(inputs=wrap, outputs=wrap)
+        model = Model(run_in_layers=wrap, run_out_layers=wrap)
 
         all_ops = tf.get_default_graph().get_operations()
         self.assertEqual(len(all_ops), 1)
@@ -162,9 +162,9 @@ class MyTestCase(unittest.TestCase):
         runner.init_vars()
         # for layer in model.layers:
         #    print(layer)
-        self.assertEqual(len(model.layers), 5)
+        self.assertEqual(len(model.run_layers), 5)
 
-        w1, w2 = model.layers[1].weights, model.layers[3].weights
+        w1, w2 = model.run_layers[1].weights, model.run_layers[3].weights
 
         w1 = session.run(w1)
         w2 = session.run(w2)
@@ -181,7 +181,7 @@ class MyTestCase(unittest.TestCase):
         runner.init_vars()
 
         runner.load_model(save_dir, model_name)
-        w3, w4 = model.layers[1].weights, model.layers[3].weights
+        w3, w4 = model.run_layers[1].weights, model.run_layers[3].weights
         w3 = session.run(w3)
         w4 = session.run(w4)
 
@@ -206,7 +206,7 @@ class MyTestCase(unittest.TestCase):
         linear1 = Linear(inputs, 1)
         linear2 = Linear(inputs, 2)
 
-        model = Model(inputs, outputs=[linear1, linear2])
+        model = Model(inputs, [linear1, linear2])
         model_runner = ModelRunner(model)
         result = model_runner.run([[1]])
 
@@ -244,9 +244,13 @@ class MyTestCase(unittest.TestCase):
         labels = Input(2, name="y_")
         losses = binary_cross_entropy(labels.tensor, h.tensor)
 
-        model = Model(input_layer, h, loss_tensors=losses, loss_inputs=labels, eval_tensors=losses,eval_inputs=labels)
+        model = Model(input_layer, h,
+                      train_loss_tensors=losses,
+                      train_loss_in=labels,
+                      eval_tensors=losses,
+                      eval_tensors_in=labels)
         runner = ModelRunner(model)
-        runner.config_training(optimiser)
+        runner.config_optimizer(optimiser)
 
         data = np.array([[1, 1, 1, 1]])
         target = np.array([[1.0, 0.0]])
@@ -256,13 +260,10 @@ class MyTestCase(unittest.TestCase):
         runner.init_vars()
         weights1 = runner.session.run(linear.weights)
 
-        for i in range(10000):
+        for i in range(10):
             runner.train(data, target)
-            print(runner.eval(data,target))
-            print(runner.run(data))
 
         weights2 = runner.session.run(linear.weights)
-
 
         self.assertFalse(np.array_equal(weights1, weights2))
 
