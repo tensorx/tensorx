@@ -844,6 +844,9 @@ class Merge(Layer):
             merge_fn: must operate on a list of tensors
             name: name for layer which creates a named-scope
 
+    Example::
+        out = tx.Merge([l1,l2],merge_fn=lambda tensors: tf.concat(tensors,axis=-1))
+
     Requires:
         * ``len(layers) == len(weights)``
         * all layers must have the same number of units
