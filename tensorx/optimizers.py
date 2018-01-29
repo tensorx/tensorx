@@ -14,6 +14,7 @@ class AMSGrad(optimizer.Optimizer):
     From: https://github.com/taki0112/AMSGrad-Tensorflow
 
     """
+
     def __init__(self, learning_rate=0.01, beta1=0.9, beta2=0.99, epsilon=1e-8, use_locking=False, name="AMSGrad"):
         super(AMSGrad, self).__init__(use_locking, name)
         self._lr = learning_rate
@@ -167,3 +168,6 @@ class AMSGrad(optimizer.Optimizer):
                     use_locking=self._use_locking)
         return control_flow_ops.group(*update_ops + [update_beta1, update_beta2],
                                       name=name_scope)
+
+
+__all__ = ["AMSGrad"]

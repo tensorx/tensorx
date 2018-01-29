@@ -6,9 +6,9 @@ additional documentation.
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops.losses.losses import mean_squared_error, sigmoid_cross_entropy, softmax_cross_entropy
+from tensorflow.python.ops.losses.losses import mean_squared_error, sigmoid_cross_entropy
+from tensorflow.python.ops.nn import softmax_cross_entropy_with_logits_v2
 from tensorflow.python.ops.losses.losses import hinge_loss as tf_hinge_loss
-from tensorflow.python.framework import dtypes
 
 
 def mse(labels, predictions, weights=1.0):
@@ -57,7 +57,7 @@ def binary_cross_entropy(labels, logits, weights=1.0):
     return sigmoid_cross_entropy(labels, logits)
 
 
-def categorical_cross_entropy(labels, logits, weights=1.0):
+def categorical_cross_entropy(labels, logits, dim=-1):
     """ Categorical Cross entropy
 
     Measures the probability error in discrete classification tasks in which the classes are mutually exclusive.
@@ -70,7 +70,7 @@ def categorical_cross_entropy(labels, logits, weights=1.0):
         labels: ground truth, correct values with a one-hot encoding. Each row labels[i] must be a valid probability
         distribution.
         logits: a tensor with the unscaled log probabilities used to predict the labels with softmax(logits)
-        weights: Optional `Tensor` whose rank is either 0, or the same rank as
+        dim: The class dimension. Defaulted to -1 which is the last dimension.
       `labels`, and must be broadcastable to `labels` (i.e., all dimensions must
       be either `1`, or the same as the corresponding `losses` dimension).
 
@@ -78,7 +78,7 @@ def categorical_cross_entropy(labels, logits, weights=1.0):
         ``Tensor``: a float ``Tensor``.
 
     """
-    return softmax_cross_entropy(labels, logits, weights)
+    return softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits, dim=dim)
 
 
 def binary_hinge(labels, logits, weights=1.0):
