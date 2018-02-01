@@ -31,8 +31,8 @@ class MyTestCase(unittest.TestCase):
 
         self.assertTrue(np.array_equal(dots.eval(), dotss.eval()))
 
-        v2 = tf.constant(np.random.uniform(-1, 1,[2, 3]))
-        v3 = tf.constant(np.random.uniform(-1, 1,[2, 3]))
+        v2 = tf.constant(np.random.uniform(-1, 1, [2, 3]))
+        v3 = tf.constant(np.random.uniform(-1, 1, [2, 3]))
         v2s = transform.to_sparse(v2)
         v3s = transform.to_sparse(v3)
 
@@ -67,8 +67,31 @@ class MyTestCase(unittest.TestCase):
         dense_values = tf.gather_nd(v2, v1s.indices)
         dense_mul = tf.multiply(v1s.values, dense_values)
 
-        result = mathx.sparse_multiply(v1s,v2)
-        self.assertTrue(np.array_equal(result.values.eval(),dense_mul.eval()))
+        result = mathx.sparse_multiply(v1s, v2)
+        self.assertTrue(np.array_equal(result.values.eval(), dense_mul.eval()))
+
+    def test_logit(self):
+        x_val = 0.2
+        x = tf.constant(x_val, dtype=tf.float32)
+        sigx = tf.nn.sigmoid(x)
+        logitx = mathx.logit(sigx)
+        logit_val = logitx.eval()
+
+        self.assertAlmostEqual(x_val, logit_val, places=6)
+
+    def test_logit_sparse(self):
+        """ NOTE:
+            I was thinking about making most math ops to support sparse tensors seamesly but I guess only some
+            of them are tricky to get to work, these kind of simple functions for instance are not the case can can be
+            applied to the values only when needed.
+        """
+        x_val = 0.2
+        x = tf.SparseTensor(indices=[[0, 0], [0, 1]], values=[x_val, x_val], dense_shape=[2, 2])
+        sigx = tf.SparseTensor(indices=[[0, 0], [0, 1]], values=tf.nn.sigmoid([x_val, x_val]), dense_shape=[2, 2])
+        logitx = tf.SparseTensor(indices=[[0, 0], [0, 1]], values=mathx.logit(sigx.values), dense_shape=[2, 2])
+
+        np.testing.assert_array_almost_equal(x.values.eval(), logitx.values.eval())
+
 
 if __name__ == '__main__':
     unittest.main()

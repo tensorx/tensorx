@@ -194,9 +194,27 @@ def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
     return SparseTensor(overlap1.indices, values, overlap1.dense_shape)
 
 
+def logit(x, dtype=dtypes.float32):
+    """
+    The logit function is defined as logit(p) = log(p/(1-p)). Note that logit(0) = -inf, logit(1) = inf, and logit(p) for p<0 or p>1 yields nan.
+
+    Args:
+        dtype: input tensor dtype
+        x: an input Tensor
+
+    Returns:
+        A Tensor of the same shape as x. Its entries are logit of the corresponding entry of x.
+    """
+    x = ops.convert_to_tensor(x, dtype)
+
+    x = math_ops.div(x, 1 - x)
+    return math_ops.log(x)
+
+
 __all__ = ["safe_div",
            "gaussian",
            "sparse_l2_norm",
            "sparse_dot",
            "batch_sparse_dot",
-           "sparse_multiply"]
+           "sparse_multiply",
+           "logit"]

@@ -1,10 +1,11 @@
 import tensorflow as tf
-from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import dtypes, ops
 from tensorflow.python.ops import array_ops, random_ops, math_ops, sparse_ops
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.transform import batch_to_matrix_indices, empty_sparse_tensor
+from tensorx.math import logit
 
 
 def _shape_tensor(shape, dtype=dtypes.int32):
@@ -230,7 +231,35 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
         return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype)
 
 
+def sample_sigmoid(x, n, dtype=dtypes.float32, seed=None, name="sample_sigmoid"):
+    """ Efficient sampling Bernoulli random variable x from a sigmoid defined distribution
+
+    Note:
+        This can be applied to the output layer of a neural net if this represents a bernoulli
+        distribution defined using a parameterized sigmoid-activated layer
+    Args:
+        dtype: input Tensor dtype
+        n: number of samples per row of x
+        x : a Tensor resulting from a sigmoid function
+
+    Returns:
+        a Tensor with the rank(x) + 1
+    """
+    with ops.name_scope(name, values=[x]):
+        x = ops.convert_to_tensor(x, dtype=dtype)
+        n = ops.convert_to_tensor(n)
+
+        shape = tf.shape(x)
+        sample_shape = tf.concat([[n], shape], axis=-1)
+
+        uniform_sample = random_ops.random_uniform(sample_shape, minval=0, maxval=1, dtype=x.dtype, seed=seed)
+        z = logit(uniform_sample, dtype=x.dtype)
+
+        return tf.cast(math_ops.greater(x, z), dtypes.float32)
+
+
 __all__ = ["sample",
            "sparse_random_normal",
            "sparse_random_mask",
-           "salt_pepper_noise"]
+           "salt_pepper_noise",
+           "sample_sigmoid"]

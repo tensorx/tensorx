@@ -4,6 +4,7 @@ import unittest
 import tensorflow as tf
 
 from tensorx import random as random
+from tensorx import transform
 import numpy as np
 
 
@@ -123,6 +124,30 @@ class TestRandom(unittest.TestCase):
         dense_mask = tf.sparse_tensor_to_dense(sp_mask)
         dense_result = dense_mask.eval()
         self.assertEqual(np.sum(dense_result), 0)
+
+    def test_sample_sigmoid(self):
+        shape = [4]
+        n_samples = 2
+        v = np.random.uniform(size=shape)
+        v = tf.nn.sigmoid(v)
+
+        sample = random.sample_sigmoid(v,n_samples)
+        print("sample: \n", sample.eval())
+
+        shape = [2,4]
+        n_samples = 2
+        v = np.random.uniform(size=shape)
+        v = tf.nn.sigmoid(v)
+
+        sample = random.sample_sigmoid(v, n_samples)
+        sample_val = sample.eval()
+        print("sample: \n", sample_val)
+
+        # I used val because I want to make sure we are working on the sample op and not calling the same op
+        # again
+        sp_sample = transform.to_sparse(sample_val)
+        dense_sample = tf.sparse_tensor_to_dense(sp_sample)
+        self.assertTrue(np.array_equal(sample_val, dense_sample.eval()))
 
 
 if __name__ == '__main__':
