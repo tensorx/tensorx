@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 from tensorx.layers import *
 from tensorx.layers import Lookup
+from tensorx.init import *
 
 from tensorx.layers import layers_to_list
 from tensorx.activation import *
@@ -137,14 +138,30 @@ class TestLayers(unittest.TestCase):
         self.assertEqual(var_names[0], shared_names[0])
         self.assertNotEqual(var_names_2[0], shared_names[0])
 
-        self.assertNotEqual(var_names[1],var_names_2[1])
-        self.assertNotEqual(var_names[1],shared_names[1])
+        self.assertNotEqual(var_names[1], var_names_2[1])
+        self.assertNotEqual(var_names[1], shared_names[1])
 
         with tf.variable_scope("", reuse=True):
             weights1 = tf.get_variable("linear/w")
             weights2 = tf.get_variable(shared_names[0])
 
             self.assertIs(weights1, weights2)
+
+    def test_linear_shared(self):
+        in1 = TensorLayer([[-1.]], 1)
+        in2 = TensorLayer([[2.]], 1)
+
+        l1 = Linear(in1,1,init=ones_init())
+        l2 = l1.reuse_on(in2, name="shared")
+
+        self.ss.run(tf.global_variables_initializer())
+
+        print(l1.tensor.eval())
+        print(l2.tensor.eval())
+
+        print(l1.variable_names)
+        print(l2.variable_names)
+
 
     def test_to_sparse(self):
         index = 0

@@ -11,19 +11,17 @@ Types of layers:
 
 """
 from functools import partial
-from tensorflow.python.framework import ops
-from tensorflow.python.framework.ops import Tensor
+from tensorflow.python.framework import ops, dtypes
+from tensorflow.python.framework.ops import Tensor, name_scope
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import check_ops
 
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variables
 from tensorflow.python.ops import variable_scope
-from tensorflow.python.framework.ops import name_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
 from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout, embedding_lookup
-from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform, zero_init
@@ -438,17 +436,23 @@ class Linear(Layer):
     """
 
     def __init__(self,
-                 layer,
+                 input_layer,
                  n_units,
                  init=random_uniform(),
                  weights=None,
                  bias=True,
                  dtype=dtypes.float32,
-                 name="linear"):
+                 name="linear", shared_with=None):
 
-        shape = [layer.shape[1], n_units]
-        super().__init__(layer, n_units, shape, dtype, name)
+        shape = [input_layer.shape[1], n_units]
+        super().__init__(input_layer, n_units, shape, dtype, name)
         self.weights = weights
+        self.init = init
+        self.bias = bias
+        self.shared_with = shared_with
+
+        if self.shared_with is not None and not isinstance(self.shared_with, Linear):
+            raise TypeError("Layer can only share variables with other layer of the same type")
 
         # if weights are passed, check that their shape matches the layer shape
         if self.weights is not None:
@@ -456,19 +460,25 @@ class Linear(Layer):
             if s != n_units:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
-        with layer_scope(self, var_scope=True):
+        self._build_graph(input_layer)
+
+    def _build_graph(self, input_layer):
+        var_scope_name = self.shared_with.name if self.shared_with is not None else None
+        var_reuse = self.shared_with is not None
+
+        with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
             # with name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
             # init weights
             if self.weights is None:
                 self.weights = variable_scope.get_variable("w",
                                                            shape=self.shape,
                                                            dtype=self.dtype,
-                                                           initializer=init)
+                                                           initializer=self.init)
             # store variables for easy access
             self._add_variable(self.weights)
             # y = xW
-            if layer.is_sparse():
-                sp_values = layer.tensor
+            if input_layer.is_sparse():
+                sp_values = input_layer.tensor
                 sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
 
                 lookup_sum = embedding_lookup_sparse(params=self.weights,
@@ -478,16 +488,19 @@ class Linear(Layer):
                                                      name=self.name + "_embeddings")
                 self.tensor = lookup_sum
             else:
-                self.tensor = math_ops.matmul(layer.tensor, self.weights)
+                self.tensor = math_ops.matmul(input_layer.tensor, self.weights)
 
             # y = xW + [b]
-            if bias:
+            if self.bias:
                 self.bias = variable_scope.get_variable("b",
                                                         shape=[self.n_units],
                                                         dtype=self.dtype,
                                                         initializer=zero_init())
                 self._add_variable(self.bias)
                 self.tensor = bias_add(self.tensor, self.bias, name="a")
+
+    def reuse_on(self, input_layer, name=None):
+        return Linear(input_layer, self.n_units, self.init, name=name, shared_with=self)
 
 
 class Lookup(Layer):
