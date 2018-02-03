@@ -49,7 +49,7 @@ class DSOMLearner(Learner):
         # l1 distance to winner neuron
         bmu = math_ops.argmin(distances, axis=1)
         bmu = array_ops.expand_dims(bmu, 1)
-        bmu_rows = transform.batch_to_matrix_indices(bmu)
+        bmu_rows = transform.column_indices_to_matrix_indices(bmu)
         winner_indices = array_ops.gather_nd(som_indices, bmu)
         som_l1 = metrics.torus_l1_distance(winner_indices, som_shape)
 

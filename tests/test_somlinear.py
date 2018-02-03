@@ -192,7 +192,7 @@ class MyTestCase(unittest.TestCase):
 
         print(bmu.eval())
 
-        bmu_rows = transform.batch_to_matrix_indices(bmu)
+        bmu_rows = transform.column_indices_to_matrix_indices(bmu)
         winner_distances = tf.gather_nd(distances, bmu_rows)
 
         winner_indices = tf.gather_nd(som_indices, bmu)
@@ -237,7 +237,7 @@ class MyTestCase(unittest.TestCase):
         distances = pairwise_cosine_distance(inputs, som)
         bmu = tf.argmin(distances, axis=1)
         bmu_batch = tf.expand_dims(bmu, 1)
-        bmu_rows = transform.batch_to_matrix_indices(bmu_batch)
+        bmu_rows = transform.column_indices_to_matrix_indices(bmu_batch)
 
         print("som: \n", som.eval())
         print("distances:\n", distances.eval())
@@ -388,7 +388,7 @@ class MyTestCase(unittest.TestCase):
         # WINNER l1 DISTANCE
         bmu = tf.argmin(distances, axis=1)
         bmu = tf.expand_dims(bmu, 1)
-        bmu_rows = transform.batch_to_matrix_indices(bmu)
+        bmu_rows = transform.column_indices_to_matrix_indices(bmu)
         winner_indices = tf.gather_nd(som_indices, bmu)
 
         som_l1 = torus_l1_distance(winner_indices, som_shape)

@@ -69,7 +69,7 @@ def indices(shape, name="grid"):
             ys = array_ops.tile(ys, [max_x])
             ys = array_ops.reshape(ys, shape)
 
-            xys = batch_to_matrix_indices(ys)
+            xys = column_indices_to_matrix_indices(ys)
             return xys
         else:
             raise ValueError("Invalid shape: shape should have len 1 or 2")
@@ -105,10 +105,10 @@ def pairs(tensor1, tensor2, name="pairs"):
         return result
 
 
-def batch_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
-    """ Converts a batch of indices to a 2-D tensor of matrix indices.
+def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
+    """ Converts batches of column indices to batches of [row,column] indices
 
-    For a given batch of indices of shape [n,m] this op outputs a 2-D ``Tensor``
+    For a given batch of indices of shape [n,m] or [b,n,m] this op outputs a 2-D ``Tensor``
     with the `row-index pairs`::
 
         [[r1,i1],[r1,i2],...,[r1,im],
@@ -117,7 +117,7 @@ def batch_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
          [rn,i1],[rn,i2],...,[rn,im]]
 
 
-    Example::
+    Rank 2 Example::
 
             tensor = [[1,2],
                       [2,5]]
@@ -130,6 +130,28 @@ def batch_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
              [1,2],
              [1,5]]
 
+
+
+    Rank 3 Example::
+
+            tensor = [[[1,2],
+                       [3,4]],
+
+                       [5,6],
+                       [7,8]]]
+
+            batch_to_matrix(tensor)
+
+             [[[0,1],
+               [0,2],
+               [1,3],
+               [1,4]],
+
+               [[0,5],
+               [0,6],
+               [1,7],
+               [1,8]]]
+
     Use Case:
         Convert a batch of indices (used to slice another tensor with embedding lookup or gather)
         to be used in a SparseTensor, so that we can change the weights of each slice.
@@ -137,10 +159,11 @@ def batch_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
     Args:
         dtype: int32 or int64, the output tensor type
         name: name for batch_to_matrix_indices op
-        tensor: the tensor to be converted
+        tensor: a ``Tensor`` with rank 2 or rank 3
 
         Returns:
-            ``Tensor``: a 2-D tensor with (row index,value) for each index in the input tensor.
+            ``Tensor``: a tensor with (row,column) for each index in the input tensor. If the input is a tensor with
+            rank 3 it outputs a rank 3 tensor. It considers the last two dimensions as the ones to be converted.
 
     """
     with ops.name_scope(name):
@@ -149,20 +172,34 @@ def batch_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
             raise TypeError("Invalid tensor type: expected {t1} or {t2}, found {t3}".format(t1=dtypes.int32,
                                                                                             t2=dtypes.int64,
                                                                                             t3=tensor.dtype))
-        shape = tensor.get_shape().with_rank(2)
-        if shape.is_fully_defined():
-            shape = shape.as_list()
-        else:
-            shape = array_ops.shape(tensor)
 
-        rows = math_ops.range(math_ops.cast(shape[0], tensor.dtype))
-        rows = array_ops.expand_dims(rows, 1)
+        static_shape = tensor.get_shape().with_rank_at_most(3)
+        shape = array_ops.shape(tensor)
+        rows = math_ops.range(math_ops.cast(shape[-2], tensor.dtype))
 
-        multiples = array_ops.stack([1, shape[1]])
-        rows = array_ops.tile(rows, multiples)
+        # [0, 1] -> [[0,0,...],[1,1,...]] -> [0,0,...,1,1,...]
+        multiples = array_ops.stack([1, shape[-1]])
+        rows = array_ops.tile(array_ops.expand_dims(rows, -1), multiples)
+        rows = array_ops.reshape(rows, [-1])
 
-        enum = array_ops.stack([rows, tensor], axis=-1)
-        enum = array_ops.reshape(enum, shape=[-1, 2])
+        if static_shape.ndims == 3:
+            multiples = array_ops.stack([1, shape[-3]])
+            rows = array_ops.tile(array_ops.expand_dims(rows, 0), multiples)
+            rows = array_ops.reshape(rows, [-1])
+
+        # determine shape for final reshape
+        s = []
+        if static_shape.ndims == 3:
+            s.append(shape[0])
+        s += [shape[-2] * shape[-1], 2]
+        s = array_ops.stack(s)
+
+        # align rows, transpose and reshape to the final shape
+        flat_tensor = array_ops.reshape(tensor, shape=[-1])
+        enum = array_ops.stack([rows, flat_tensor])
+        enum = array_ops.transpose(enum)
+        enum = array_ops.reshape(enum, shape=s)
+
         return enum
 
 
@@ -340,7 +377,7 @@ def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
             `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
     """
     flat_indices = to_tensor_cast(indices, dtypes.int64)
-    indices = batch_to_matrix_indices(flat_indices, dtype=dtypes.int64)
+    indices = column_indices_to_matrix_indices(flat_indices, dtype=dtypes.int64)
 
     return sparse_ones(indices, dense_shape, dtype)
 
@@ -500,8 +537,8 @@ def sparse_overlap(sp_tensor1, sp_tensor2):
 
     index_filter = math_ops.equal(indice_union.values, 2.)
 
-    zeros1 = sparse_zeros(indice_union.indices,indice_union.dense_shape,sp_tensor1.values.dtype)
-    expand1 = sparse_ops.sparse_add(zeros1,sp_tensor1)
+    zeros1 = sparse_zeros(indice_union.indices, indice_union.dense_shape, sp_tensor1.values.dtype)
+    expand1 = sparse_ops.sparse_add(zeros1, sp_tensor1)
 
     filtered = sparse_ops.sparse_retain(expand1, index_filter)
     return filtered
@@ -509,7 +546,7 @@ def sparse_overlap(sp_tensor1, sp_tensor2):
 
 __all__ = ["empty_sparse_tensor",
            "to_sparse",
-           "batch_to_matrix_indices",
+           "column_indices_to_matrix_indices",
            "dense_one_hot",
            "sparse_one_hot",
            "dense_put",

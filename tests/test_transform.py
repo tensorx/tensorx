@@ -41,21 +41,47 @@ class TestTransform(unittest.TestCase):
         np.testing.assert_array_equal(expected, result.eval())
 
     def test_batch_to_matrix_indices(self):
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
         data = [[0, 1, 3], [1, 2, 3]]
+        const_data = tf.constant(data)
+        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
         expected = [[0, 0], [0, 1], [0, 3], [1, 1], [1, 2], [1, 3]]
 
-        result = transform.batch_to_matrix_indices(ph, dtype=tf.int64)
+        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
+        result = result.eval()
+        np.testing.assert_array_equal(expected, result)
+
+        result = transform.column_indices_to_matrix_indices(ph, dtype=tf.int64)
         result = result.eval({ph: data})
+
         np.testing.assert_array_equal(expected, result)
 
         ph = tf.placeholder(dtype=tf.int64, shape=[None, 3])
-        result = transform.batch_to_matrix_indices(ph, dtype=tf.int64)
+        result = transform.column_indices_to_matrix_indices(ph, dtype=tf.int64)
         result = result.eval({ph: data})
         np.testing.assert_array_equal(expected, result)
 
-        ph = tf.placeholder(dtype=tf.int64, shape=[None, 3, 1])
-        self.assertRaises(ValueError, transform.batch_to_matrix_indices, ph)
+    def test_batch_to_matrix_indices_2d(self):
+        data = [[1,2], [3,4]]
+        const_data = tf.constant(data)
+        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
+        expected = [[0, 1], [1, 2]]
+
+        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
+
+    def test_batch_to_matrix_indices_3d(self):
+        data = [[[1], [2]], [[3], [4]]]
+        const_data = tf.constant(data)
+        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
+        expected = [[[0, 1], [1, 2]], [[0, 3], [1, 4]]]
+
+        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
+
+        data = [[[1,2], [3,4]], [[5,6], [7,8]]]
+        const_data = tf.constant(data)
+        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
+        expected = [[[0, 1], [0, 2],[1,3],[1,4]], [[0, 5],[0,6],[1, 7],[1,8]]]
+
+        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
 
     def test_sparse_put(self):
         tensor = tf.SparseTensor([[0, 0], [1, 0]], [2, 0.2], [2, 2])
@@ -185,7 +211,6 @@ class TestTransform(unittest.TestCase):
         overlap2 = transform.sparse_overlap(tensor2, tensor1)
         self.assertTrue(np.array_equal(overlap.indices.eval(), overlap2.indices.eval()))
 
-
         # sparse overlapping with no overlapping
         tensor3 = tf.SparseTensor([[0, 1], [1, 1]], [3, 4], [2, 3])
         overlap = transform.sparse_overlap(tensor1, tensor3)
@@ -195,9 +220,6 @@ class TestTransform(unittest.TestCase):
         overlap = transform.sparse_overlap(tensor2, tensor3)
         expected_overlap_value = [5]
         self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
-
-
-
 
 
 if __name__ == '__main__':
