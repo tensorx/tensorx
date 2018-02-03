@@ -6,7 +6,7 @@ import numpy as np
 
 from tensorx import transform
 from tensorx.math import gaussian, sparse_multiply
-from tensorx.som import DSOM_Learner
+from tensorx.som import DSOMLearner
 
 
 def broadcast_reshape(tensor1, tensor2):
@@ -203,11 +203,11 @@ class MyTestCase(unittest.TestCase):
         learning_rate = 0.1
         elasticity = 1.2
         neighbourhood_threshold = 1e-6
-        dsom_learner = DSOM_Learner(som_shape=som_shape,
-                                    learning_rate=learning_rate,
-                                    elasticity=elasticity,
-                                    distance_metric=pairwise_cosine_distance,
-                                    neighbourhood_threshold=neighbourhood_threshold)
+        dsom_learner = DSOMLearner(som_shape=som_shape,
+                                   learning_rate=learning_rate,
+                                   elasticity=elasticity,
+                                   distance_metric=pairwise_cosine_distance,
+                                   neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs, [som])
 
@@ -333,12 +333,12 @@ class MyTestCase(unittest.TestCase):
         learning_rate = 0.1
         elasticity = 1.2
         neighbourhood_threshold = 1e-6
-        dsom_learner = DSOM_Learner(var_list=[som],
-                                    som_shape=som_shape,
-                                    learning_rate=learning_rate,
-                                    elasticity=elasticity,
-                                    metric=pairwise_cosine_distance,
-                                    neighbourhood_threshold=neighbourhood_threshold)
+        dsom_learner = DSOMLearner(var_list=[som],
+                                   som_shape=som_shape,
+                                   learning_rate=learning_rate,
+                                   elasticity=elasticity,
+                                   metric=pairwise_cosine_distance,
+                                   neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs)
         print(deltas[0][0].eval())
@@ -423,12 +423,12 @@ class MyTestCase(unittest.TestCase):
 
         delta = tf.reduce_mean(delta,0)
 
-        dsom_learner = DSOM_Learner(var_list=[som],
-                                    som_shape=som_shape,
-                                    learning_rate=learning_rate,
-                                    elasticity=elasticity,
-                                    metric=pairwise_cosine_distance,
-                                    neighbourhood_threshold=neighbourhood_threshold)
+        dsom_learner = DSOMLearner(var_list=[som],
+                                   som_shape=som_shape,
+                                   learning_rate=learning_rate,
+                                   elasticity=elasticity,
+                                   metric=pairwise_cosine_distance,
+                                   neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs)
 

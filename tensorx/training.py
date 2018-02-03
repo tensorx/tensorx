@@ -12,11 +12,11 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 
 import os
 from abc import ABCMeta, abstractmethod
-from typing import Tuple, Union, List
 
 from tensorflow.python.client.session import Session, InteractiveSession
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops, math_ops, control_flow_ops
+from tensorflow.python.framework.ops import dtypes
+from tensorflow.python.ops import array_ops, math_ops, control_flow_ops, logging_ops, clip_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
 from tensorflow.python.ops.variables import Variable
@@ -192,13 +192,39 @@ def _as_list(elems):
     return elems
 
 
-def get_feedable(inputs):
+def _get_feedable(inputs):
     feedable = []
-    for layers in inputs:
-        if hasattr(layers, 'placeholder'):
-            feedable.append(layers)
-        #    raise TypeError("Expected list of feedable layers, {} found in the list instead".format(type(layers)))
+    for elem in inputs:
+        if hasattr(elem, 'placeholder'):
+            feedable.append(elem)
     return feedable
+
+
+class Param:
+    def __init__(self, value, dtype=dtypes.float32, name=None):
+        self.dtype = dtype
+        self.tensor = ops.convert_to_tensor(value)
+        self.name = name
+
+
+class InputParam(Param):
+    def __init__(self, dtype=dtypes.float32, name=None):
+        self.placeholder = array_ops.placeholder(dtype=dtype, shape=[], name=name)
+        super().__init__(self.placeholder, dtype, name)
+
+
+class WrapParam(Param):
+    def __init__(self, param, tensor_op, dtype=dtypes.float32, name=None):
+        if not isinstance(param, Param):
+            raise TypeError("expected Param got {} instead".format(type(param)))
+
+        if hasattr(param, "placeholder"):
+            self.placeholder = param.placeholder
+
+        self.param = param,
+        value = tensor_op(param.tensor)
+
+        super().__init__(value, dtype, name=name)
 
 
 class Model:
@@ -235,6 +261,7 @@ class Model:
                  train_out_layers=None,
                  train_loss_in=None,
                  train_loss_tensors=None,
+                 train_loss_weights=1.0,
                  eval_in_layers=None,
                  eval_out_layers=None,
                  eval_tensors_in=None,
@@ -258,6 +285,7 @@ class Model:
 
         self.train_loss_in = _as_list(train_loss_in)
         self.train_loss_tensors = _as_list(train_loss_tensors)
+        self.train_loss_weights = train_loss_weights
 
         # eval graph and ops
         if eval_in_layers is None:
@@ -292,19 +320,19 @@ class Model:
             a :obj:`list` of input `Layer` instances
 
         """
-        return get_feedable(self.run_in_layers)
+        return _get_feedable(self.run_in_layers)
 
     def feedable_eval(self):
-        return get_feedable(self.eval_in_layers)
+        return _get_feedable(self.eval_in_layers)
 
     def feedable_eval_tensors(self):
-        return get_feedable(self.eval_tensors_in)
+        return _get_feedable(self.eval_tensors_in)
 
     def feedable_train(self):
-        return get_feedable(self.train_in_layers)
+        return _get_feedable(self.train_in_layers)
 
     def feedable_train_tensors(self):
-        return get_feedable(self.train_loss_in)
+        return _get_feedable(self.train_loss_in)
 
     def __str__(self):
         lines = ["===== {name}/RUN =====".format(name=self.name)]
@@ -373,9 +401,10 @@ class ModelRunner:
         self._var_inited = (None, None)
 
         # properties for training
-        self.optimiser = None
-        self.loss_weights = 1.0
+        self.optimizer = None
+        self.optimizer_params = []
         self.joint_loss = None
+        self.var_list = None
         self.train_step = None
 
         # op for model saving and restoring
@@ -584,21 +613,40 @@ class ModelRunner:
             result = result[0]
         return result
 
-    def config_optimizer(self, optimiser, loss_weights=1.0):
+    def config_optimizer(self, optimizer, params=None, gradient_op=None, global_gradient_op=False, var_list=None):
         """ Configures the model for training
 
         # TODO add support for other Variable Learners (for SOMs or Free-energy minimisation)
+        # TODO add support for gradient monitoring (might be useful to monitor the model)
+        # the idea is to add an op that can be applied to the gradients and output in the training method
+
+
+        Note:
+            I suspect we only need to process gradients directly (gradient clipping etc). If the use-case
+            arises, we can modify this to accept a function that takes a list of (gradient,variable) tupples
+            and returns a list of new  (gradientd,variable) tensors to be applied.
+
+        Gradient OP Example:
+            to apply a global gradient op like `tf.clip_by_global_norm`` would require the user to wrap this in a
+            function that given a list of gradients produces a list of new gradient tensors:
+
+            gradient_op: [grads] -> [grads]
 
         Args:
-            losses: a :obj:`list` or single loss `Tensor` instances to be used to train the model variables
-            target_labels: a :obj:`list` or single input layers that will be used with the loss function
-            optimiser: the tensorflow optimiser used to train the model
-            loss_weights: weights used to create a join loss if we configure the model with multiple losses
-            learner: in case the model uses a learner function to change variables, include it here
+            global_gradient_op: if True applies gradient_op to the entire gradient list,
+            if False calls gradient_op for each gradient in the list individually.
+            var_list: list o variables modified by the optimizer, if None, the optimizer is applied to
+            all variables marked as trainable.
+            gradient_op : gradient op is to be applied to each gradient.
+            params: a :obj:`list` or single `Param` to be used with the optimizer, the feedable
+            parameters should be fed by the same order in the train method
 
+            optimizer: the tensorflow optimiser used to train the model
         """
-        self.optimiser = optimiser
-        self.loss_weights = loss_weights
+        self.optimizer = optimizer
+        self.optimizer_params = _as_list(params)
+        self.var_list = var_list
+        loss_weights = self.model.train_loss_weights
 
         # if more than one loss is passed, create a (optionally weighted) joint loss function
         if len(self.model.train_loss_tensors) > 1:
@@ -609,9 +657,22 @@ class ModelRunner:
         else:
             self.joint_loss = self.model.train_loss_tensors[0]
 
-        self.train_step = self.optimiser.minimize(self.joint_loss)
+        if gradient_op is not None:
+            grads_vars = self.optimizer.compute_gradients(self.joint_loss, var_list=self.var_list)
+            gradients, variables = zip(*grads_vars)
 
-    def train(self, data=None, loss_input_data=None):
+            if global_gradient_op:
+                new_gradients = gradient_op(gradients)
+            else:
+                new_gradients = [None if g is None else gradient_op(g) for g in gradients]
+
+            grads_vars = zip(new_gradients, variables)
+
+            self.train_step = self.optimizer.apply_gradients(grads_vars)
+        else:
+            self.train_step = self.optimizer.minimize(self.joint_loss, var_list=var_list)
+
+    def train(self, data=None, loss_input_data=None, optimizer_param_values=None):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -623,6 +684,7 @@ class ModelRunner:
             You need to run :func:`config` before calling `train`.
 
         Args:
+            optimizer_param_values: values to be fed to the feedable ``Params`` specified in ``config_optimizer``
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             loss_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
         """
@@ -632,8 +694,10 @@ class ModelRunner:
         if not self.vars_inited():
             self.init_vars()
 
+        # =========================
+        #   FEED DATA
+        # =========================
         data = _as_list(data)
-
         feedable_inputs = self.model.feedable_train()
         n_feedable = len(feedable_inputs)
         n_data = len(data)
@@ -643,6 +707,9 @@ class ModelRunner:
 
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
 
+        # =======================================
+        #   FEED LOSS TENSORS (e.g. with labels)
+        # =======================================
         loss_input_data = _as_list(loss_input_data)
         feedable_loss_inputs = self.model.feedable_train_tensors()
         n_feedable_targets = len(feedable_loss_inputs)
@@ -654,7 +721,25 @@ class ModelRunner:
 
         target_dict = {loss_input.placeholder: loss_input_data for loss_input, loss_input_data in
                        zip(feedable_loss_inputs, loss_input_data)}
+
+        # =========================
+        #   FEED OPTIMIZER PARAMS
+        # =========================
+        param_values = _as_list(optimizer_param_values)
+        feedable_params = _get_feedable(self.optimizer_params)
+        if len(param_values) != len(feedable_params):
+            raise ValueError(
+                "received {n_params} optimizer parameter values, expected {n_feedable}".format(
+                    n_params=len(param_values),
+                    n_feedable=len(feedable_params))
+            )
+
+        param_dict = {param.placeholder: value for param, value in zip(feedable_params, param_values)}
+
+        # MERGE ALL DICTS
+
         feed_dict.update(target_dict)
+        feed_dict.update(param_dict)
 
         self.session.run(self.train_step, feed_dict)
 
@@ -705,4 +790,8 @@ class ModelRunner:
         return result
 
 
-__all__ = ["Model", "ModelRunner"]
+__all__ = ["Model",
+           "ModelRunner",
+           "Param",
+           "InputParam",
+           "WrapParam"]

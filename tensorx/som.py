@@ -11,7 +11,7 @@ from tensorx import metrics
 from tensorx.math import gaussian
 
 
-class DSOM_Learner(Learner):
+class DSOMLearner(Learner):
     def __init__(self, var_list, som_shape, learning_rate=0.1, elasticity=1.0, neighbourhood_threshold=1e-6,
                  metric=metrics.pairwise_sparse_cosine_distance):
         """ The variable might be a flat version of the som_shape

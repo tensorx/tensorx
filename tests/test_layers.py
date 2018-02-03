@@ -135,18 +135,10 @@ class TestLayers(unittest.TestCase):
         shared_names = layer_shared.variable_names
 
         self.assertEqual(var_names[0], shared_names[0])
+        self.assertNotEqual(var_names_2[0], shared_names[0])
 
-        print(var_names)
-        # print(layer.name)
-        print(var_names_2)
-        # print(layer2.name)
-        print(shared_names)
-        # print(layer_shared.name)
-
-        # with tf.variable_scope():
-        # with tf.variable_scope('',reuse=True):
-        #    v = tf.get_variable(var_names[0])
-        #    print(v.name)
+        self.assertNotEqual(var_names[1],var_names_2[1])
+        self.assertNotEqual(var_names[1],shared_names[1])
 
         with tf.variable_scope("", reuse=True):
             weights1 = tf.get_variable("linear/w")

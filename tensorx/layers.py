@@ -45,11 +45,16 @@ class LayerScope:
         layer: layer to be used in this scope, the layer name is used as scope name for tensorflow name_scope
         and variable_scope, also modifies the layer name if the scope name clashes with existing names
 
+        reuse: if True does not change the input layer name but it does create a unique name for name_scope
+        (for debug purposes only)
         var_scope: if True creates a variable_scope along with the named scope
         var_reuse: if True the variable scopes are created with the reuse option
+        var_scope_name: if not None uses this name instead of the layer unique layer.name as a var scope
     """
 
-    def __init__(self, layer, values=None, var_scope=False, var_reuse=False):
+    def __init__(self, layer, values=None, var_scope=None, var_reuse=False, var_scope_name=None, reuse=False):
+        self.reuse = reuse
+        self.var_scope_name = var_scope_name
         self.layer = layer
         self.values = values
         self.var_scope = var_scope
@@ -62,15 +67,18 @@ class LayerScope:
 
             unique_name = stack.enter_context(layer_name_scope)
             unique_name = unique_name[:-1]
-            self.layer.name = unique_name
+            if not self.reuse:
+                self.layer.name = unique_name
 
             if self.var_scope:
-                layer_var_scope = variable_scope.variable_scope(self.layer.name, reuse=self.var_reuse)
+                if self.var_scope_name is None:
+                    self.var_scope_name = self.layer.name
+                layer_var_scope = variable_scope.variable_scope(self.var_scope_name, reuse=self.var_reuse)
                 stack.enter_context(layer_var_scope)
 
             self._stack = stack.pop_all()
 
-            return unique_name
+            return self.layer.name
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._stack.__exit__(exc_type, exc_val, exc_tb)
@@ -137,7 +145,7 @@ class Layer:
         tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
         dtype: the tensorflow dtype for the output tensor
         name: a name used to build a tensorflow named_scope for the layer
-        variable_names: a list of `tf.Variable` with the fully qualified name `layer_name/var_name'
+        variable_names: a list of `tf.Variable` fully qualified name `layer_name/var_name'
 
     Note:
         Variables can be re-used elsewhere based on variable_names as follows::
@@ -440,19 +448,18 @@ class Linear(Layer):
 
         shape = [layer.shape[1], n_units]
         super().__init__(layer, n_units, shape, dtype, name)
+        self.weights = weights
 
         # if weights are passed, check that their shape matches the layer shape
-        if weights is not None:
-            (_, s) = weights.get_shape()
+        if self.weights is not None:
+            (_, s) = self.weights.get_shape()
             if s != n_units:
                 raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
         with layer_scope(self, var_scope=True):
             # with name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
             # init weights
-            if weights is not None:
-                self.weights = weights
-            else:
+            if self.weights is None:
                 self.weights = variable_scope.get_variable("w",
                                                            shape=self.shape,
                                                            dtype=self.dtype,
