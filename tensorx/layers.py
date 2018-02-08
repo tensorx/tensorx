@@ -217,25 +217,6 @@ class Layer:
         """
         return isinstance(self.tensor, SparseTensor)
 
-    def _forward(self, prev_layer):
-        """ Modifies the current layer with the relevant outputs
-        from the given layer.
-
-        Use Cases:
-            when the current layer parameters define a transformation that does not
-            affect the previous layer
-
-            TODO I should probably issue a warning when this happens, so that users know what's going on
-        Args:
-            prev_layer: the layer to be forwarded in this layer
-
-        Returns:
-
-        """
-
-        self.shape = prev_layer.shape
-        self.tensor = prev_layer.tensor
-
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
         Sparse or Dense.
@@ -531,7 +512,7 @@ class Linear(Layer):
                 tensor = bias_add(tensor, self.bias, name="a")
         return tensor
 
-    def reuse_on(self, input_layer, name=None):
+    def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -650,7 +631,7 @@ class Lookup(Layer):
 
         return tensor
 
-    def reuse_on(self, input_layer, name=None):
+    def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -692,9 +673,11 @@ class ToSparse(Layer):
 
         with layer_scope(self):
             if layer.is_sparse():
-                self._forward(layer)
+                tensor = layer.tensor
             else:
-                self.tensor = transform.to_sparse(layer.tensor)
+                tensor = transform.to_sparse(layer.tensor)
+
+        self.tensor = tensor
 
 
 class ToDense(Layer):
@@ -710,9 +693,10 @@ class ToDense(Layer):
 
         with layer_scope(self):
             if layer.is_sparse():
-                self.tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
+                tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
-                self._forward(layer)
+                tensor = layer.tensor
+        self.tensor = tensor
 
 
 class Dropout(Layer):
@@ -741,16 +725,18 @@ class Dropout(Layer):
     """
 
     def __init__(self, layer, keep_prob=0.1, seed=None):
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
-
         self.seed = seed
         self.keep_prob = keep_prob
 
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
+
         with layer_scope(self):
             if layer.is_sparse():
-                self.tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
+                tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
             else:
-                self.tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
+                tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
+
+        self.tensor = tensor
 
 
 class GaussianNoise(Layer):
@@ -773,27 +759,29 @@ class GaussianNoise(Layer):
     """
 
     def __init__(self, layer, mean=0.0, stddev=0.2, seed=None):
+        self.mean = mean
+        self.stddev = stddev
+        self.seed = seed
+
         super().__init__(input_layers=layer,
                          n_units=layer.n_units,
                          shape=layer.shape,
                          dtype=layer.dtype,
                          name=layer.name + "_gaussian_noise")
 
-        self.mean = mean
-        self.stddev = stddev
-        self.seed = seed
-
         with layer_scope(self):
             if layer.is_sparse():
-                self.tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
+                tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
-                self.tensor = layer.tensor
+                tensor = layer.tensor
 
-            noise_shape = array_ops.shape(self.tensor)
+            noise_shape = array_ops.shape(tensor)
             noise = random_ops.random_normal(noise_shape, mean, stddev, seed=seed, dtype=dtypes.float32)
 
-            self.tensor = math_ops.cast(self.tensor, dtypes.float32)
-            self.tensor = math_ops.add(self.tensor, noise)
+            tensor = math_ops.cast(tensor, dtypes.float32)
+            tensor = math_ops.add(tensor, noise)
+
+        self.tensor = tensor
 
 
 class SparseGaussianNoise(Layer):
@@ -805,6 +793,11 @@ class SparseGaussianNoise(Layer):
     """
 
     def __init__(self, layer, density=0.1, mean=0.0, stddev=0.2, dtype=None, seed=None):
+        self.density = density
+        self.mean = mean
+        self.stddev = stddev
+        self.seed = seed
+
         self.dtype = layer.dtype
         if dtype is not None:
             self.dtype = dtype
@@ -813,19 +806,17 @@ class SparseGaussianNoise(Layer):
                          shape=layer.shape,
                          dtype=self.dtype,
                          name=layer.name + "_sparse_gaussian_noise")
-        self.density = density
-        self.mean = mean
-        self.stddev = stddev
-        self.seed = seed
 
         with layer_scope(self):
             noise_shape = layer.shape
             noise = sparse_random_normal(noise_shape, density, mean, stddev, self.dtype, seed)
 
             if layer.is_sparse():
-                self.tensor = transform.sparse_put(layer.tensor, noise)
+                tensor = transform.sparse_put(layer.tensor, noise)
             else:
-                self.tensor = transform.dense_put(layer.tensor, noise)
+                tensor = transform.dense_put(layer.tensor, noise)
+
+        self.tensor = tensor
 
 
 class SaltPepperNoise(Layer):
@@ -849,16 +840,16 @@ class SaltPepperNoise(Layer):
     """
 
     def __init__(self, layer, density=0.1, salt_value=1, pepper_value=-1, seed=None):
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
-
         self.density = density
         self.seed = seed
         self.salt_value = salt_value
         self.pepper_value = pepper_value
 
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
+
         # do nothing if amount of noise is 0
         if density == 0.0 or self.num_corrupted() > 0:
-            self._forward(layer)
+            tensor = layer.tensor
         else:
             with layer_scope(self):
                 noise_shape = layer.shape
@@ -872,9 +863,11 @@ class SaltPepperNoise(Layer):
                 noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
 
                 if layer.is_sparse(layer):
-                    self.tensor = transform.sparse_put(layer.tensor, noise)
+                    tensor = transform.sparse_put(layer.tensor, noise)
                 else:
-                    self.tensor = transform.dense_put(layer.tensor, noise)
+                    tensor = transform.dense_put(layer.tensor, noise)
+
+        self.tensor = tensor
 
     def num_corrupted(self):
         """ Returns the number of entries corrupted by noise per sample"""
@@ -910,15 +903,17 @@ class Activation(Layer):
     """
 
     def __init__(self, layer, fn=array_ops.identity, **keywords):
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
         self.fn = partial(fn, **keywords)
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
 
         with layer_scope(self):
             if layer.is_sparse():
                 tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
                 tensor = layer.tensor
-            self.tensor = self.fn(tensor)
+            tensor = self.fn(tensor)
+
+        self.tensor = tensor
 
 
 class Bias(Layer):
@@ -936,17 +931,49 @@ class Bias(Layer):
         name: the name for the bias layer tensorflow scope
     """
 
-    def __init__(self, layer, name="bias"):
-        bias_name = layer.dtype, "{}_{}".format(layer.name, name)
+    def __init__(self, layer, name="bias", share_vars_with=None):
+
+        self.share_vars_with = share_vars_with
+        bias_name = "{}_{}".format(layer.name, name)
+
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, bias_name)
 
-        with layer_scope(self, var_scope=True):
+        if self.share_vars_with is not None:
+            if not isinstance(self.share_vars_with, Bias):
+                raise TypeError("Layer can only share variables with other layer of the same type")
+
+            if self.n_units != self.share_vars_with.n_units:
+                raise ValueError("Can only share variables with layers with the same n_units: "
+                                 "share_vars_with is provided but \n"
+                                 "self n_units: {s0} different from "
+                                 "other n_units: {s1}".format(s0=self.n_units, s1=self.share_vars_with.n_units))
+
+        var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
+        var_reuse = self.share_vars_with is not None
+
+        with layer_scope(self, values=[layer.tensor],
+                         var_scope=True,
+                         var_reuse=var_reuse,
+                         var_scope_name=var_scope_name):
             self.bias = variable_scope.get_variable("b", shape=[self.n_units], initializer=zero_init())
+            self._add_variable(self.bias)
             if layer.is_sparse():
                 tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
             else:
                 tensor = layer.tensor
-            self.tensor = bias_add(tensor, self.bias, name="tensor")
+                tensor = bias_add(tensor, self.bias, name="tensor")
+
+        self.tensor = tensor
+
+    def reuse_with(self, layer, name=None):
+        share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
+
+        if name is None:
+            name = self.name
+
+        return Bias(layer=layer,
+                    name=name,
+                    share_vars_with=share_vars_with)
 
 
 class Merge(Layer):
@@ -992,7 +1019,9 @@ class Merge(Layer):
                 tensors = [math_ops.scalar_mul(weights[i], layers[i].tensor) for i in range(len(layers))]
             else:
                 tensors = [layer.tensor for layer in layers]
-            self.tensor = merge_fn(tensors)
+            tensor = merge_fn(tensors)
+
+        self.tensor = tensor
 
 
 class Add(Merge):
@@ -1028,7 +1057,9 @@ class Concat(Layer):
 
         with layer_scope(self):
             tensors = [layer.tensor for layer in layers]
-            self.tensor = array_ops.concat(tensors, axis=-1)
+            tensor = array_ops.concat(tensors, axis=-1)
+
+        self.tensor = tensor
 
 
 class SOMLinear(Layer):

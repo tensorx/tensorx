@@ -20,14 +20,24 @@ class TestLayers(unittest.TestCase):
     def tearDown(self):
         self.ss.close()
 
+    def test_bias_reuse(self):
+        in1 = TensorLayer([[1.]], 1)
+        in2 = TensorLayer([[1.]], 1)
+
+        b1 = Bias(in1)
+        b2 = b1.reuse_with(in2)
+
+        self.assertListEqual(b1.variable_names, b2.variable_names)
+
     def test_reusable_layers(self):
         in1 = TensorLayer([[1.]], 1)
         in2 = TensorLayer([[1.]], 1)
         in3 = TensorLayer([[-1.]], 1)
 
         layer1 = Linear(in1, 2)
-        layer2 = layer1.reuse_on(in2)
-        layer3 = layer2.reuse_on(in3)
+
+        layer2 = layer1.reuse_with(in2)
+        layer3 = layer2.reuse_with(in3)
 
         self.assertListEqual(layer1.variable_names, layer2.variable_names)
         self.assertListEqual(layer2.variable_names, layer3.variable_names)
@@ -176,9 +186,9 @@ class TestLayers(unittest.TestCase):
         in2 = TensorLayer([[2.]], 1)
 
         l1 = Linear(in1, 1, init=ones_init())
-        l2 = l1.reuse_on(in2, name="shared")
+        l2 = l1.reuse_with(in2, name="shared")
         l3 = Linear(in1, 1, init=ones_init(), shared_weights=l1.weights, bias=True)
-        l4 = l3.reuse_on(in2)
+        l4 = l3.reuse_with(in2)
 
         self.ss.run(tf.global_variables_initializer())
 
@@ -439,7 +449,7 @@ class TestLayers(unittest.TestCase):
 
         # SPARSE LOOKUP
         # reuse on sparse
-        sp_lookup = lookup.reuse_on(sp_inputs)
+        sp_lookup = lookup.reuse_with(sp_inputs)
 
         # reuse on dense again
         shared_lookup = sp_lookup.reuse_on(inputs)
