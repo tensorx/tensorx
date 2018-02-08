@@ -144,6 +144,7 @@ class Layer:
         dtype: the tensorflow dtype for the output tensor
         name: a name used to build a tensorflow named_scope for the layer
         variable_names: a list of `tf.Variable` fully qualified name `layer_name/var_name'
+        variables: a list of `tf.Variable` instances
 
     Note:
         Variables can be re-used elsewhere based on variable_names as follows::
@@ -180,6 +181,7 @@ class Layer:
 
         # stores the variables if this layer has any
         self.variable_names = []
+        self.variables = []
 
         self._tensor = None
 
@@ -202,6 +204,7 @@ class Layer:
         if not isinstance(var, variables.Variable):
             raise TypeError("Expected a tf.Variable got {t} instead".format(t=type(var)))
         self.variable_names.append(var.op.name)
+        self.variables.append(var)
 
     def is_sparse(self):
         """ Checks if the current layer is sparse
@@ -278,6 +281,9 @@ class WrapLayer(Layer):
         if hasattr(layer, "placeholder"):
             self.placeholder = layer.placeholder
 
+        self.variable_names = layer.variable_names
+        self.variables = layer.variables
+
         shape = [layer.shape[0], n_units]
         super().__init__(layer, n_units, shape, dtype=layer.tensor.dtype, name=name)
 
@@ -352,10 +358,17 @@ class Input(Layer):
 class TensorLayer(Layer):
     """ Tensor Input Layer
 
+    Attributes:
+        tensor: the tensor to be wrapped by this layer
+        var_list: if vars are involved in the output tensor, they can be specified here
+        and will be listed in variable_names and variables
+        n_units: number of units for this layer,
+        batch_size: Optional batch size for this layer
+
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, tensor, n_units, batch_size=None, dtype=dtypes.float32, name="tensor_input"):
+    def __init__(self, tensor, n_units, batch_size=None, var_list=None, dtype=dtypes.float32, name="tensor_input"):
         tensor = txutils.to_tensor_cast(tensor, dtype)
 
         if batch_size is not None:
@@ -364,6 +377,10 @@ class TensorLayer(Layer):
             shape = tensor.get_shape()
             shape.assert_is_compatible_with([batch_size, n_units])
             shape = shape.as_list()
+
+        if var_list is not None:
+            for var in var_list:
+                self._add_variable(var)
 
         super().__init__(None, n_units, shape, dtype, name)
 
@@ -436,44 +453,58 @@ class Linear(Layer):
     """
 
     def __init__(self,
-                 input_layer,
+                 layer,
                  n_units,
                  init=random_uniform(),
-                 weights=None,
+                 shared_weights=None,
                  bias=True,
                  dtype=dtypes.float32,
-                 name="linear", shared_with=None):
+                 name="linear", share_vars_with=None):
 
-        shape = [input_layer.shape[1], n_units]
-        super().__init__(input_layer, n_units, shape, dtype, name)
-        self.weights = weights
+        self.shared_weights = shared_weights
         self.init = init
         self.bias = bias
-        self.shared_with = shared_with
+        self.share_vars_with = share_vars_with
 
-        if self.shared_with is not None and not isinstance(self.shared_with, Linear):
-            raise TypeError("Layer can only share variables with other layer of the same type")
+        shape = [layer.shape[1], n_units]
+        super().__init__(layer, n_units, shape, dtype, name)
+
+        if self.share_vars_with is not None:
+            if not isinstance(self.share_vars_with, Linear):
+                raise TypeError("Layer can only share variables with other layer of the same type")
+
+            if self.shape != self.share_vars_with.shape:
+                raise ValueError("Can only share variables with layers with the same shape: "
+                                 "share_vars_with is provided but \n"
+                                 "self shape: {s0} different from "
+                                 "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
 
         # if weights are passed, check that their shape matches the layer shape
-        if self.weights is not None:
-            (_, s) = self.weights.get_shape()
-            if s != n_units:
-                raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
+        if self.shared_weights is not None:
+            weights_shape = self.shared_weights.get_shape()
+            if weights_shape[-1] != n_units:
+                raise ValueError(
+                    "weight shape mismatch: layer expects (,{}), provided weights have (,{})".format(n_units,
+                                                                                                     weights_shape[-1]))
 
-        self._build_graph(input_layer)
+        self.tensor = self._build_graph(layer)
 
     def _build_graph(self, input_layer):
-        var_scope_name = self.shared_with.name if self.shared_with is not None else None
-        var_reuse = self.shared_with is not None
+        var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
+        var_reuse = self.share_vars_with is not None
 
         with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
             # with name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
             # init weights
-            if self.weights is None:
+
+            if self.shared_weights is None:
                 self.weights = variable_scope.get_variable("w",
                                                            shape=self.shape,
                                                            dtype=self.dtype,
                                                            initializer=self.init)
+            else:
+                self.weights = self.shared_weights
+
             # store variables for easy access
             self._add_variable(self.weights)
             # y = xW
@@ -486,9 +517,9 @@ class Linear(Layer):
                                                      sp_weights=sp_values,
                                                      combiner="sum",
                                                      name=self.name + "_embeddings")
-                self.tensor = lookup_sum
+                tensor = lookup_sum
             else:
-                self.tensor = math_ops.matmul(input_layer.tensor, self.weights)
+                tensor = math_ops.matmul(input_layer.tensor, self.weights)
 
             # y = xW + [b]
             if self.bias:
@@ -497,10 +528,37 @@ class Linear(Layer):
                                                         dtype=self.dtype,
                                                         initializer=zero_init())
                 self._add_variable(self.bias)
-                self.tensor = bias_add(self.tensor, self.bias, name="a")
+                tensor = bias_add(tensor, self.bias, name="a")
+        return tensor
 
     def reuse_on(self, input_layer, name=None):
-        return Linear(input_layer, self.n_units, self.init, name=name, shared_with=self)
+        """ Reuses the current layer on a different input.
+
+        Uses the variables in this layer to create a new Layer instance with a different input_layer
+
+        Args:
+            input_layer: a ``Linear` layer
+            name: name for the new ``Layer``
+
+        Return:
+            ``Layer``: a new layer with shared variables with the current layer.
+
+        """
+        # if current layer is sharing variables, forward the sharing
+        share_vars_with = self.share_vars_with
+        if share_vars_with is None:
+            share_vars_with = self
+
+        if name is None:
+            name = self.name
+
+        return Linear(layer=input_layer,
+                      n_units=self.n_units,
+                      init=self.init,
+                      shared_weights=self.shared_weights,
+                      bias=self.bias,
+                      name=name,
+                      share_vars_with=share_vars_with)
 
 
 class Lookup(Layer):
@@ -516,10 +574,11 @@ class Lookup(Layer):
         If the input is ``Input``, for a sequence of 4 elements and batch size of 2, the shape should be [2,4].
 
     Returns:
-        A ``Tensor`` with shape [batch_size,seq_size*n_features] with the features of all elements in the sequence concatenated
+        A ``Tensor`` with shape [batch_size,seq_size*n_features] with the features of all elements in the sequence
+        concatenated,
 
     Args:
-        input_layer: an ``Input`` layer or ``SparseInput`` layers.
+        layer: an ``Input`` layer or ``SparseInput`` layers.
         seq_size: size of the sequence to be looked-up
         feature_shape: lookup table feature dimension
         batch_size: number of sequences to be looked up
@@ -528,36 +587,48 @@ class Lookup(Layer):
 
     # TODO adaptive feature shape based on input if input has n_active
     def __init__(self,
-                 input_layer,
+                 layer,
                  seq_size,
                  feature_shape,
                  batch_size,
-                 init=random_uniform(),
-                 weights=None,
+                 weight_init=random_uniform(),
                  dtype=dtypes.float32,
-                 name="seq_lookup"):
+                 name="seq_lookup",
+                 share_vars_with=None):
 
-        self.weight_shape = feature_shape
-        n_units = seq_size * feature_shape[1]
+        self.weight_init = weight_init
+        self.feature_shape = feature_shape
+        self.seq_size = seq_size
+        n_units = seq_size * feature_shape[-1]
         self.batch_size = batch_size
         shape = [batch_size, n_units]
+        self.share_vars_with = share_vars_with
 
-        super().__init__(input_layer, n_units, shape, dtype, name)
+        super().__init__(layer, n_units, shape, dtype, name)
+
+        if self.share_vars_with is not None:
+            if not isinstance(self.share_vars_with, Lookup):
+                raise TypeError("Layer can only share variables with other layer of the same type (Lookup)")
+
+            if self.shape != self.share_vars_with.shape:
+                raise ValueError("Can only share variables with layers with the same shape: "
+                                 "share_vars_with is provided but \n"
+                                 "self shape: {s0} different from "
+                                 "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
 
         # if weights are passed, check that their shape matches the layer shape
-        if weights is not None:
-            (_, s) = weights.get_shape()
-            if s != feature_shape[1]:
-                raise ValueError("shape mismatch: layer expects (,{}), weights have (,{})".format(n_units, s))
 
-        with layer_scope(self, var_scope=True):
+        self.tensor = self._build_graph(layer)
+
+    def _build_graph(self, input_layer):
+        var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
+        var_reuse = self.share_vars_with is not None
+
+        with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
             # with name_scope(name) as scope, variable_scope.variable_scope(scope):
             # init weights
-            if weights is not None:
-                self.weights = weights
-            else:
-                self.weights = variable_scope.get_variable("w", shape=self.weight_shape, initializer=init)
 
+            self.weights = variable_scope.get_variable("w", shape=self.feature_shape, initializer=self.weight_init)
             self._add_variable(self.weights)
             # y = xW
             if input_layer.is_sparse():
@@ -571,11 +642,43 @@ class Lookup(Layer):
                                                      combiner="sum",
                                                      name=self.name + "_embeddings")
 
-                self.tensor = array_ops.reshape(lookup_sum, [self.batch_size, -1])
+                tensor = array_ops.reshape(lookup_sum, [self.batch_size, -1])
             else:
                 lookup = embedding_lookup(params=self.weights,
                                           ids=input_layer.tensor)
-                self.tensor = array_ops.reshape(lookup, [self.batch_size, -1])
+                tensor = array_ops.reshape(lookup, [self.batch_size, -1])
+
+        return tensor
+
+    def reuse_on(self, input_layer, name=None):
+        """ Reuses the current layer on a different input.
+
+        Uses the variables in this layer to create a new Layer instance with a different input_layer
+
+        Args:
+            input_layer: a ``Lookup` Layer
+            name: name for the new ``Layer``
+
+        Return:
+            ``Layer``: a new layer with shared variables with the current layer.
+
+        """
+        # if current layer is sharing variables, forward the sharing
+        share_vars_with = self.share_vars_with
+        if share_vars_with is None:
+            share_vars_with = self
+
+        if name is None:
+            name = self.name
+
+        return Lookup(input_layer,
+                      seq_size=self.seq_size,
+                      feature_shape=self.feature_shape,
+                      batch_size=self.batch_size,
+                      weight_init=None,
+                      dtype=self.dtype,
+                      name=name,
+                      share_vars_with=share_vars_with)
 
 
 class ToSparse(Layer):
@@ -637,20 +740,17 @@ class Dropout(Layer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.2, seed=None):
+    def __init__(self, layer, keep_prob=0.1, seed=None):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
 
         self.seed = seed
         self.keep_prob = keep_prob
 
-        if keep_prob == 0:
-            self._forward(layer)
-        else:
-            with layer_scope(self):
-                if layer.is_sparse():
-                    self.tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
-                else:
-                    self.tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
+        with layer_scope(self):
+            if layer.is_sparse():
+                self.tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
+            else:
+                self.tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
 
 
 class GaussianNoise(Layer):

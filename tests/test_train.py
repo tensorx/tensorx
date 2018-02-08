@@ -1,5 +1,5 @@
 import unittest
-from tensorx.training import ModelRunner, Model
+from tensorx.train import ModelRunner, Model
 from tensorx.layers import Input, Linear, Activation, Add, TensorLayer
 
 from tensorx.activation import tanh, sigmoid
@@ -22,6 +22,7 @@ import glob
 
 
 class MyTestCase(unittest.TestCase):
+
     def test_model_session(self):
         data = [[1]]
         inputs = Input(1)

@@ -1,5 +1,6 @@
 import unittest
 import tensorflow as tf
+from tensorflow.python.framework import ops
 import numpy as np
 from tensorx.layers import *
 from tensorx.layers import Lookup
@@ -18,6 +19,29 @@ class TestLayers(unittest.TestCase):
 
     def tearDown(self):
         self.ss.close()
+
+    def test_reusable_layers(self):
+        in1 = TensorLayer([[1.]], 1)
+        in2 = TensorLayer([[1.]], 1)
+        in3 = TensorLayer([[-1.]], 1)
+
+        layer1 = Linear(in1, 2)
+        layer2 = layer1.reuse_on(in2)
+        layer3 = layer2.reuse_on(in3)
+
+        self.assertListEqual(layer1.variable_names, layer2.variable_names)
+        self.assertListEqual(layer2.variable_names, layer3.variable_names)
+
+        tf.global_variables_initializer().run()
+
+        result1 = layer1.tensor.eval()
+        result2 = layer2.tensor.eval()
+        result3 = layer3.tensor.eval()
+
+        np.testing.assert_array_equal(result1, result2)
+
+        expected = result2 * -1
+        np.testing.assert_array_equal(expected, result3)
 
     def test_input(self):
         """ Test Input layer - creates a TensorFlow Placeholder
@@ -102,8 +126,8 @@ class TestLayers(unittest.TestCase):
 
         # two layers with shared weights, one uses a sparse input layer, the other the dense one
         y1 = Linear(x1, 4, name="linear1")
-        y2 = Linear(x2, 4, weights=y1.weights, name="linear2")
-        y3 = Linear(x3, 4, weights=y1.weights, name="linear3")
+        y2 = Linear(x2, 4, shared_weights=y1.weights, name="linear2")
+        y3 = Linear(x3, 4, shared_weights=y1.weights, name="linear3")
 
         self.ss.run(tf.global_variables_initializer())
 
@@ -129,7 +153,7 @@ class TestLayers(unittest.TestCase):
         inputs = TensorLayer([[1]], 1, batch_size=1)
         layer = Linear(inputs, 10)
         layer2 = Linear(inputs, 10)
-        layer_shared = Linear(inputs, 10, weights=layer.weights)
+        layer_shared = Linear(inputs, 10, shared_weights=layer.weights)
 
         var_names = layer.variable_names
         var_names_2 = layer2.variable_names
@@ -151,17 +175,25 @@ class TestLayers(unittest.TestCase):
         in1 = TensorLayer([[-1.]], 1)
         in2 = TensorLayer([[2.]], 1)
 
-        l1 = Linear(in1,1,init=ones_init())
+        l1 = Linear(in1, 1, init=ones_init())
         l2 = l1.reuse_on(in2, name="shared")
+        l3 = Linear(in1, 1, init=ones_init(), shared_weights=l1.weights, bias=True)
+        l4 = l3.reuse_on(in2)
 
         self.ss.run(tf.global_variables_initializer())
 
-        print(l1.tensor.eval())
-        print(l2.tensor.eval())
+        res1 = l1.tensor.eval()
+        res2 = l2.tensor.eval()
+        res3 = l3.tensor.eval()
+        res4 = l4.tensor.eval()
 
-        print(l1.variable_names)
-        print(l2.variable_names)
+        self.assertTrue(np.array_equal(res1, res3))
+        self.assertTrue(np.array_equal(res2, res4))
 
+        self.assertListEqual(l1.variable_names, l2.variable_names)
+
+        self.assertFalse(l3.variable_names == l1.variable_names)
+        self.assertListEqual(l3.variable_names, l4.variable_names)
 
     def test_to_sparse(self):
         index = 0
@@ -406,14 +438,23 @@ class TestLayers(unittest.TestCase):
         sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
 
         # SPARSE LOOKUP
-        sp_lookup = Lookup(sp_inputs, seq_size, [vocab_size, n_features], batch_size, weights=lookup.weights)
+        # reuse on sparse
+        sp_lookup = lookup.reuse_on(sp_inputs)
+
+        # reuse on dense again
+        shared_lookup = sp_lookup.reuse_on(inputs)
+
+        self.assertListEqual(lookup.variable_names, sp_lookup.variable_names)
+        self.assertListEqual(lookup.variable_names, shared_lookup.variable_names)
 
         var_init = tf.global_variables_initializer()
         with tf.Session() as sess:
             sess.run(var_init)
             v1 = sess.run(sp_lookup.tensor, {sp_inputs.placeholder: sp_values})
             v2 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
+            v3 = sess.run(shared_lookup.tensor, {inputs.placeholder: input_data})
             self.assertTrue(np.array_equal(v1, v2))
+            self.assertTrue(np.array_equal(v2, v3))
 
 
 if __name__ == '__main__':

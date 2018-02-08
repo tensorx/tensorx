@@ -5,7 +5,7 @@ from tensorflow.python.ops import array_ops, math_ops, sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.training import Learner
+from tensorx.train import Learner
 from tensorx import transform
 from tensorx import metrics
 from tensorx.math import gaussian

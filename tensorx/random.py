@@ -238,6 +238,8 @@ def sample_sigmoid(x, n, dtype=dtypes.float32, seed=None, name="sample_sigmoid")
         This can be applied to the output layer of a neural net if this represents a bernoulli
         distribution defined using a parameterized sigmoid-activated layer
     Args:
+        name:
+        seed: random number generator seed
         dtype: input Tensor dtype
         n: number of samples per row of x
         x : a Tensor resulting from a sigmoid function

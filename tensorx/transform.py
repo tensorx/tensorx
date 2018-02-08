@@ -8,11 +8,9 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import sparse_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import functional_ops
-from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue, \
-    convert_to_tensor_or_sparse_tensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops.nn import dropout
-from tensorflow.python.ops.nn import embedding_lookup
+import numbers
 
 import numpy as np
 
@@ -299,8 +297,18 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None, name="sparse_dropout"):
         name: A name for this operation (optional).
 
     """
-    with ops.name_scope(name):
+    with ops.name_scope(name, [sp_tensor]):
         dense_shape = sp_tensor.dense_shape
+
+        if not sp_tensor.values.dtype.is_floating:
+            raise ValueError("sp_tensor has to be a floating point tensor since its values are going to"
+                             " be scaled. Got a %s tensor instead." % sp_tensor.dtype)
+        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
+            raise ValueError("keep_prob must be a scalar tensor or a float in the "
+                             "range (0, 1], got %g" % keep_prob)
+        keep_prob = ops.convert_to_tensor(keep_prob,
+                                          dtype=sp_tensor.dtype,
+                                          name="keep_prob")
 
         drop_values = dropout(sp_tensor.values, keep_prob, seed=seed)
         not_zero = math_ops.not_equal(drop_values, 0)
@@ -316,44 +324,44 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None, name="sparse_dropout"):
         return new_tensor
 
 
-def sparse_ones(indices, dense_shape, dtype=dtypes.float32):
-    """ Creates a new ``SparseTensor`` where the values are 1
+def sparse_ones(matrix_indices, dense_shape, dtype=dtypes.float32):
+    """ Creates a new ``SparseTensor`` with the given indices having value 1
 
     Args:
-        indices: a 2-D ``Tensor`` with the indices for the resulting sparse tensor
+        matrix_indices: a rank 2 ``Tensor`` with the (row,column) indices for the resulting sparse tensor
         dense_shape: the ``SparseTensor`` dense shape
         dtype: the tensor type for the values
 
     Returns:
         ``SparseTensor``: a new SparseTensor with the values set to 1.
     """
-    indices = to_tensor_cast(indices, dtypes.int64)
+    matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
     dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
-    indices_shape = complete_shape(indices)
+    indices_shape = complete_shape(matrix_indices)
     values = array_ops.ones([indices_shape[0]], dtype)
-    return SparseTensor(indices, values, dense_shape)
+    return SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_zeros(indices, dense_shape, dtype=dtypes.float32):
-    """ Creates a new ``SparseTensor`` where the values are 0
+def sparse_zeros(matrix_indices, dense_shape, dtype=dtypes.float32):
+    """ Creates a new ``SparseTensor`` with the given indices having value 1
 
     Args:
-        indices: a 2-D ``Tensor`` with the indices for the resulting sparse tensor
+        matrix_indices: a rank 2 ``Tensor`` with the indices for the resulting sparse tensor
         dense_shape: the ``SparseTensor`` dense shape
         dtype: the tensor type for the values
 
     Returns:
         ``SparseTensor``: a new SparseTensor with the values set to 1.
     """
-    indices = to_tensor_cast(indices, dtypes.int64)
+    matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
     dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
-    indices_shape = complete_shape(indices)
+    indices_shape = complete_shape(matrix_indices)
     values = array_ops.zeros([indices_shape[0]], dtype)
-    return SparseTensor(indices, values, dense_shape)
+    return SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
-    """Transforms a batch of indices to a one-hot encoding ``SparseTensor``.
+def sparse_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
+    """Transforms a batch of column indices to a one-hot encoding ``SparseTensor``.
 
         Example::
 
@@ -369,20 +377,20 @@ def sparse_one_hot(indices, dense_shape, dtype=dtypes.float32):
                                     dense_shape=[2,10])
 
         Args:
-            indices: a dense ``Tensor`` with the indices to be active for each sample (row)
+            column_indices: a dense ``Tensor`` with the indices to be active for each sample (row)
             dense_shape: a list, array or `Tensor` with the shape for output dense one_hot encoding tensor.
             dtype: the type for the output values.
 
         Returns:
             `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
     """
-    flat_indices = to_tensor_cast(indices, dtypes.int64)
-    indices = column_indices_to_matrix_indices(flat_indices, dtype=dtypes.int64)
+    column_indices = to_tensor_cast(column_indices, dtypes.int64)
+    matrix_indices = column_indices_to_matrix_indices(column_indices, dtype=dtypes.int64)
 
-    return sparse_ones(indices, dense_shape, dtype)
+    return sparse_ones(matrix_indices, dense_shape, dtype)
 
 
-def dense_one_hot(indices, dense_shape, dtype=dtypes.float32):
+def dense_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
     """Transforms a batch of indices to a dense ``Tensor`` by adding the `one-hot` encoding for each index.
 
     Example::
@@ -393,17 +401,17 @@ def dense_one_hot(indices, dense_shape, dtype=dtypes.float32):
         dense_one_hot = [[1,0],[0,1]]
 
     Args:
-        indices: a dense ``Tensor`` with the active indices for each sample (row).
+        column_indices: a dense ``Tensor`` with the active indices for each sample (row).
         dense_shape: a list, array or `Tensor` with the shape for the output dense one_hot encoding tensor.
         dtype: the type for the output tensor.
 
     Returns:
         ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices.
     """
-    indices = to_tensor_cast(indices, dtypes.int64)
+    column_indices = to_tensor_cast(column_indices, dtypes.int64)
     dense_shape = ops.convert_to_tensor(dense_shape)
 
-    encoding = array_ops.one_hot(indices, depth=dense_shape[1], dtype=dtype)
+    encoding = array_ops.one_hot(column_indices, depth=dense_shape[1], dtype=dtype)
     one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
 
     return one_hot_dense
