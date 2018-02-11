@@ -20,6 +20,39 @@ class TestLayers(unittest.TestCase):
     def tearDown(self):
         self.ss.close()
 
+    def test_compose(self):
+        in1 = Input(1)
+        in2 = TensorLayer([[1.]], 1)
+
+        l1 = Linear(in1, 4)
+        l2 = Activation(l1, relu, max_value=3)
+
+        comp = Compose([l1, l2])
+        comp2 = comp.reuse_with(in2)
+
+        tf.global_variables_initializer().run()
+
+        """
+        for layer in layers_to_list(l2):
+            print(layer.full_str())
+
+        print("=" * 10)
+        for layer in layers_to_list(comp):
+            print(layer.full_str())
+
+        print("=" * 10)
+        for layer in layers_to_list(comp2):
+            print(layer.full_str())
+        """
+
+        res1 = l2.tensor.eval({in1.placeholder: [[1.]]})
+        res2 = comp.tensor.eval({in1.placeholder: [[1.]]})
+
+        res3 = comp2.tensor.eval()
+
+        self.assertTrue(np.array_equal(res1, res2))
+        self.assertTrue(np.array_equal(res1, res3))
+
     def test_bias_reuse(self):
         in1 = TensorLayer([[1.]], 1)
         in2 = TensorLayer([[1.]], 1)
@@ -452,7 +485,7 @@ class TestLayers(unittest.TestCase):
         sp_lookup = lookup.reuse_with(sp_inputs)
 
         # reuse on dense again
-        shared_lookup = sp_lookup.reuse_on(inputs)
+        shared_lookup = sp_lookup.reuse_with(inputs)
 
         self.assertListEqual(lookup.variable_names, sp_lookup.variable_names)
         self.assertListEqual(lookup.variable_names, shared_lookup.variable_names)

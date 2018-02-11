@@ -11,6 +11,7 @@ Types of layers:
 
 """
 from functools import partial
+import itertools
 from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.framework.ops import Tensor, name_scope
 from tensorflow.python.ops import array_ops
@@ -270,7 +271,8 @@ class WrapLayer(Layer):
     def __init__(self, layer, n_units, tf_fn, name="wrap"):
         if name == "wrap":
             name = "wrap_{}".format(layer.name)
-        self.name = name
+
+        self.tf_fn = tf_fn
 
         if hasattr(layer, "placeholder"):
             self.placeholder = layer.placeholder
@@ -280,15 +282,63 @@ class WrapLayer(Layer):
 
         shape = [layer.shape[0], n_units]
         super().__init__(layer, n_units, shape, dtype=layer.tensor.dtype, name=name)
+        self.tensor = self._build_graph(layer)
 
+    def _build_graph(self, layer):
         with layer_scope(self):
-            self.tensor = tf_fn(layer.tensor)
-            output_shape = self.tensor.get_shape()
-            if not output_shape.is_compatible_with(shape):
-                raise ValueError("shape from tf_fn {s1} incompatible with {s2}".format(s1=output_shape, s2=shape))
+            tensor = self.tf_fn(layer.tensor)
+            output_shape = tensor.get_shape()
+            if not output_shape.is_compatible_with(self.shape):
+                raise ValueError("shape from tf_fn {s1} incompatible with {s2}".format(s1=output_shape, s2=self.shape))
 
-            if layer.dtype != self.tensor.dtype:
-                self.dtype = self.tensor.dtype
+            if layer.dtype != tensor.dtype:
+                self.dtype = tensor.dtype
+        return tensor
+
+
+class Compose(Layer):
+    """ Compose Layer.
+
+    Composes two or more layers layer1.layer2 into a single layer,
+    if the first layer is feedable, forwards the placeholder
+    to the wrapper layer so that we know that the layer needs to be fed.
+    """
+
+    def __init__(self, layers, name="compose"):
+
+        self.layers = layers
+
+        layer1, *layers = layers
+        # if layers were not connected, connect them
+        out_layer = layer1
+        for curr_layer in layers:
+            if out_layer not in curr_layer.input_layers:
+                curr_layer = curr_layer.reuse_with(out_layer)
+            out_layer = curr_layer
+
+        # forward any feedable layer from the first layer
+        if hasattr(layer1, "placeholder"):
+            self.placeholder = layer1.placeholder
+
+        shape = [layer1.shape[0], out_layer.n_units]
+
+        super().__init__(input_layers=layer1.input_layers,
+                         n_units=out_layer.n_units,
+                         shape=shape,
+                         dtype=out_layer.dtype,
+                         name=name)
+
+        # add both layer variables to the current layer container
+        for var in itertools.chain.from_iterable([layer.variables for layer in self.layers]):
+            self._add_variable(var)
+
+        self.tensor = out_layer.tensor
+
+    def reuse_with(self, input_layer):
+        layer1, *layers = self.layers
+        layer1 = layer1.reuse_with(input_layer)
+        layers = [layer1] + layers
+        return Compose(layers, name=self.name)
 
 
 class Input(Layer):
@@ -692,6 +742,9 @@ class ToSparse(Layer):
 
         self.tensor = tensor
 
+    def reuse_with(self, layer):
+        return ToSparse(layer)
+
 
 class ToDense(Layer):
     """ ToDense transformation layer
@@ -710,6 +763,9 @@ class ToDense(Layer):
             else:
                 tensor = layer.tensor
         self.tensor = tensor
+
+    def reuse_with(self, layer):
+        return ToDense(layer)
 
 
 class Dropout(Layer):
@@ -750,6 +806,11 @@ class Dropout(Layer):
                 tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
 
         self.tensor = tensor
+
+    def reuse_with(self, layer, name=None):
+        if name is None:
+            name = self.name
+        return Dropout(layer, keep_prob=self.keep_prob, seed=self.seed, name=name)
 
 
 class GaussianNoise(Layer):
@@ -796,6 +857,9 @@ class GaussianNoise(Layer):
 
         self.tensor = tensor
 
+    def reuse_with(self, layer):
+        return GaussianNoise(layer, self.mean, self.stddev, self.seed)
+
 
 class SparseGaussianNoise(Layer):
     """ Sparse Gaussian Noise Layer
@@ -830,6 +894,9 @@ class SparseGaussianNoise(Layer):
                 tensor = transform.dense_put(layer.tensor, noise)
 
         self.tensor = tensor
+
+    def reuse_with(self, layer):
+        return SparseGaussianNoise(layer, self.density, self.mean, self.stddev, self.dtype)
 
 
 class SaltPepperNoise(Layer):
@@ -893,6 +960,13 @@ class SaltPepperNoise(Layer):
             num_noise = (num_noise // 2) * 2
         return num_noise
 
+    def reuse_with(self, layer):
+        return SaltPepperNoise(layer,
+                               self.density,
+                               self.salt_value,
+                               self.pepper_value,
+                               self.seed)
+
 
 class Activation(Layer):
     """ Activation Layer
@@ -917,6 +991,7 @@ class Activation(Layer):
 
     def __init__(self, layer, fn=array_ops.identity, name="act", **keywords):
         self.fn = partial(fn, **keywords)
+        self.kw = keywords
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype,
                          "{fn}_{layer}".format(fn=name, layer=layer.name))
 
@@ -928,6 +1003,9 @@ class Activation(Layer):
             tensor = self.fn(tensor)
 
         self.tensor = tensor
+
+    def reuse_with(self, layer):
+        return Activation(layer, self.fn, self.name, **self.kw)
 
 
 class Bias(Layer):
@@ -1020,6 +1098,10 @@ class Merge(Layer):
                  weights=None,
                  merge_fn=math_ops.add_n,
                  name="merge"):
+
+        self.weights = weights
+        self.merge_fn = merge_fn
+
         if len(layers) < 2:
             raise Exception("Expecting a list of layers with len >= 2")
 
@@ -1106,6 +1188,7 @@ class SOMLinear(Layer):
 
 
 __all__ = ["Input",
+           "Compose",
            "TensorLayer",
            "SparseInput",
            "Activation",
