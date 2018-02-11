@@ -227,10 +227,23 @@ class Layer:
         """
         class_name = type(self).__name__
         sparse_dense = "[Sparse]" if self.is_sparse() else "[Dense]"
-        return "{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
-                                                                      n_units=self.n_units,
-                                                                      dtype=self.dtype,
-                                                                      sparse_dense=sparse_dense)
+        return "{layer_name}::{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
+                                                                                    n_units=self.n_units,
+                                                                                    dtype=self.dtype,
+                                                                                    sparse_dense=sparse_dense,
+                                                                                    layer_name=self.name)
+
+    def full_str(self):
+        """ Informal string representation for a layer that includes inner variables
+        """
+        fullstr = [str(self)]
+        if len(self.variable_names) > 0:
+            fullstr.append("variables:")
+            for var_name in self.variable_names:
+                fullstr.append("\t{var_name}".format(var_name=var_name))
+
+        full_str = "\n".join(fullstr)
+        return full_str + "\n"
 
 
 class WrapLayer(Layer):
@@ -601,7 +614,7 @@ class Lookup(Layer):
 
         self.tensor = self._build_graph(layer)
 
-    def _build_graph(self, input_layer):
+    def _build_graph(self, layer):
         var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
         var_reuse = self.share_vars_with is not None
 
@@ -612,8 +625,8 @@ class Lookup(Layer):
             self.weights = variable_scope.get_variable("w", shape=self.feature_shape, initializer=self.weight_init)
             self._add_variable(self.weights)
             # y = xW
-            if input_layer.is_sparse():
-                sp_values = input_layer.tensor
+            if layer.is_sparse():
+                sp_values = layer.tensor
                 sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
 
                 # sums the lookups for the same row
@@ -626,7 +639,7 @@ class Lookup(Layer):
                 tensor = array_ops.reshape(lookup_sum, [self.batch_size, -1])
             else:
                 lookup = embedding_lookup(params=self.weights,
-                                          ids=input_layer.tensor)
+                                          ids=layer.tensor)
                 tensor = array_ops.reshape(lookup, [self.batch_size, -1])
 
         return tensor
@@ -724,11 +737,11 @@ class Dropout(Layer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.1, seed=None):
+    def __init__(self, layer, keep_prob=0.1, seed=None, name="drop"):
         self.seed = seed
         self.keep_prob = keep_prob
 
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dropout")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name + "_" + layer.name)
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -902,9 +915,10 @@ class Activation(Layer):
         **keywords: the keyword arguments for the given function
     """
 
-    def __init__(self, layer, fn=array_ops.identity, **keywords):
+    def __init__(self, layer, fn=array_ops.identity, name="act", **keywords):
         self.fn = partial(fn, **keywords)
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_activation")
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype,
+                         "{fn}_{layer}".format(fn=name, layer=layer.name))
 
         with layer_scope(self):
             if layer.is_sparse():
