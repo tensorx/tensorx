@@ -433,7 +433,7 @@ class ModelRunner:
         inited, init_sess = self._var_inited
         return inited and init_sess == self.session
 
-    def save_model(self, save_dir=None, model_name="model.ckpt", global_step=None, save_graph=False,
+    def save_model(self, save_dir=None, model_name="model.ckpt", step=None, epoch=None, save_graph=False,
                    write_state=True):
         """ Saves all the variables by default
         # TODO add feature to save only some variables this requires init vars to run only
@@ -447,7 +447,7 @@ class ModelRunner:
             save_graph: if true also exports the graph to model_Name.meta
             model_name: name for the model to be saved
             save_dir: path to a ckpt file where the model is to be stored
-            global_step: integer or tensor with the current step for the model checkpoint
+            step: integer or tensor with the current step for the model checkpoint
 
         """
 
@@ -469,7 +469,7 @@ class ModelRunner:
             export_meta_graph(meta_path)
 
         if self.model.has_vars():
-            self.saver.save(self.session, model_path, global_step, write_meta_graph=False, write_state=write_state)
+            self.saver.save(self.session, model_path, step, write_meta_graph=False, write_state=write_state)
 
     def load_model(self, save_dir=None, model_name="model.ckpt", global_step=None, load_graph=False):
         """ Loads the variables on the given path to the current graph, if
