@@ -14,7 +14,7 @@ import os
 from abc import ABCMeta, abstractmethod
 
 from tensorflow.python.client.session import Session, InteractiveSession
-from tensorflow.python.framework import ops
+from tensorflow.python.framework import ops, sparse_tensor
 from tensorflow.python.framework.ops import dtypes
 from tensorflow.python.ops import array_ops, math_ops, control_flow_ops, logging_ops, clip_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
@@ -177,6 +177,9 @@ def _as_list(elems):
     if one element is passed, returns a list with one element,
     if a list or tuple of elements is passed, returns a list with the elements
 
+    Note: we exclude SparseTensorValue because it is a named tuple
+    and we want to feed the whole object as a single data sample if needed
+
     Args:
         elems: one element, a tuple of elements or a list of elements
 
@@ -185,7 +188,7 @@ def _as_list(elems):
     """
     if elems is None:
         elems = []
-    elif isinstance(elems, (list, tuple)):
+    elif isinstance(elems, (list, tuple)) and not isinstance(elems, sparse_tensor.SparseTensorValue):
         elems = list(elems)
     else:
         elems = [elems]
@@ -693,6 +696,9 @@ class ModelRunner:
 
         if not self.vars_inited():
             self.init_vars()
+
+        if self.train_step is None:
+            raise AttributeError("ModelRunner train_step is None, call configure_optimizer before train")
 
         # =========================
         #   FEED DATA

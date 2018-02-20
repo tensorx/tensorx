@@ -629,6 +629,8 @@ class Lookup(Layer):
 
     """
 
+    # TODO analyse if it's possible to add automatic padding to lookup layer
+    # The padding could be added to  input tensors or output tensor
     # TODO adaptive feature shape based on input if input has n_active
     def __init__(self,
                  layer,

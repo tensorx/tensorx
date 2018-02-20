@@ -500,5 +500,29 @@ class TestLayers(unittest.TestCase):
             self.assertTrue(np.array_equal(v2, v3))
 
 
+    def test_lookup_2(self):
+        vocab_size = 4
+        n_features = 2
+        seq_size = 2
+        batch_size = 2
+
+        sp_inputs = SparseInput(n_features, dtype=tf.int64)
+
+        sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
+        sp_values = np.array([1, -1, 1,-1], np.int64)
+        dense_shape = np.array([4, vocab_size], np.int64)
+        sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+
+        lookup = Lookup(sp_inputs, seq_size, [vocab_size, n_features], batch_size)
+        self.assertEqual(lookup.n_units, n_features*seq_size)
+
+        var_init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(var_init)
+            res = sess.run(lookup.tensor,{sp_inputs.placeholder:sp_values})
+            print(res)
+
+
+
 if __name__ == '__main__':
     unittest.main()
