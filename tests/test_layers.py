@@ -464,7 +464,7 @@ class TestLayers(unittest.TestCase):
         vocab_size = 4
         n_features = 3
         seq_size = 2
-        batch_size = 2
+        batch_size = 4
 
         inputs = Input(seq_size, dtype=tf.int32)
         input_data = np.array([[2, 0], [1, 2]])
@@ -496,32 +496,55 @@ class TestLayers(unittest.TestCase):
             v1 = sess.run(sp_lookup.tensor, {sp_inputs.placeholder: sp_values})
             v2 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
             v3 = sess.run(shared_lookup.tensor, {inputs.placeholder: input_data})
+
             self.assertTrue(np.array_equal(v1, v2))
             self.assertTrue(np.array_equal(v2, v3))
 
+            # testing dynamic batch sizes
+            input_data = np.array([[2, 0], [1, 2], [1, 2]])
+            sp_indices = np.array([[0, 2], [1, 0],
+                                   [2, 1], [3, 2],
+                                   [4, 1], [5, 2]], np.int64)
+            sp_values = np.array([1, 1, 1, 1, 1, 1], np.int64)
+            dense_shape = np.array([6, vocab_size], np.int64)
+            sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
 
-    def test_lookup_2(self):
+            v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
+            v2 = sess.run(sp_lookup.tensor, {sp_inputs.placeholder: sp_values})
+
+            self.assertTrue(np.array_equal(v1, v2))
+
+    def test_lookup_padding(self):
+        tf.reset_default_graph()
+        self.ss = tf.InteractiveSession()
+
+        ri_size = 4
         vocab_size = 4
-        n_features = 2
+        embed_dim = 1
         seq_size = 2
         batch_size = 2
 
-        sp_inputs = SparseInput(n_features, dtype=tf.int64)
+        inputs = TensorLayer(tf.constant([[0, 2]]), 2, dtype=tf.int32)
+        sp_inputs = TensorLayer(
+            tf.SparseTensorValue(indices=[[0, 0], [1, 2]], values=[1, 1],
+                                 dense_shape=[2, ri_size]),
+            ri_size)
+        sp_inputs2 = Input(n_units=4, n_active=1, dtype=tf.int32)
 
-        sp_indices = np.array([[0, 2], [1, 0], [2, 1], [3, 2]], np.int64)
-        sp_values = np.array([1, -1, 1,-1], np.int64)
-        dense_shape = np.array([4, vocab_size], np.int64)
-        sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)
+        lookup_dense = Lookup(inputs, seq_size=seq_size, feature_shape=[vocab_size, embed_dim], batch_size=batch_size)
 
-        lookup = Lookup(sp_inputs, seq_size, [vocab_size, n_features], batch_size)
-        self.assertEqual(lookup.n_units, n_features*seq_size)
+        lookup_sparse = lookup_dense.reuse_with(sp_inputs)
 
-        var_init = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(var_init)
-            res = sess.run(lookup.tensor,{sp_inputs.placeholder:sp_values})
-            print(res)
+        lookup_sparse2 = lookup_dense.reuse_with(sp_inputs2)
 
+        tf.global_variables_initializer().run()
+
+        res1 = lookup_sparse.tensor.eval()
+        res2 = lookup_dense.tensor.eval()
+        res3 = lookup_sparse2.tensor.eval({sp_inputs2.placeholder: [[0], [2]]})
+
+        self.assertTrue(np.array_equal(res1, res2))
+        self.assertTrue(np.array_equal(res2, res3))
 
 
 if __name__ == '__main__':

@@ -13,9 +13,9 @@ Types of layers:
 from functools import partial
 import itertools
 from tensorflow.python.framework import ops, dtypes
+
 from tensorflow.python.framework.ops import Tensor, name_scope
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import check_ops
+from tensorflow.python.ops import array_ops, check_ops
 
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variables
@@ -625,7 +625,8 @@ class Lookup(Layer):
         layer: an ``Input`` layer or ``SparseInput`` layers.
         seq_size: size of the sequence to be looked-up
         feature_shape: lookup table feature dimension
-        batch_size: number of sequences to be looked up
+        batch_size: number of sequences to be looked up,
+        if not None, will force a padding up to the specified batch_size
 
     """
 
@@ -636,7 +637,7 @@ class Lookup(Layer):
                  layer,
                  seq_size,
                  feature_shape,
-                 batch_size,
+                 batch_size=None,
                  weight_init=random_uniform(),
                  dtype=dtypes.float32,
                  name="seq_lookup",
@@ -676,8 +677,16 @@ class Lookup(Layer):
 
             self.weights = variable_scope.get_variable("w", shape=self.feature_shape, initializer=self.weight_init)
             self._add_variable(self.weights)
+
+            # batch size is dynamic and should be computed here because we need it
             # y = xW
             if layer.is_sparse():
+                # dynamic batch size
+                if self.batch_size is None:
+                    batch_size = math_ops.ceil(array_ops.shape(layer.tensor)[0] / self.seq_size)
+                else:
+                    batch_size = self.batch_size
+
                 sp_values = layer.tensor
                 sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
 
@@ -685,14 +694,36 @@ class Lookup(Layer):
                 lookup_sum = embedding_lookup_sparse(params=self.weights,
                                                      sp_ids=sp_indices,
                                                      sp_weights=sp_values,
-                                                     combiner="sum",
-                                                     name=self.name + "_embeddings")
+                                                     combiner="sum")
 
-                tensor = array_ops.reshape(lookup_sum, [self.batch_size, -1])
+                flat_lookup = array_ops.reshape(lookup_sum, [-1])
+                filled = array_ops.shape(flat_lookup)[0]
+
+                padding_shape = [math_ops.maximum(self.n_units * batch_size - filled, 0)]
+                padding = array_ops.zeros(padding_shape)
+                flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
+
+                # tensor = array_ops.reshape(lookup_sum, [-1, self.n_units])
+                tensor = array_ops.reshape(flat_lookup, [-1, self.n_units])
             else:
+                # if dense batch size is known
+                if self.batch_size is None:
+                    batch_size = array_ops.shape(layer.tensor)[0]
+                else:
+                    batch_size = self.batch_size
+
                 lookup = embedding_lookup(params=self.weights,
                                           ids=layer.tensor)
-                tensor = array_ops.reshape(lookup, [self.batch_size, -1])
+
+                flat_lookup = array_ops.reshape(lookup, [-1])
+                filled = array_ops.shape(flat_lookup)[0]
+
+                padding_shape = [math_ops.maximum(self.n_units * batch_size - filled, 0)]
+                padding = array_ops.zeros(padding_shape)
+                flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
+
+                # tensor = array_ops.reshape(lookup, [self.batch_size, -1])
+                tensor = array_ops.reshape(flat_lookup, [-1, self.n_units])
 
         return tensor
 
