@@ -264,7 +264,7 @@ class Model:
                  train_out_layers=None,
                  train_loss_in=None,
                  train_loss_tensors=None,
-                 train_loss_weights=1.0,
+                 train_loss_weights=None,
                  eval_in_layers=None,
                  eval_out_layers=None,
                  eval_tensors_in=None,
@@ -652,7 +652,7 @@ class ModelRunner:
         loss_weights = self.model.train_loss_weights
 
         # if more than one loss is passed, create a (optionally weighted) joint loss function
-        if len(self.model.train_loss_tensors) > 1:
+        if len(self.model.train_loss_tensors) > 1 and loss_weights is not None:
             t_losses = ops.convert_to_tensor(self.model.train_loss_tensors)
             loss_weights = math_ops.to_float(loss_weights)
             weighted_losses = math_ops.multiply(t_losses, loss_weights)
@@ -701,7 +701,9 @@ class ModelRunner:
             raise AttributeError("ModelRunner train_step is None, call configure_optimizer before train")
 
         # =========================
-        #   FEED DATA
+        #   FEED RUN DATA
+        # TODO there's a problem with this interface with as_list, if we pass a list as data it already counts
+        # as a list, we need to pass an np array for this to work, I should make the check somewhere
         # =========================
         data = _as_list(data)
         feedable_inputs = self.model.feedable_train()
@@ -709,7 +711,7 @@ class ModelRunner:
         n_data = len(data)
 
         if n_data != n_feedable:
-            raise ValueError("data items received {} != {} model feedable inputs".format(n_data, n_feedable))
+            raise ValueError("data items received {}, model requires {} feedable inputs".format(n_data, n_feedable))
 
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
 

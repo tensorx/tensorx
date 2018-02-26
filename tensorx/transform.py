@@ -390,7 +390,7 @@ def sparse_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
     return sparse_ones(matrix_indices, dense_shape, dtype)
 
 
-def dense_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
+def dense_one_hot(column_indices, num_cols, dtype=dtypes.float32):
     """Transforms a batch of indices to a dense ``Tensor`` by adding the `one-hot` encoding for each index.
 
     Example::
@@ -402,17 +402,18 @@ def dense_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
 
     Args:
         column_indices: a dense ``Tensor`` with the active indices for each sample (row).
-        dense_shape: a list, array or `Tensor` with the shape for the output dense one_hot encoding tensor.
+        num_cols: number of columns for the one-hot encoding
         dtype: the type for the output tensor.
 
     Returns:
         ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices.
     """
     column_indices = to_tensor_cast(column_indices, dtypes.int64)
-    dense_shape = ops.convert_to_tensor(dense_shape)
 
-    encoding = array_ops.one_hot(column_indices, depth=dense_shape[1], dtype=dtype)
-    one_hot_dense = math_ops.reduce_sum(encoding, axis=1)
+    one_hot_dense = array_ops.one_hot(column_indices, depth=num_cols, dtype=dtype)
+
+    if column_indices.get_shape().ndims == 2:
+        one_hot_dense = math_ops.reduce_sum(one_hot_dense, axis=1)
 
     return one_hot_dense
 

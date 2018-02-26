@@ -3,11 +3,14 @@
 To be used with to optimise neural network models, some of these are forwards from the `TensorFlow` API with some
 additional documentation.
 """
+from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import array_ops, sparse_ops
+from tensorflow.python.ops import math_ops, variables
 from tensorflow.python.ops.losses.losses import mean_squared_error, sigmoid_cross_entropy
 from tensorflow.python.ops.nn import softmax_cross_entropy_with_logits_v2
+from tensorflow.python.ops.nn import embedding_lookup
+from tensorflow.python.ops import candidate_sampling_ops as candidate_sampling
 from tensorflow.python.ops.losses.losses import hinge_loss as tf_hinge_loss
 
 
@@ -32,7 +35,7 @@ def mse(labels, predictions, weights=1.0):
     return mean_squared_error(labels, predictions, weights)
 
 
-def binary_cross_entropy(labels, logits, weights=1.0):
+def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
     """ Binary Cross Entropy
 
     Measures the probability error in discrete binary classification tasks in which each class is independent and
@@ -46,9 +49,7 @@ def binary_cross_entropy(labels, logits, weights=1.0):
     Args:
         labels: ground truth, correct values
         logits: a tensor with the unscaled log probabilities used to predict the labels with sigmoid(logits)
-        weights: Optional `Tensor` whose rank is either 0, or the same rank as
-      `labels`, and must be broadcastable to `labels` (i.e., all dimensions must
-      be either `1`, or the same as the corresponding `losses` dimension).
+
 
     Returns:
         ``Tensor``: a float ``Tensor``.
