@@ -66,7 +66,7 @@ def xavier_init(seed=None, dtype=dt.float32):
     return init_ops.glorot_uniform_initializer(seed, dtype)
 
 
-class ReLUInit(init_ops.Initializer):
+class HeNormal(init_ops.Initializer):
     """ ReLU Weight Initialisation [1].
 
 
@@ -105,6 +105,6 @@ class ReLUInit(init_ops.Initializer):
         return {"dtype": self.dtype.name}
 
 
-relu_init = ReLUInit
+he_normal_init = HeNormal
 
-__all__ = ["zero_init", "ones_init", "random_normal", "random_uniform", "relu_init", "xavier_init"]
+__all__ = ["zero_init", "ones_init", "random_normal", "random_uniform", "he_normal_init", "xavier_init"]

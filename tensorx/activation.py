@@ -79,37 +79,34 @@ def tanh(x):
     return nn.tanh(x)
 
 
-def relu(x, alpha=0., max_value=None):
-    """ Rectified linear unit [1].
+def relu(x):
+    """ Rectifier linear unit [1].
 
     References:
         [1] (Vinod & Hinton, 2010) "Rectified linear units improve restricted boltzmann machines."
 
     Args:
         x (Tensor):  Tensor or variable to compute the activation function for.
-        alpha: Slope for negative input, usually between 0 and 1. The default value of 0 will lead to the standard
-        rectifier, 1 will lead to a linear activation function, and any value in between will give a leaky rectifier
-        max_value: Saturation threshold.
+    Returns:
+        ´´Tensor´´: A tensor that results in element-wise rectifier applied to x.
+    """
+    return nn.relu(x)
+
+
+def leaky_relu(x, alpha=0.2):
+    """ Leaky Rectifier Linear Unit
+
+    Args:
+        x: (Tensor):  Tensor or variable to which the ReLU will be applied
+        alpha: Slope of the activation function at x < 0.
 
     Returns:
         ´´Tensor´´: A tensor that results in element-wise rectifier applied to x.
     """
-    x = ops.convert_to_tensor(x)
-    if alpha != 0.:
-        negative_part = nn.relu(-x)
-    x = nn.relu(x)
-    if max_value is not None:
-        max_value = to_tensor_cast(max_value, x.dtype)
-        zero = to_tensor_cast(0., x.dtype)
-        x = clip_ops.clip_by_value(x, zero, max_value)
-    if alpha != 0.:
-        alpha = to_tensor_cast(alpha, x.dtype)
-        x -= alpha * negative_part
-
-    return x
+    return nn.leaky_relu(x, alpha)
 
 
-def elu(x, alpha=1.):
+def elu(x, alpha=1.0):
     """Exponential Linear Unit
 
     Reference:
@@ -192,4 +189,4 @@ def sparsemax(logits, name=None):
             math_ops.cast(0, logits.dtype), z - tau_z[:, array_ops.newaxis])
 
 
-__all__ = ["relu", "sigmoid", "hard_sigmoid", "tanh", "elu", "identity", "softmax", "sparsemax"]
+__all__ = ["relu", "leaky_relu", "sigmoid", "hard_sigmoid", "tanh", "elu", "identity", "softmax", "sparsemax"]
