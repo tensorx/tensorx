@@ -360,7 +360,7 @@ def sparse_zeros(matrix_indices, dense_shape, dtype=dtypes.float32):
     return SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
+def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32):
     """Transforms a batch of column indices to a one-hot encoding ``SparseTensor``.
 
         Example::
@@ -386,6 +386,8 @@ def sparse_one_hot(column_indices, dense_shape, dtype=dtypes.float32):
     """
     column_indices = to_tensor_cast(column_indices, dtypes.int64)
     matrix_indices = column_indices_to_matrix_indices(column_indices, dtype=dtypes.int64)
+
+    dense_shape = math_ops.cast([array_ops.shape(column_indices)[0], num_cols], dtype=dtypes.int64)
 
     return sparse_ones(matrix_indices, dense_shape, dtype)
 

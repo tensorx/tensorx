@@ -18,11 +18,11 @@ def ones_init(dtype=dt.float32):
     return init_ops.ones_initializer(dtype=dtype)
 
 
-def random_normal(mean=0.0, stdev=1.0, seed=None, dtype=dt.float32):
-    return init_ops.random_normal_initializer(mean, stdev, seed, dtype)
+def random_normal(mean=0.0, stddev=1.0, seed=None, dtype=dt.float32):
+    return init_ops.random_normal_initializer(mean, stddev, seed, dtype)
 
 
-def random_uniform(maxval=1, minval=-1, seed=None, dtype=dt.float32):
+def random_uniform(minval=-1, maxval=1, seed=None, dtype=dt.float32):
     """ Random Uniform Initialisation between minval and maxval.
 
     Wrapper around TensorFlow random_uniform function between minval and maxval
@@ -57,12 +57,6 @@ def xavier_init(seed=None, dtype=dt.float32):
     Returns:
         Tensor: a TensorFlow tensor used to initialise variable
     """
-
-    # [fan_in, fan_out] = shape
-    # low = -math_ops.sqrt(6.0 / (fan_in + fan_out))
-    # high = math_ops.sqrt(6.0 / (fan_in + fan_out))
-
-    # return random_ops.random_uniform((fan_in, fan_out), low, high, dtype)
     return init_ops.glorot_uniform_initializer(seed, dtype)
 
 
@@ -81,8 +75,8 @@ class HeNormal(init_ops.Initializer):
         This doesn't hold for rectifying non-linearities.
 
         References:
-            [1] (He, Rang, Zhen and Sun 2015), "Delving Deep into Rectifiers:Surpassing Human-Level Performance on ImageNet
-            Classification".
+            [1] (He, Rang, Zhen and Sun 2015), "Delving Deep into Rectifiers:Surpassing Human-Level Performance on
+            ImageNet Classification".
 
         Args:
 

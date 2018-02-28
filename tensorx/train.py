@@ -204,16 +204,17 @@ def _get_feedable(inputs):
 
 
 class Param:
-    def __init__(self, value, dtype=dtypes.float32, name=None):
+    def __init__(self, value, init_value=None, dtype=dtypes.float32, name=None):
         self.dtype = dtype
         self.tensor = ops.convert_to_tensor(value)
         self.name = name
+        self.value = init_value
 
 
 class InputParam(Param):
-    def __init__(self, dtype=dtypes.float32, name=None):
+    def __init__(self, dtype=dtypes.float32, init_value=None, name=None):
         self.placeholder = array_ops.placeholder(dtype=dtype, shape=[], name=name)
-        super().__init__(self.placeholder, dtype, name)
+        super().__init__(self.placeholder, init_value, dtype, name)
 
 
 class WrapParam(Param):
@@ -223,6 +224,9 @@ class WrapParam(Param):
 
         if hasattr(param, "placeholder"):
             self.placeholder = param.placeholder
+
+        if hasattr(param, "value"):
+            self.value = param.value
 
         self.param = param,
         value = tensor_op(param.tensor)
@@ -675,7 +679,7 @@ class ModelRunner:
         else:
             self.train_step = self.optimizer.minimize(self.joint_loss, var_list=var_list)
 
-    def train(self, data=None, loss_input_data=None, optimizer_param_values=None):
+    def train(self, data=None, loss_input_data=None, optimizer_params={}):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -687,7 +691,7 @@ class ModelRunner:
             You need to run :func:`config` before calling `train`.
 
         Args:
-            optimizer_param_values: values to be fed to the feedable ``Params`` specified in ``config_optimizer``
+            optimizer_params: values to be fed to the feedable ``Params`` specified in ``config_optimizer``
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             loss_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
         """
@@ -733,19 +737,20 @@ class ModelRunner:
         # =========================
         #   FEED OPTIMIZER PARAMS
         # =========================
-        param_values = _as_list(optimizer_param_values)
-        feedable_params = _get_feedable(self.optimizer_params)
-        if len(param_values) != len(feedable_params):
-            raise ValueError(
-                "received {n_params} optimizer parameter values, expected {n_feedable}".format(
-                    n_params=len(param_values),
-                    n_feedable=len(feedable_params))
-            )
 
-        param_dict = {param.placeholder: value for param, value in zip(feedable_params, param_values)}
+        feedable_params = _get_feedable(self.optimizer_params)
+        param_dict = {}
+        for param in feedable_params:
+            if param not in optimizer_params:
+                print(param.value)
+                if param.value is not None:
+                    param_dict[param.placeholder] = param.value
+                else:
+                    raise ValueError("expected {p}:value, no value found".format(param.name))
+            else:
+                param_dict[param.placeholder] = feedable_params[param]
 
         # MERGE ALL DICTS
-
         feed_dict.update(target_dict)
         feed_dict.update(param_dict)
 

@@ -25,7 +25,7 @@ class TestLayers(unittest.TestCase):
         in2 = TensorLayer([[1.]], 1)
 
         l1 = Linear(in1, 4)
-        l2 = Activation(l1, relu, max_value=3)
+        l2 = Activation(l1, relu)
 
         comp = Compose([l1, l2])
         comp2 = comp.reuse_with(in2)
@@ -409,7 +409,7 @@ class TestLayers(unittest.TestCase):
 
     def test_activation_with_params(self):
         inputs = Input(1)
-        act = Activation(inputs, relu, max_value=2.0)
+        act = Activation(inputs, leaky_relu, alpha=0.)
 
         r0 = act.tensor.eval({inputs.tensor: [[-1]]})
         r1 = act.tensor.eval({inputs.tensor: [[1]]})
@@ -417,7 +417,7 @@ class TestLayers(unittest.TestCase):
 
         self.assertEqual(r0[0], 0)
         self.assertEqual(r1[0], 1)
-        self.assertEqual(r2[0], 2)
+        self.assertEqual(r2[0], 3)
 
     def test_layers_to_list(self):
         """ layers_to_list returns the layers without repetition using a breadth first search from the last layer
@@ -505,6 +505,7 @@ class TestLayers(unittest.TestCase):
             sp_indices = np.array([[0, 2], [1, 0],
                                    [2, 1], [3, 2],
                                    [4, 1], [5, 2]], np.int64)
+            sp_values = np.array([1, 1, 1, 1, 1, 1], np.int64)
             sp_values = np.array([1, 1, 1, 1, 1, 1], np.int64)
             dense_shape = np.array([6, vocab_size], np.int64)
             sp_values = tf.SparseTensorValue(indices=sp_indices, values=sp_values, dense_shape=dense_shape)

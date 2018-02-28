@@ -380,10 +380,7 @@ class Input(Layer):
             else:
                 self.n_active = n_active
                 self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
-
-                indices_shape = txutils.complete_shape(self.placeholder)
-                dense_shape = [indices_shape[0], self.shape[1]]
-                self.tensor = transform.sparse_one_hot(self.placeholder, dense_shape, dtype=self.dtype)
+                self.tensor = transform.sparse_one_hot(self.placeholder, self.shape[1], dtype=self.dtype)
 
     def __str__(self):
         class_name = type(self).__name__

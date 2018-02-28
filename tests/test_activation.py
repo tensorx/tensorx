@@ -21,12 +21,12 @@ class TestActivations(unittest.TestCase):
         self.assertEqual(result.eval(), 1.)
 
         value = 1
-        result = relu(value, max_value=0)
+        result = relu(value)
         self.assertEqual(type(result.eval()), np.int32)
 
     def test_relu(self):
-        value = 1
-        result = relu(value, max_value=0)
+        value = -1
+        result = relu(value)
         self.assertEqual(result.eval(), 0.)
         self.assertEqual(type(result.eval()), np.int32)
         value = 1.

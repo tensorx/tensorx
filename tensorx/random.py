@@ -231,7 +231,7 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
         return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype)
 
 
-def sample_sigmoid(x, n, dtype=dtypes.float32, seed=None, name="sample_sigmoid"):
+def sample_sigmoid(x, n, dtype=None, seed=None, name="sample_sigmoid"):
     """ Efficient sampling Bernoulli random variable x from a sigmoid defined distribution
 
     Note:
@@ -248,7 +248,9 @@ def sample_sigmoid(x, n, dtype=dtypes.float32, seed=None, name="sample_sigmoid")
         a Tensor with the rank(x) + 1
     """
     with ops.name_scope(name, values=[x]):
-        x = ops.convert_to_tensor(x, dtype=dtype)
+        x = ops.convert_to_tensor(x)
+        if dtype is not None:
+            x = math_ops.cast(x, dtype)
         n = ops.convert_to_tensor(n)
 
         shape = tf.shape(x)

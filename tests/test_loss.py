@@ -41,6 +41,7 @@ class TestLoss(unittest.TestCase):
                      [0.0, 0.0, 0.0, 1.0]]
 
         result = categorical_cross_entropy(labels, predicted)
+        result = tf.reduce_mean(result)
         result = result.eval()
         self.assertGreater(result, 0)
 

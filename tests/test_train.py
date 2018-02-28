@@ -21,7 +21,17 @@ import glob
 """
 
 
-class MyTestCase(unittest.TestCase):
+class ModelRunnerTest(unittest.TestCase):
+    def setUp(self):
+        self.session = tf.InteractiveSession()
+
+    def tearDown(self):
+        self.session.close()
+
+    def clear_graph(self):
+        tf.reset_default_graph()
+        # build a session around the new default graph
+        self.session = tf.InteractiveSession()
 
     def test_model_session(self):
         data = [[1]]
@@ -43,32 +53,35 @@ class MyTestCase(unittest.TestCase):
         # weights1 = session1.run(linear.weights, {inputs.tensor: data})
         self.assertEqual(runner.session, session1)
 
-        # this creates a new session
-        session2 = runner.set_session()
-        self.assertEqual(session2, runner.session)
-        self.assertIsNotNone(runner.session)
-        self.assertNotEqual(session1, session2)
-        # setting a new session resets the variables
-        self.assertFalse(runner.vars_inited())
+        self.session.close()
 
-        # different sessions init the variables again
-        result2 = runner.run(data)
-        self.assertFalse(np.array_equal(result1, result2))
+        with tf.Session() as new_session:
+            # this creates a new session
+            session2 = runner.set_session()
+            self.assertIsNotNone(runner.session)
+            self.assertNotEqual(session1, session2)
+            self.assertEqual(session2, new_session)
+            # setting a new session resets the variables
+            self.assertFalse(runner.vars_inited())
 
-        runner.set_session()
-        # explicitly initialise variables with the new session
-        runner.init_vars()
-        self.assertTrue(runner.vars_inited())
-        result31 = runner.run(data)
-        # if the session doesn't change and variables are not re-initialised, the result should be the same
-        result32 = runner.run(data)
-        runner.init_vars()
-        result33 = runner.run(data)
-        self.assertTrue(np.array_equal(result31, result32))
-        self.assertFalse(np.array_equal(result31, result33))
+            # different sessions init the variables again
+            result2 = runner.run(data)
+            self.assertFalse(np.array_equal(result1, result2))
 
-        # to use the model in a new session, either call reset or model.set_session(session)
-        runner.reset_session()
+            runner.set_session()
+            # explicitly initialise variables with the new session
+            runner.init_vars()
+            self.assertTrue(runner.vars_inited())
+            result31 = runner.run(data)
+            # if the session doesn't change and variables are not re-initialised, the result should be the same
+            result32 = runner.run(data)
+            runner.init_vars()
+            result33 = runner.run(data)
+            self.assertTrue(np.array_equal(result31, result32))
+            self.assertFalse(np.array_equal(result31, result33))
+
+            # to use the model in a new session, either call reset or model.set_session(session)
+            runner.reset_session()
 
         with tf.Session() as session4:
             runner.run(data)
@@ -79,6 +92,8 @@ class MyTestCase(unittest.TestCase):
         session5 = tf.InteractiveSession()
         runner.run(data)
         self.assertEqual(runner.session, session5)
+
+        self.clear_graph()
 
     def test_model_var_init(self):
         inputs = Input(1)
@@ -101,7 +116,10 @@ class MyTestCase(unittest.TestCase):
 
         session2.close()
 
+        self.clear_graph()
+
     def test_model_run(self):
+
         inputs = Input(4)
         linear = Linear(inputs, 2)
         h = Activation(linear, fn=tanh)
@@ -117,8 +135,9 @@ class MyTestCase(unittest.TestCase):
         self.assertIsInstance(result, np.ndarray)
         self.assertTrue(np.ndim(result), 2)
 
+        self.clear_graph()
+
     def test_model_graph_save(self):
-        tf.reset_default_graph()
         const = tf.ones([1, 10], name="const")
         wrap = TensorLayer(const, 10)
         model = Model(run_in_layers=wrap, run_out_layers=wrap)
@@ -145,8 +164,9 @@ class MyTestCase(unittest.TestCase):
             result2 = sess.run(t)
             np.testing.assert_array_equal(result, result2)
 
-    def test_model_save(self):
+        self.clear_graph()
 
+    def test_model_save(self):
         session = tf.Session()
 
         def build_model():
@@ -193,7 +213,10 @@ class MyTestCase(unittest.TestCase):
         for file in model_files:
             os.remove(file)
 
+        self.clear_graph()
+
     def test_model_io(self):
+
         inputs = Input(1)
         layer = Linear(inputs, n_units=1, init=init.ones_init())
 
@@ -235,13 +258,14 @@ class MyTestCase(unittest.TestCase):
         result = model_runner.run(data1, data2)
         self.assertEqual(result[0][0], 0)
 
+        self.clear_graph()
+
     def test_model_train(self):
         input_layer = Input(4, name="x")
         linear = Linear(input_layer, 2)
         h = Activation(linear, fn=sigmoid)
 
         # configure training
-        optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)
         labels = Input(2, name="y_")
         losses = binary_cross_entropy(labels.tensor, h.tensor)
 
@@ -251,6 +275,8 @@ class MyTestCase(unittest.TestCase):
                       eval_tensors=losses,
                       eval_tensors_in=labels)
         runner = ModelRunner(model)
+
+        optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)
         runner.config_optimizer(optimiser)
 
         data = np.array([[1, 1, 1, 1]])
@@ -267,6 +293,8 @@ class MyTestCase(unittest.TestCase):
         weights2 = runner.session.run(linear.weights)
 
         self.assertFalse(np.array_equal(weights1, weights2))
+
+        self.clear_graph()
 
 
 if __name__ == '__main__':
