@@ -204,17 +204,39 @@ def _get_feedable(inputs):
 
 
 class Param:
-    def __init__(self, value, init_value=None, dtype=dtypes.float32, name=None):
+    """ Parameter
+
+    The idea with parameters is to provide a way to feed parameters to an optimizer or model.
+
+
+
+    """
+
+    def __init__(self, value, dtype=dtypes.float32, name=None):
         self.dtype = dtype
         self.tensor = ops.convert_to_tensor(value)
         self.name = name
-        self.value = init_value
 
 
 class InputParam(Param):
+    """ An input parameter
+    Use Case - Optimizer Params:
+        An ``InputParam`` can be used to feed a parameter to the optimizer (e.g. learning rate). The optimizer
+        would take the param.tensor value and use it as the learning rate. The ``ModelRunner`` will look for
+        feedable parameters for the optimizer and try to feed them from the train model method. If none is supplied,
+        the param instance is checked for the ``value`` attribute, if this is present, the value is fed to the
+        ``InputParam`` placeholder, if not, it throws an error.
+
+        This means one can change the parameters by changing a param.value before calling train on a ``ModelRunner``
+        instance. But it will only take effect if the value we're changing belongs to a param that has been configured
+        with the ``configure_optimizer`` method in the ``ModelRunner``.
+    """
+
     def __init__(self, dtype=dtypes.float32, init_value=None, name=None):
         self.placeholder = array_ops.placeholder(dtype=dtype, shape=[], name=name)
-        super().__init__(self.placeholder, init_value, dtype, name)
+        super().__init__(self.placeholder, dtype, name)
+
+        self.value = init_value
 
 
 class WrapParam(Param):
@@ -742,7 +764,6 @@ class ModelRunner:
         param_dict = {}
         for param in feedable_params:
             if param not in optimizer_params:
-                print(param.value)
                 if param.value is not None:
                     param_dict[param.placeholder] = param.value
                 else:
