@@ -696,7 +696,11 @@ class Lookup(Layer):
                 flat_lookup = array_ops.reshape(lookup_sum, [-1])
                 filled = array_ops.shape(flat_lookup)[0]
 
-                padding_shape = [math_ops.maximum(self.n_units * batch_size - filled, 0)]
+                # for sparse tensors this is int64
+                batch_size = math_ops.cast(batch_size, dtypes.int32)
+
+                fill_diff = (self.n_units * batch_size) - filled
+                padding_shape = [math_ops.maximum(fill_diff, 0)]
                 padding = array_ops.zeros(padding_shape)
                 flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 

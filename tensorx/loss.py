@@ -7,7 +7,8 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops, sparse_ops
 from tensorflow.python.ops import math_ops, variables
-from tensorflow.python.ops.losses.losses import mean_squared_error, sigmoid_cross_entropy
+from tensorflow.python.ops.losses.losses import mean_squared_error
+from tensorflow.python.ops.nn import sigmoid_cross_entropy_with_logits
 from tensorflow.python.ops.nn import softmax_cross_entropy_with_logits_v2
 from tensorflow.python.ops.nn import embedding_lookup
 from tensorflow.python.ops import candidate_sampling_ops as candidate_sampling
@@ -55,7 +56,7 @@ def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
         ``Tensor``: a float ``Tensor``.
 
     """
-    return sigmoid_cross_entropy(labels, logits)
+    return sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
 
 
 def categorical_cross_entropy(labels, logits, dim=-1):
