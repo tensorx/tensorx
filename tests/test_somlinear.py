@@ -1,6 +1,6 @@
 import unittest
 import tensorflow as tf
-from tensorx.metrics import pairwise_cosine_distance, torus_l1_distance, pairwise_sparse_cosine_distance
+from tensorx.metrics import batch_cosine_distance, torus_l1_distance, batch_sparse_cosine_distance
 
 import numpy as np
 
@@ -67,7 +67,7 @@ class MyTestCase(unittest.TestCase):
         # bmu_dist = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
         # som_distances = tf.sqrt(tf.reduce_sum(tf.pow((som_w - inputs), 2), 1))
 
-        som_dist = pairwise_cosine_distance(inputs, som_w)
+        som_dist = batch_cosine_distance(inputs, som_w)
         bmu = tf.argmin(som_dist, axis=1)
 
         map_indices = tf.range(0, n_partitions, 1)
@@ -185,7 +185,7 @@ class MyTestCase(unittest.TestCase):
         # SOM Neighbourhood - GAUSSIAN(L1(GRID))
         # **************************************************************************************************************
         som_indices = transform.indices(som_shape)
-        distances = pairwise_cosine_distance(inputs, som)
+        distances = batch_cosine_distance(inputs, som)
         print(distances.eval())
         bmu = tf.argmin(distances, axis=1)
         bmu = tf.expand_dims(bmu, 1)
@@ -206,7 +206,7 @@ class MyTestCase(unittest.TestCase):
         dsom_learner = DSOMLearner(som_shape=som_shape,
                                    learning_rate=learning_rate,
                                    elasticity=elasticity,
-                                   distance_metric=pairwise_cosine_distance,
+                                   distance_metric=batch_cosine_distance,
                                    neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs, [som])
@@ -234,7 +234,7 @@ class MyTestCase(unittest.TestCase):
         L1 Neighbourhood and BMU
         """
 
-        distances = pairwise_cosine_distance(inputs, som)
+        distances = batch_cosine_distance(inputs, som)
         bmu = tf.argmin(distances, axis=1)
         bmu_batch = tf.expand_dims(bmu, 1)
         bmu_rows = transform.column_indices_to_matrix_indices(bmu_batch)
@@ -337,7 +337,7 @@ class MyTestCase(unittest.TestCase):
                                    som_shape=som_shape,
                                    learning_rate=learning_rate,
                                    elasticity=elasticity,
-                                   metric=pairwise_cosine_distance,
+                                   metric=batch_cosine_distance,
                                    neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs)
@@ -373,9 +373,9 @@ class MyTestCase(unittest.TestCase):
         # DISTANCES
         som_indices = transform.indices(som_shape)
         if isinstance(inputs, tf.Tensor):
-            distances = pairwise_cosine_distance(inputs, som)
+            distances = batch_cosine_distance(inputs, som)
         elif isinstance(inputs, tf.SparseTensor):
-            distances = pairwise_sparse_cosine_distance(inputs, som)
+            distances = batch_sparse_cosine_distance(inputs, som)
         else:
             raise TypeError("invalid inputs")
         # print("distances \n ",distances.eval())
@@ -427,7 +427,7 @@ class MyTestCase(unittest.TestCase):
                                    som_shape=som_shape,
                                    learning_rate=learning_rate,
                                    elasticity=elasticity,
-                                   metric=pairwise_cosine_distance,
+                                   metric=batch_cosine_distance,
                                    neighbourhood_threshold=neighbourhood_threshold)
 
         deltas = dsom_learner.compute_delta(inputs)

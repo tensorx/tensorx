@@ -3,7 +3,7 @@
 This module contains metrics or distance functions defining a distance between each pair of elements of a set.
 
 """
-from tensorflow.python.ops import math_ops, array_ops, linalg_ops, clip_ops
+from tensorflow.python.ops import math_ops, array_ops, linalg_ops, clip_ops, sparse_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.framework import dtypes
@@ -11,12 +11,13 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensor
 
 from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot, dot
 from tensorx.utils import to_tensor_cast
-from tensorx.transform import indices
+
+import tensorx.transform as transf
 
 from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
 
 
-def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, keep_dims=False):
+def batch_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, keep_dims=False):
     """ Computes the cosine dsitance between two non-zero `SparseTensor` and `Tensor`
 
         Warning:
@@ -56,7 +57,7 @@ def pairwise_sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32, ke
     return 1 - sim
 
 
-def pairwise_cosine_distance(tensor1, tensor2, dtype=dtypes.float32, keep_dims=False):
+def batch_cosine_distance(tensor1, tensor2, dtype=dtypes.float32, keep_dims=False):
     """ Computes the pairwise cosine similarity between two non-zero `Tensor`s
 
     Warning:
@@ -130,12 +131,13 @@ def sparse_cosine_distance(sp_tensor, tensor2, dtype=dtypes.float32):
 def cosine_distance(tensor1, tensor2, dtype=dtypes.float32):
     """ Computes the pairwise cosine distance between two non-zero `Tensor`s
 
+    Computed on -1 dim
+
     Computed as 1 - cosine_similarity
 
     Args:
         tensor1: a `Tensor`
         tensor2: a `Tensor`
-        dim: the dimension along which the distance is computed
         dtype:
 
     Returns:
@@ -182,7 +184,7 @@ def sparse_euclidean_distance(sp_tensor, tensor2):
     """ Computes the euclidean distance between two tensors.
 
         Args:
-            tensor1: a ``Tensor``
+            tensor1: a ``Tensor`` or ``SparseTensor``
             tensor2: a ``Tensor``
             dim: dimension along which the euclidean distance is computed
 
@@ -269,7 +271,7 @@ def torus_l1_distance(point, shape):
         max_x = shape[0]
         max_y = shape[1]
 
-        xys = indices(shape)
+        xys = transf.indices(shape)
         xys = math_ops.cast(xys, dtypes.float32)
 
         xs, ys = array_ops.unstack(xys, num=2, axis=-1)
@@ -292,11 +294,37 @@ def torus_l1_distance(point, shape):
     return distance
 
 
+def batch_manhattan_distance(tensor1, tensor2, keep_dims=False):
+    """ Compute the manhattan distance between a batch of tensors and a matrix
+
+    If any tensor is a ``SparseTensor``, it is converted to
+
+    Args:
+        tensor1: ``Tensor`` or ``SparseTensor``
+        tensor2: ``Tensor`` or ``SparseTensor``
+
+    Returns:
+        The hamming distance between the two tensors
+
+    """
+    tensor1 = convert_to_tensor_or_sparse_tensor(tensor1)
+    tensor2 = convert_to_tensor_or_sparse_tensor(tensor2)
+
+    if isinstance(tensor1, SparseTensor):
+        tensor1 = sparse_ops.sparse_tensor_to_dense(tensor1)
+    if isinstance(tensor2, SparseTensor):
+        tensor2 = sparse_ops.sparse_tensor_to_dense(tensor2)
+
+    tensor1 = array_ops.expand_dims(tensor1, 1)
+    abs_diff = math_ops.abs(math_ops.subtract(tensor1, tensor2))
+    return math_ops.reduce_sum(abs_diff, axis=-1, keep_dims=keep_dims)
+
+
 __all__ = ["batch_sparse_dot",
            "cosine_distance",
            "sparse_cosine_distance",
            "euclidean_distance",
            "torus_l1_distance",
-           "pairwise_cosine_distance",
-           "pairwise_sparse_cosine_distance"
+           "batch_cosine_distance",
+           "batch_sparse_cosine_distance"
            ]

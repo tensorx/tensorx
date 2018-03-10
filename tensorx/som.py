@@ -13,7 +13,7 @@ from tensorx.math import gaussian
 
 class DSOMLearner(Learner):
     def __init__(self, var_list, som_shape, learning_rate=0.1, elasticity=1.0, neighbourhood_threshold=1e-6,
-                 metric=metrics.pairwise_sparse_cosine_distance):
+                 metric=metrics.batch_sparse_cosine_distance):
         """ The variable might be a flat version of the som_shape
         usually with som_shape[0]*som_shape[1] neurons but the actual
         shape of the som network needs to be known a prior to compute the neighbourhood

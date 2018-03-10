@@ -532,7 +532,8 @@ def filter_nd(condition, params):
 
 
 def sparse_overlap(sp_tensor1, sp_tensor2):
-    """ Returns a `SparseTensor` where the indices of the two tensors overlap with the values of the first
+    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
+    with the values of the first one
 
     Args:
         sp_tensor1: a `SparseTensor`
