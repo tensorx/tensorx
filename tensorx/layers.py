@@ -12,6 +12,8 @@ Types of layers:
 """
 from functools import partial
 import itertools
+
+from numpy.ma import array
 from tensorflow.python.framework import ops, dtypes
 
 from tensorflow.python.framework.ops import Tensor, name_scope
@@ -30,6 +32,8 @@ from tensorx.random import salt_pepper_noise, sparse_random_normal
 from tensorx import transform
 from tensorx import utils as txutils
 from tensorx.metrics import batch_cosine_distance
+from tensorx.activation import sigmoid, elu
+from tensorx import math as mathx
 
 from contextlib import ExitStack
 
@@ -627,8 +631,6 @@ class Lookup(Layer):
 
     """
 
-    # TODO analyse if it's possible to add automatic padding to lookup layer
-    # The padding could be added to  input tensors or output tensor
     # TODO adaptive feature shape based on input if input has n_active
     def __init__(self,
                  layer,
@@ -757,6 +759,90 @@ class Lookup(Layer):
                       dtype=self.dtype,
                       name=name,
                       share_vars_with=share_vars_with)
+
+
+class Gate(Layer):
+    """ Creates a Gate Layer that filters a given input layer using
+    learned features from that layer.
+
+    Warning:
+        layer.n_units must be a multiple of n_units because if n_units < layer.n_units, we perform
+        the gating by reshaping the input layer and using broadcasting.
+
+        Example: if input layer has 6 units and gate has 2, it will apply the gating mechanism to a
+        [-1,2,3] meaning the batch dimension will be the same but each gating unit will modulate 3
+        input units at a time.
+
+    Note:
+        The original description (see reference) uses a re-scaled sigmoid (by 2) to make sure the gates
+        output 1 when the input weights are 0, this is to guarantee that initially the network outputs
+        the same as other models without gating (to allow for comparison with initial conditions), I make
+        no such assumption with the default values of this layer -- although gate_fn can be specified to
+        mimic this behaviour.
+
+    Reference:
+        (Mnih, et al. 2009) "Improving a statistical language model by modulating the effects of context words"
+
+    Args:
+            layer: a Layer to be gated
+            n_units: number of gate units, the number of units of the layer to be gated should be a multiple of the
+                    number of gate units (see Warning)
+            h_dim: dimension for gate hidden unit
+            h_fn: function for hidden layer
+            gate_fn: function for gate
+            shared_gate: if another gate is provided use the gate variables from that gate instead
+    """
+
+    # TODO should the gate be just the last part and receive the features as input when created?
+    # this way the gate could be created from any features
+    # TODO test this layer
+    # TODO test layer reuse
+    def _apply_gate(self, layer, gate_tensor):
+        feature_dim = layer.n_units // self.n_units
+        if layer.is_sparse():
+
+            tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, self.n_units, feature_dim])
+            gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate_tensor, -1))
+        else:
+            tensor_in = array_ops.reshape(layer.tensor, [-1, self.n_units, feature_dim])
+            gated = tensor_in * array_ops.expand_dims(gate_tensor, -1)
+
+        return array_ops.reshape(gated, array_ops.shape(layer.tensor))
+
+    def __init__(self, layer, n_units, h_dim, h_fn=elu, gate_fn=sigmoid, shared_gate=None):
+        super().__init__(layer, n_units, layer.shape, dtype=dtypes.float32, name="gated_" + layer.name)
+
+        self.h_dim = h_dim
+        self.h_fn = h_fn
+        self.gate_fn = gate_fn
+
+        if not isinstance(shared_gate, Gate):
+            raise TypeError("shared_gate must be of type {} got {} instead".format(Gate, type(shared_gate)))
+
+        self.shared_gate = shared_gate
+
+        with layer_scope(self):
+            # build gate or reuse shared gate variables
+            if self.shared_gate is not None:
+                self.gate = self.shared_gate.gate.reuse_with(layer)
+            else:
+                h_l = Linear(layer, h_dim)
+                h_a = Activation(h_l, h_fn)
+                gate_l = Linear(h_a, n_units)
+                gate_a = Activation(gate_l, gate_fn)
+                self.gate = Compose([h_l, h_a, gate_l, gate_a])
+
+            tensor = self._apply_gate(layer, self.gate.tensor)
+
+        self.tensor = tensor
+
+    def reuse_with(self, layer):
+        return Gate(layer=layer,
+                    n_units=self.n_units,
+                    h_dim=self.h_dim,
+                    h_fn=self.h_fn,
+                    gate_fn=self.gate_fn,
+                    shared_gate=self)
 
 
 class ToSparse(Layer):

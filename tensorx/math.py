@@ -173,6 +173,24 @@ def sparse_multiply(sp_tensor1, tensor2, name="sparse_multiply"):
             return sparse_sparse_multiply(sp_tensor1, tensor2)
 
 
+def sparse_multiply_dense(sp_tensor1, tensor2, name="sparse_multiply"):
+    """ Uses an operation from  Tensorflow that seems faster and supports broadcasting
+    but returns a dense result.
+
+    Note:
+        also reshapes the result to match the shape of sp_tensor1
+
+    """
+    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        mul = sparse_ops.sparse_dense_cwise_mul(sp_tensor1.indices,
+                                                sp_tensor1.values,
+                                                sp_tensor1.dense_shape,
+                                                tensor2)
+
+        mul = array_ops.reshape(mul, array_ops.shape(sp_tensor1))
+        return mul
+
+
 def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
     """ Element-wise multiplication of two sparse tensors
 
@@ -217,4 +235,5 @@ __all__ = ["safe_div",
            "sparse_dot",
            "batch_sparse_dot",
            "sparse_multiply",
+           "sparse_multiply_dense",
            "logit"]

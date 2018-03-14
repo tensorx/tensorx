@@ -55,6 +55,32 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
         return SparseTensor(empty_indices, empty_values, dense_shape)
 
 
+def repeat(x, n, name="repeat"):
+    """ Repeats the values of a tensor along the last dimension
+
+    Args:
+        x: ``Tensor``
+        n: :obj:`int` number of repetitions of each element
+        name: name for the operation
+
+    Returns:
+        A `Tensor` with shape [shape[:-1, ], shape[-1:, ] * n]
+    """
+    x = ops.convert_to_tensor(x)
+    n = ops.convert_to_tensor(n)
+
+    with ops.name_scope(name, values=[x, n]):
+        shape = array_ops.shape(x)
+        flat_x = array_ops.reshape(x, [-1])
+
+        rep_x = array_ops.tile(array_ops.expand_dims(flat_x, -1), [1, n])
+
+        new_shape = array_ops.concat([shape[:-1, ], shape[-1:, ] * n], axis=-1)
+        rep_x = array_ops.reshape(rep_x, new_shape)
+
+    return rep_x
+
+
 def indices(shape, name="grid"):
     with ops.name_scope(name):
         if len(shape) == 1:
@@ -569,5 +595,6 @@ __all__ = ["empty_sparse_tensor",
            "sparse_dropout",
            "pairs",
            "indices",
-           "filter_nd"
+           "filter_nd",
+           "repeat"
            ]

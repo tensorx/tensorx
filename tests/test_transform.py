@@ -17,6 +17,22 @@ class TestTransform(unittest.TestCase):
     def tearDown(self):
         self.ss.close()
 
+    def test_repeat(self):
+        n = 23
+        x = np.array([[1, 2], [3, 4]])
+        r = transform.repeat(x, n)
+
+        shape = tf.shape(r).eval()
+
+        self.assertEqual(shape[-1], np.shape(x)[-1] * n)
+
+        x = [[[1], [2]], [[3], [4]]]
+        r = transform.repeat(x, n)
+
+        shape = tf.shape(r).eval()
+
+        self.assertEqual(shape[-1], np.shape(x)[-1] * n)
+
     def test_empty_sparse_tensor(self):
         dense_shape = [2, 2]
         empty = transform.empty_sparse_tensor(dense_shape)
