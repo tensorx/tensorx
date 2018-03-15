@@ -582,8 +582,52 @@ def sparse_overlap(sp_tensor1, sp_tensor2):
     return filtered
 
 
+def gather_sparse(sp_tensor, ids):
+    """ Gather on SparseTensor
+
+    performs a row gather operation on a ``SparseTensor`` returning
+    a new ``SparseTensor`` with one row per id gathered
+
+    Example:
+        gather_sparse(sp_tensor,[1,1,4])
+
+        returns a [3,sp_tensor.dense_shape[-1]] ``SparseTensor``
+
+
+
+    Args:
+        sp_tensor: a ``SparseTensor``
+        ids: ``Tensor`` with row ids to be gathered from the sparse tensor
+
+    Returns:
+        a ``SparseTensor`` with a number of rows equal to the number of ids to be gathered.
+
+    """
+    ids = math_ops.cast(ids, dtypes.int64)
+
+    row_i, col_j = array_ops.split(sp_tensor.indices, 2, axis=-1)
+    row_i = array_ops.reshape(row_i, shape=[-1])
+    col_j = array_ops.reshape(col_j, shape=[-1])
+
+    # reshape ids for equal broadcasting
+    row_filter = array_ops.where(math_ops.equal(row_i, array_ops.reshape(ids, [-1, 1])))
+    new_rows, row_indices = array_ops.split(row_filter, 2, -1)
+    num_rows = math_ops.reduce_max(new_rows) + 1
+
+    cols = array_ops.gather(col_j, row_indices)
+    values = array_ops.gather_nd(sp_tensor.values, row_indices)
+
+    sp_indices = array_ops.concat([new_rows, cols], axis=-1)
+    dense_shape = array_ops.stack([math_ops.cast(num_rows, dtypes.int64), sp_tensor.dense_shape[-1]])
+
+    gather_sp = SparseTensor(indices=sp_indices, values=values, dense_shape=dense_shape)
+
+    return gather_sp
+
+
 __all__ = ["empty_sparse_tensor",
            "to_sparse",
+           "gather_sparse",
            "column_indices_to_matrix_indices",
            "dense_one_hot",
            "sparse_one_hot",
