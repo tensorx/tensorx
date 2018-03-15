@@ -793,30 +793,29 @@ class Gate(Layer):
             shared_gate: if another gate is provided use the gate variables from that gate instead
     """
 
-    # TODO should the gate be just the last part and receive the features as input when created?
-    # this way the gate could be created from any features
     # TODO test this layer
     # TODO test layer reuse
     def _apply_gate(self, layer, gate_tensor):
-        feature_dim = layer.n_units // self.n_units
+        feature_dim = layer.n_units // self.n_gates
         if layer.is_sparse():
 
-            tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, self.n_units, feature_dim])
+            tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, self.n_gates, feature_dim])
             gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate_tensor, -1))
         else:
-            tensor_in = array_ops.reshape(layer.tensor, [-1, self.n_units, feature_dim])
+            tensor_in = array_ops.reshape(layer.tensor, [-1, self.n_gates, feature_dim])
             gated = tensor_in * array_ops.expand_dims(gate_tensor, -1)
 
         return array_ops.reshape(gated, array_ops.shape(layer.tensor))
 
-    def __init__(self, layer, n_units, h_dim, h_fn=elu, gate_fn=sigmoid, shared_gate=None):
-        super().__init__(layer, n_units, layer.shape, dtype=dtypes.float32, name="gated_" + layer.name)
+    def __init__(self, layer, n_gates, h_dim, h_fn=elu, gate_fn=sigmoid, shared_gate=None):
+        super().__init__(layer, layer.n_units, layer.shape, dtype=dtypes.float32, name="gated_" + layer.name)
 
         self.h_dim = h_dim
         self.h_fn = h_fn
         self.gate_fn = gate_fn
+        self.n_gates = n_gates
 
-        if not isinstance(shared_gate, Gate):
+        if shared_gate is not None and not isinstance(shared_gate, Gate):
             raise TypeError("shared_gate must be of type {} got {} instead".format(Gate, type(shared_gate)))
 
         self.shared_gate = shared_gate
@@ -828,7 +827,7 @@ class Gate(Layer):
             else:
                 h_l = Linear(layer, h_dim)
                 h_a = Activation(h_l, h_fn)
-                gate_l = Linear(h_a, n_units)
+                gate_l = Linear(h_a, n_gates)
                 gate_a = Activation(gate_l, gate_fn)
                 self.gate = Compose([h_l, h_a, gate_l, gate_a])
 
@@ -836,9 +835,13 @@ class Gate(Layer):
 
         self.tensor = tensor
 
+        # add variables from all the inner gate layer
+        for var in self.gate.variables:
+            self._add_variable(var)
+
     def reuse_with(self, layer):
         return Gate(layer=layer,
-                    n_units=self.n_units,
+                    n_gates=self.n_gates,
                     h_dim=self.h_dim,
                     h_fn=self.h_fn,
                     gate_fn=self.gate_fn,
@@ -1308,6 +1311,7 @@ class SOMLinear(Layer):
 
 
 __all__ = ["Input",
+           "Gate",
            "Compose",
            "TensorLayer",
            "SparseInput",

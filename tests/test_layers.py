@@ -547,6 +547,30 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(res1, res2))
         self.assertTrue(np.array_equal(res2, res3))
 
+    def test_gating(self):
+        tf.reset_default_graph()
+        self.ss = tf.InteractiveSession()
+
+        vocab_size = 4
+        n_features = 3
+        seq_size = 2
+        batch_size = 4
+
+        inputs = Input(seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2]])
+
+        features = Lookup(inputs, seq_size, [vocab_size, n_features], batch_size)
+
+        gated = Gate(features, n_gates=seq_size, h_dim=10)
+
+        init = tf.global_variables_initializer()
+        init.run()
+
+        feed = {inputs.placeholder: input_data}
+
+        print(gated.full_str())
+        print(tf.shape(gated.tensor).eval(feed))
+
 
 if __name__ == '__main__':
     unittest.main()
