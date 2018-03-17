@@ -344,6 +344,26 @@ class Compose(Layer):
         layers = [layer1] + layers
         return Compose(layers, name=self.name)
 
+    def __str__(self):
+        """ Informal string representation for a layer consists of Layer Class name, number of units and if its
+        Sparse or Dense.
+
+        Returns:
+            :obj:`str`: a :obj:`str` with the informal representation for a layer instance.
+
+        """
+        class_name = type(self).__name__
+        sparse_dense = "[Sparse]" if self.is_sparse() else "[Dense]"
+        result = "{layer_name}::{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
+                                                                                    n_units=self.n_units,
+                                                                                    dtype=self.dtype,
+                                                                                    sparse_dense=sparse_dense,
+                                                                                    layer_name=self.name)
+
+        # print inner layers
+        inner_layers = [str(layer) for layer in self.layers]
+        result = "{}\n \t{}".format(result,"\n\t".join(inner_layers))
+        return result
 
 class Input(Layer):
     """ Input Layer
@@ -636,8 +656,8 @@ class Lookup(Layer):
                  layer,
                  seq_size,
                  feature_shape,
-                 batch_size=None,
                  weight_init=random_uniform(),
+                 batch_size=None,
                  dtype=dtypes.float32,
                  name="seq_lookup",
                  share_vars_with=None):
