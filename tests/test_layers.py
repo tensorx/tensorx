@@ -555,13 +555,27 @@ class TestLayers(unittest.TestCase):
         n_features = 3
         seq_size = 2
         batch_size = 4
+        h_dim = 10
 
         inputs = Input(seq_size, dtype=tf.int32)
         input_data = np.array([[2, 0], [1, 2]])
 
-        features = Lookup(inputs, seq_size, [vocab_size, n_features], batch_size)
+        features = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features])
+        features2 = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features])
 
-        gated = Gate(features, n_gates=seq_size, h_dim=10)
+        gated = Gate(features, n_gates=seq_size, h_dim=h_dim)
+
+        # gates with custom hidden layer
+        hl = Linear(features, h_dim)
+        ha = Activation(hl, sigmoid)
+        h = Compose([hl, ha])
+
+        gated2 = Gate(features, n_gates=seq_size, gate_input=h)
+
+        gate2_features2 = gated2.reuse_with(features2)
+
+        # back to features 1 but with same params
+        gate2_copy = gate2_features2.reuse_with(features)
 
         init = tf.global_variables_initializer()
         init.run()
@@ -569,7 +583,25 @@ class TestLayers(unittest.TestCase):
         feed = {inputs.placeholder: input_data}
 
         print(gated.full_str())
+        print("inner hidden layer:\n", gated.gate_input.full_str())
         print(tf.shape(gated.tensor).eval(feed))
+
+        print(gated2.full_str())
+        # print(h.full_str())
+        print(tf.shape(gated2.tensor).eval(feed))
+
+        print(gate2_features2.full_str())
+        print("inner hidden layer:\n", gated2.gate_input.full_str())
+        # print(h.full_str())
+        print(tf.shape(gate2_features2.tensor).eval(feed))
+
+        out1 = gated2.tensor.eval(feed)
+        out2 = gate2_features2.tensor.eval(feed)
+        out3 = gate2_copy.tensor.eval(feed)
+
+        # they gate different features
+        self.assertFalse(np.array_equal(out1, out2))
+        self.assertTrue(np.array_equal(out1, out3))
 
 
 if __name__ == '__main__':

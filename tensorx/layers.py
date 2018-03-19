@@ -206,10 +206,9 @@ class Layer:
         self._tensor = tensor
 
     def _add_variable(self, var):
-        if not isinstance(var, variables.Variable):
-            raise TypeError("Expected a tf.Variable got {t} instead".format(t=type(var)))
+        if isinstance(var, variables.Variable):
+            self.variables.append(var)
         self.variable_names.append(var.op.name)
-        self.variables.append(var)
 
     def is_sparse(self):
         """ Checks if the current layer is sparse
@@ -355,15 +354,16 @@ class Compose(Layer):
         class_name = type(self).__name__
         sparse_dense = "[Sparse]" if self.is_sparse() else "[Dense]"
         result = "{layer_name}::{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
-                                                                                    n_units=self.n_units,
-                                                                                    dtype=self.dtype,
-                                                                                    sparse_dense=sparse_dense,
-                                                                                    layer_name=self.name)
+                                                                                      n_units=self.n_units,
+                                                                                      dtype=self.dtype,
+                                                                                      sparse_dense=sparse_dense,
+                                                                                      layer_name=self.name)
 
         # print inner layers
         inner_layers = [str(layer) for layer in self.layers]
-        result = "{}\n \t{}".format(result,"\n\t".join(inner_layers))
+        result = "{}\n \t{}".format(result, "\n\t".join(inner_layers))
         return result
+
 
 class Input(Layer):
     """ Input Layer
@@ -808,6 +808,7 @@ class Gate(Layer):
             n_units: number of gate units, the number of units of the layer to be gated should be a multiple of the
                     number of gate units (see Warning)
             h_dim: dimension for gate hidden unit
+            gate_input: a layer to be used as the gate input
             h_fn: function for hidden layer
             gate_fn: function for gate
             shared_gate: if another gate is provided use the gate variables from that gate instead
@@ -827,13 +828,21 @@ class Gate(Layer):
 
         return array_ops.reshape(gated, array_ops.shape(layer.tensor))
 
-    def __init__(self, layer, n_gates, h_dim, h_fn=elu, gate_fn=sigmoid, shared_gate=None):
+    def __init__(self, layer, n_gates, h_dim=None, gate_input=None, h_fn=elu, gate_fn=sigmoid, shared_gate=None):
         super().__init__(layer, layer.n_units, layer.shape, dtype=dtypes.float32, name="gated_" + layer.name)
 
         self.h_dim = h_dim
         self.h_fn = h_fn
         self.gate_fn = gate_fn
         self.n_gates = n_gates
+        self.gate_input = gate_input
+
+        if h_dim is None and gate_input is None:
+            raise ValueError("h_dim and gate_input cannot both be None")
+
+        if gate_input is not None and h_dim is not None:
+            if gate_input.n_units != h_dim:
+                raise ValueError("Gate input n_units {} does not match h_dim {}".format(gate_input.n_units, h_dim))
 
         if shared_gate is not None and not isinstance(shared_gate, Gate):
             raise TypeError("shared_gate must be of type {} got {} instead".format(Gate, type(shared_gate)))
@@ -845,11 +854,16 @@ class Gate(Layer):
             if self.shared_gate is not None:
                 self.gate = self.shared_gate.gate.reuse_with(layer)
             else:
-                h_l = Linear(layer, h_dim)
-                h_a = Activation(h_l, h_fn)
-                gate_l = Linear(h_a, n_gates)
+                if self.gate_input is None:
+                    h_l = Linear(layer, self.h_dim)
+                    h_a = Activation(h_l, h_fn)
+                    self.gate_input = Compose([h_l, h_a], name="gate_h")
+                else:
+                    self.h_dim = self.gate_input.n_units
+
+                gate_l = Linear(self.gate_input, n_gates)
                 gate_a = Activation(gate_l, gate_fn)
-                self.gate = Compose([h_l, h_a, gate_l, gate_a])
+                self.gate = Compose([self.gate_input, gate_l, gate_a],name="gate_units")
 
             tensor = self._apply_gate(layer, self.gate.tensor)
 
@@ -865,6 +879,7 @@ class Gate(Layer):
                     h_dim=self.h_dim,
                     h_fn=self.h_fn,
                     gate_fn=self.gate_fn,
+                    gate_input=self.gate_input,
                     shared_gate=self)
 
 
