@@ -836,6 +836,8 @@ class Gate(Layer):
         self.gate_fn = gate_fn
         self.n_gates = n_gates
         self.gate_input = gate_input
+        self.gate_weights = None
+        self.gate_bias = None
 
         if h_dim is None and gate_input is None:
             raise ValueError("h_dim and gate_input cannot both be None")
@@ -863,8 +865,10 @@ class Gate(Layer):
 
                 gate_l = Linear(self.gate_input, n_gates)
                 gate_a = Activation(gate_l, gate_fn)
-                self.gate = Compose([self.gate_input, gate_l, gate_a],name="gate_units")
+                self.gate = Compose([self.gate_input, gate_l, gate_a], name="gate_units")
 
+            self.gate_weights = self.gate.layers[-2].weights
+            self.gate_bias = self.gate.layers[-2].bias
             tensor = self._apply_gate(layer, self.gate.tensor)
 
         self.tensor = tensor
