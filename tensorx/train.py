@@ -13,6 +13,7 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 import os
 from abc import ABCMeta, abstractmethod
 
+from tensorflow.python.summary.writer.writer import FileWriter
 from tensorflow.python.client.session import Session, InteractiveSession
 from tensorflow.python.framework import ops, sparse_tensor
 from tensorflow.python.framework.ops import dtypes
@@ -461,6 +462,13 @@ class ModelRunner:
         """
         inited, init_sess = self._var_inited
         return inited and init_sess == self.session
+
+    def save_graph(self, save_dir=None):
+        self.set_session()
+
+        summary_writer = FileWriter(save_dir)
+        summary_writer.add_graph(self.session.graph)
+        summary_writer.close()
 
     def save_model(self, save_dir=None, model_name="model.ckpt", step=None, epoch=None, save_graph=False,
                    write_state=True):

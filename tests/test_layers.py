@@ -470,7 +470,7 @@ class TestLayers(unittest.TestCase):
         input_data = np.array([[2, 0], [1, 2]])
 
         # DENSE LOOKUP
-        lookup = Lookup(inputs, seq_size, [vocab_size, n_features], batch_size)
+        lookup = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features], batch_size=batch_size)
 
         sp_inputs = SparseInput(n_features, dtype=tf.int64)
 

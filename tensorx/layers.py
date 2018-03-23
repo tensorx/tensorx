@@ -13,7 +13,6 @@ Types of layers:
 from functools import partial
 import itertools
 
-from numpy.ma import array
 from tensorflow.python.framework import ops, dtypes
 
 from tensorflow.python.framework.ops import Tensor, name_scope
@@ -21,6 +20,7 @@ from tensorflow.python.ops import array_ops, check_ops
 
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variables
+from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.ops import variable_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
@@ -52,7 +52,7 @@ class LayerScope:
         (for debug purposes only)
         var_scope: if True creates a variable_scope along with the named scope
         var_reuse: if True the variable scopes are created with the reuse option
-        var_scope_name: if not None uses this name instead of the layer unique layer.name as a var scope
+        var_scope_name: if not None uses this name instead of the layer unique layer.scoped_name as a var scope
     """
 
     def __init__(self, layer, values=None, var_scope=None, var_reuse=False, var_scope_name=None, reuse=False):
@@ -66,22 +66,34 @@ class LayerScope:
 
     def __enter__(self):
         with ExitStack() as stack:
+
+            # default_graph = ops.get_default_graph()
+            # scoped_name = default_graph.unique_name(self.layer.name, False)
+            # unscoped_name = scoped_name[scoped_name.find(self.layer.name):]
+
+            # create new scope based on the layer unique name without scope
+            # but take the current scope into account
+            # this guarantees that reuse will not chain scoped names
+            # like scope2/layer1/scope1/layer1 ...
             layer_name_scope = name_scope(self.layer.name, values=self.values)
 
-            unique_name = stack.enter_context(layer_name_scope)
-            unique_name = unique_name[:-1]
+            scoped_name = stack.enter_context(layer_name_scope)
+            scoped_name = scoped_name[:-1]
+            unique_unscoped_name = scoped_name[scoped_name.find(self.layer.name):]
+
             if not self.reuse:
-                self.layer.name = unique_name
+                self.layer.name = unique_unscoped_name
+                self.layer.scoped_name = scoped_name
 
             if self.var_scope:
                 if self.var_scope_name is None:
-                    self.var_scope_name = self.layer.name
-                layer_var_scope = variable_scope.variable_scope(self.var_scope_name, reuse=self.var_reuse)
+                    self.var_scope_name = self.layer.scoped_name
+                layer_var_scope = pure_variable_scope(self.var_scope_name, reuse=self.var_reuse)
                 stack.enter_context(layer_var_scope)
 
             self._stack = stack.pop_all()
 
-            return self.layer.name
+            return self.layer.scoped_name
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._stack.__exit__(exc_type, exc_val, exc_tb)
@@ -148,6 +160,7 @@ class Layer:
         tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
         dtype: the tensorflow dtype for the output tensor
         name: a name used to build a tensorflow named_scope for the layer
+        scoped_name: layer name with its full scope (if created inside another scope)
         variable_names: a list of `tf.Variable` fully qualified name `layer_name/var_name'
         variables: a list of `tf.Variable` instances
 
@@ -167,13 +180,12 @@ class Layer:
         dtype: expected input TensorFlow data type
         name: layer name (used to nam the placeholder)
 
-
-
     """
 
     def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
         self.n_units = n_units
         self.name = name
+        self.scoped_name = name
         self.dtype = dtype
         self.input_layers = _as_list(input_layers)
 
@@ -235,7 +247,7 @@ class Layer:
                                                                                     n_units=self.n_units,
                                                                                     dtype=self.dtype,
                                                                                     sparse_dense=sparse_dense,
-                                                                                    layer_name=self.name)
+                                                                                    layer_name=self.scoped_name)
 
     def full_str(self):
         """ Informal string representation for a layer that includes inner variables
@@ -302,9 +314,15 @@ class WrapLayer(Layer):
 class Compose(Layer):
     """ Compose Layer.
 
-    Composes two or more layers layer1.layer2 into a single layer,
+    Warning:
+        all composed layers must be reusable, meaning that we should be able to call
+        reuse_with in all the input layers.
+
+    Composes two or more layers layer1.layer2 into a single layer reusable layer
     if the first layer is feedable, forwards the placeholder
     to the wrapper layer so that we know that the layer needs to be fed.
+    All the vars are also forwarded to the compose layer so that we capture all
+    the variables involved in the composition
     """
 
     def __init__(self, layers, name="compose"):
@@ -314,14 +332,6 @@ class Compose(Layer):
         layer1, *layers = layers
         # if layers were not connected, connect them
         out_layer = layer1
-        for curr_layer in layers:
-            if out_layer not in curr_layer.input_layers:
-                curr_layer = curr_layer.reuse_with(out_layer)
-            out_layer = curr_layer
-
-        # forward any feedable layer from the first layer
-        if hasattr(layer1, "placeholder"):
-            self.placeholder = layer1.placeholder
 
         shape = [layer1.shape[0], out_layer.n_units]
 
@@ -331,17 +341,29 @@ class Compose(Layer):
                          dtype=out_layer.dtype,
                          name=name)
 
+        for curr_layer in layers:
+            if out_layer not in curr_layer.input_layers:
+                curr_layer = curr_layer.reuse_with(out_layer)
+            out_layer = curr_layer
+
+        # forward any feedable layer from the first layer
+        if hasattr(layer1, "placeholder"):
+            self.placeholder = layer1.placeholder
+
         # add both layer variables to the current layer container
         for var in itertools.chain.from_iterable([layer.variables for layer in self.layers]):
             self._add_variable(var)
 
         self.tensor = out_layer.tensor
 
-    def reuse_with(self, input_layer):
+    def reuse_with(self, input_layer, name=None):
+        if name is None:
+            name = self.name
+
         layer1, *layers = self.layers
         layer1 = layer1.reuse_with(input_layer)
         layers = [layer1] + layers
-        return Compose(layers, name=self.name)
+        return Compose(layers, name=name)
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -357,9 +379,8 @@ class Compose(Layer):
                                                                                       n_units=self.n_units,
                                                                                       dtype=self.dtype,
                                                                                       sparse_dense=sparse_dense,
-                                                                                      layer_name=self.name)
+                                                                                      layer_name=self.scoped_name)
 
-        # print inner layers
         inner_layers = [str(layer) for layer in self.layers]
         result = "{}\n \t{}".format(result, "\n\t".join(inner_layers))
         return result
@@ -555,7 +576,7 @@ class Linear(Layer):
         self.tensor = self._build_graph(layer)
 
     def _build_graph(self, input_layer):
-        var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
+        var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
         var_reuse = self.share_vars_with is not None
 
         with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
@@ -581,10 +602,10 @@ class Linear(Layer):
                                                      sp_ids=sp_indices,
                                                      sp_weights=sp_values,
                                                      combiner="sum",
-                                                     name=self.name + "_embeddings")
+                                                     name=self.scoped_name + "_embeddings")
                 tensor = lookup_sum
             else:
-                tensor = math_ops.matmul(input_layer.tensor, self.weights)
+                tensor = math_ops.matmul(input_layer.tensor, self.weights, name="mat_mul")
 
             # y = xW + [b]
             if self.bias:
@@ -593,7 +614,7 @@ class Linear(Layer):
                                                         dtype=self.dtype,
                                                         initializer=zero_init())
                 self._add_variable(self.bias)
-                tensor = bias_add(tensor, self.bias, name="a")
+                tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
 
     def reuse_with(self, input_layer, name=None):
@@ -687,7 +708,7 @@ class Lookup(Layer):
         self.tensor = self._build_graph(layer)
 
     def _build_graph(self, layer):
-        var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
+        var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
         var_reuse = self.share_vars_with is not None
 
         with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
@@ -814,8 +835,6 @@ class Gate(Layer):
             shared_gate: if another gate is provided use the gate variables from that gate instead
     """
 
-    # TODO test this layer
-    # TODO test layer reuse
     def _apply_gate(self, layer, gate_tensor):
         feature_dim = layer.n_units // self.n_gates
         if layer.is_sparse():
@@ -828,8 +847,9 @@ class Gate(Layer):
 
         return array_ops.reshape(gated, array_ops.shape(layer.tensor))
 
-    def __init__(self, layer, n_gates, h_dim=None, gate_input=None, h_fn=elu, gate_fn=sigmoid, shared_gate=None):
-        super().__init__(layer, layer.n_units, layer.shape, dtype=dtypes.float32, name="gated_" + layer.name)
+    def __init__(self, layer, n_gates, h_dim=None, gate_input=None, h_fn=elu, gate_fn=sigmoid, shared_gate=None,
+                 name="gate"):
+        super().__init__(layer, layer.n_units, layer.shape, dtype=dtypes.float32, name=name)
 
         self.h_dim = h_dim
         self.h_fn = h_fn
@@ -852,20 +872,20 @@ class Gate(Layer):
         self.shared_gate = shared_gate
 
         with layer_scope(self):
-            # build gate or reuse shared gate variables
-            if self.shared_gate is not None:
-                self.gate = self.shared_gate.gate.reuse_with(layer)
+            if self.gate_input is None:
+                h_l = Linear(layer, self.h_dim)
+                h_a = Activation(h_l, h_fn)
+                self.gate_input = Compose([h_l, h_a], name="gate_h")
             else:
-                if self.gate_input is None:
-                    h_l = Linear(layer, self.h_dim)
-                    h_a = Activation(h_l, h_fn)
-                    self.gate_input = Compose([h_l, h_a], name="gate_h")
-                else:
-                    self.h_dim = self.gate_input.n_units
+                self.h_dim = self.gate_input.n_units
 
+            if self.shared_gate is None:
                 gate_l = Linear(self.gate_input, n_gates)
                 gate_a = Activation(gate_l, gate_fn)
-                self.gate = Compose([self.gate_input, gate_l, gate_a], name="gate_units")
+                self.gate = Compose([gate_l, gate_a], name="gate_units")
+
+            else:
+                self.gate = shared_gate.gate.reuse_with(self.gate_input, name="gate_units")
 
             self.gate_weights = self.gate.layers[-2].weights
             self.gate_bias = self.gate.layers[-2].bias
@@ -877,14 +897,32 @@ class Gate(Layer):
         for var in self.gate.variables:
             self._add_variable(var)
 
-    def reuse_with(self, layer):
+    def reuse_with(self, layer, gate_input=None, name=None):
+        """ If we want to reuse this gate with a different
+        gate_input, we must supply gate_input to reuse_with
+
+        Args:
+            layer: the new layer to be gated
+            gate_input: the new gate_input
+
+        Returns: ``Gate`` layer transforming the given layer
+        with the current gate according to the current or supplied gate_input
+
+        """
+        if gate_input is None:
+            gate_input = self.gate_input
+
+        if name is None:
+            name = self.name
+
         return Gate(layer=layer,
                     n_gates=self.n_gates,
                     h_dim=self.h_dim,
                     h_fn=self.h_fn,
                     gate_fn=self.gate_fn,
-                    gate_input=self.gate_input,
-                    shared_gate=self)
+                    gate_input=gate_input,
+                    shared_gate=self,
+                    name=name)
 
 
 class ToSparse(Layer):
@@ -955,11 +993,11 @@ class Dropout(Layer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.1, seed=None, name="drop"):
+    def __init__(self, layer, keep_prob=0.1, seed=None, name="dropout"):
         self.seed = seed
         self.keep_prob = keep_prob
 
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name + "_" + layer.name)
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name)
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -1151,11 +1189,10 @@ class Activation(Layer):
         **keywords: the keyword arguments for the given function
     """
 
-    def __init__(self, layer, fn=array_ops.identity, name="act", **keywords):
+    def __init__(self, layer, fn=array_ops.identity, name="activation", **keywords):
         self.fn = partial(fn, **keywords)
         self.kw = keywords
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype,
-                         "{fn}_{layer}".format(fn=name, layer=layer.name))
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name)
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -1166,8 +1203,9 @@ class Activation(Layer):
 
         self.tensor = tensor
 
-    def reuse_with(self, layer):
-        return Activation(layer, self.fn, self.name, **self.kw)
+    def reuse_with(self, layer, name=None):
+        name = self.name if name is None else name
+        return Activation(layer, self.fn, name, **self.kw)
 
 
 class Bias(Layer):
@@ -1202,7 +1240,7 @@ class Bias(Layer):
                                  "self n_units: {s0} different from "
                                  "other n_units: {s1}".format(s0=self.n_units, s1=self.share_vars_with.n_units))
 
-        var_scope_name = self.share_vars_with.name if self.share_vars_with is not None else None
+        var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
         var_reuse = self.share_vars_with is not None
 
         with layer_scope(self, values=[layer.tensor],
