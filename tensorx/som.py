@@ -40,7 +40,7 @@ class DSOMLearner(Learner):
         som_shape = self.som_shape
 
         # distances
-        som_indices = transform.indices(som_shape)
+        som_indices = transform.grid(som_shape)
         distances = self.metric(data, codebook)
 
         max_dist = math_ops.reduce_max(distances, axis=1, keep_dims=True)

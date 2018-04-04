@@ -464,6 +464,10 @@ class TensorLayer(Layer):
             shape.assert_is_compatible_with([batch_size, n_units])
             shape = shape.as_list()
 
+            # if dynamic shape can't be determined, use the supplied values
+            if all(dim is None for dim in shape):
+                shape = [batch_size, n_units]
+
         if var_list is not None:
             for var in var_list:
                 self._add_variable(var)
@@ -596,7 +600,7 @@ class Linear(Layer):
             # y = xW
             if input_layer.is_sparse():
                 sp_values = input_layer.tensor
-                sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
+                sp_indices = transform.sparse_indices(sp_values)
 
                 lookup_sum = embedding_lookup_sparse(params=self.weights,
                                                      sp_ids=sp_indices,
@@ -728,7 +732,7 @@ class Lookup(Layer):
                     batch_size = self.batch_size
 
                 sp_values = layer.tensor
-                sp_indices = transform.sp_indices_from_sp_tensor(sp_values)
+                sp_indices = transform.sparse_indices(sp_values)
 
                 # sums the lookups for the same row
                 lookup_sum = embedding_lookup_sparse(params=self.weights,

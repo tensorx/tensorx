@@ -165,7 +165,7 @@ class TestTransform(unittest.TestCase):
 
         values = tf.gather_nd(c, indices)
 
-        sp_indices = transform.sp_indices_from_sp_tensor(sparse_tensor)
+        sp_indices = transform.sparse_indices(sparse_tensor)
         np.testing.assert_array_equal(sparse_tensor.indices.eval(), indices.eval())
 
         np.testing.assert_array_equal(sp_indices.values.eval(), flat_indices.eval())
@@ -202,17 +202,17 @@ class TestTransform(unittest.TestCase):
 
     def test_indices(self):
         shape = [4]
-        xs = transform.indices(shape)
+        xs = transform.grid(shape)
         self.assertTrue(np.ndim(xs.eval()), 1)
         self.assertTrue(np.array_equal(tf.shape(xs).eval(), [4, 1]))
 
         shape = [4, 4]
-        xys = transform.indices(shape)
+        xys = transform.grid(shape)
         self.assertTrue(np.ndim(xys.eval()), 2)
         self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
 
         shape = [1, 4]
-        xys = transform.indices(shape)
+        xys = transform.grid(shape)
         self.assertTrue(np.ndim(xys.eval()), 2)
         self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
 

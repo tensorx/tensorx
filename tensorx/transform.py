@@ -15,6 +15,7 @@ import numbers
 import numpy as np
 
 from tensorx.utils import to_tensor_cast, complete_shape
+import contextlib
 
 
 def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor"):
@@ -66,10 +67,10 @@ def repeat(x, n, name="repeat"):
     Returns:
         A `Tensor` with shape [shape[:-1, ], shape[-1:, ] * n]
     """
-    x = ops.convert_to_tensor(x)
-    n = ops.convert_to_tensor(n)
-
     with ops.name_scope(name, values=[x, n]):
+        x = ops.convert_to_tensor(x)
+        n = ops.convert_to_tensor(n)
+
         shape = array_ops.shape(x)
         flat_x = array_ops.reshape(x, [-1])
 
@@ -81,7 +82,7 @@ def repeat(x, n, name="repeat"):
     return rep_x
 
 
-def indices(shape, name="grid"):
+def grid(shape, name="grid"):
     with ops.name_scope(name):
         if len(shape) == 1:
             return array_ops.expand_dims(math_ops.range(0, shape[0], 1), -1)
@@ -118,7 +119,7 @@ def pairs(tensor1, tensor2, name="pairs"):
     Returns:
         ``Tensor``: a ``Tensor`` of rank 2
     """
-    with ops.name_scope(name):
+    with ops.name_scope(name, values=[tensor1, tensor2]):
         tensor1 = ops.convert_to_tensor(tensor1)
         tensor2 = ops.convert_to_tensor(tensor2)
 
@@ -190,7 +191,7 @@ def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtype
             rank 3 it outputs a rank 3 tensor. It considers the last two dimensions as the ones to be converted.
 
     """
-    with ops.name_scope(name):
+    with ops.name_scope(name, values=[tensor]):
         tensor = to_tensor_cast(tensor, dtype)
         if tensor.dtype != dtypes.int32 and tensor.dtype != dtypes.int64:
             raise TypeError("Invalid tensor type: expected {t1} or {t2}, found {t3}".format(t1=dtypes.int32,
@@ -242,7 +243,7 @@ def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the updated values.
     """
-    with ops.name_scope(name):
+    with ops.name_scope(name, values=[sp_tensor, sp_updates]):
         if sp_updates.dtype != sp_tensor.dtype:
             sp_updates = math_ops.cast(sp_updates, sp_tensor.dtype)
 
@@ -291,7 +292,7 @@ def dense_put(tensor, sp_updates, name="dense_put"):
     Returns:
         ``Tensor``: a ``Tensor`` with the updated values.
     """
-    with ops.name_scope(name):
+    with ops.name_scope(name, values=[tensor, sp_updates]):
         tensor = ops.convert_to_tensor(tensor)
         if sp_updates.dtype != tensor.dtype:
             sp_updates = math_ops.cast(sp_updates, tensor.dtype)
@@ -323,7 +324,7 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None, name="sparse_dropout"):
         name: A name for this operation (optional).
 
     """
-    with ops.name_scope(name, [sp_tensor]):
+    with ops.name_scope(name, values=[sp_tensor]):
         dense_shape = sp_tensor.dense_shape
 
         if not sp_tensor.values.dtype.is_floating:
@@ -350,43 +351,47 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, seed=None, name="sparse_dropout"):
         return new_tensor
 
 
-def sparse_ones(matrix_indices, dense_shape, dtype=dtypes.float32):
+def sparse_ones(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse_ones"):
     """ Creates a new ``SparseTensor`` with the given indices having value 1
 
     Args:
         matrix_indices: a rank 2 ``Tensor`` with the (row,column) indices for the resulting sparse tensor
         dense_shape: the ``SparseTensor`` dense shape
         dtype: the tensor type for the values
+        name: name for this op
 
     Returns:
         ``SparseTensor``: a new SparseTensor with the values set to 1.
     """
-    matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
-    dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
-    indices_shape = complete_shape(matrix_indices)
-    values = array_ops.ones([indices_shape[0]], dtype)
-    return SparseTensor(matrix_indices, values, dense_shape)
+    with ops.name_scope(name, values=[matrix_indices, dense_shape]):
+        matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
+        dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
+        indices_shape = complete_shape(matrix_indices)
+        values = array_ops.ones([indices_shape[0]], dtype)
+        return SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_zeros(matrix_indices, dense_shape, dtype=dtypes.float32):
+def sparse_zeros(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse_zeros"):
     """ Creates a new ``SparseTensor`` with the given indices having value 1
 
     Args:
         matrix_indices: a rank 2 ``Tensor`` with the indices for the resulting sparse tensor
         dense_shape: the ``SparseTensor`` dense shape
         dtype: the tensor type for the values
+        name: name for this op
 
     Returns:
         ``SparseTensor``: a new SparseTensor with the values set to 1.
     """
-    matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
-    dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
-    indices_shape = complete_shape(matrix_indices)
-    values = array_ops.zeros([indices_shape[0]], dtype)
-    return SparseTensor(matrix_indices, values, dense_shape)
+    with ops.name_scope(name, values=[matrix_indices, dense_shape]):
+        matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
+        dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
+        indices_shape = complete_shape(matrix_indices)
+        values = array_ops.zeros([indices_shape[0]], dtype)
+        return SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32):
+def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="sparse_one_hot"):
     """Transforms a batch of column indices to a one-hot encoding ``SparseTensor``.
 
         Example::
@@ -404,21 +409,23 @@ def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32):
 
         Args:
             column_indices: a dense ``Tensor`` with the indices to be active for each sample (row)
-            dense_shape: a list, array or `Tensor` with the shape for output dense one_hot encoding tensor.
+            num_cols: number of columns for the one-hot encoding
             dtype: the type for the output values.
+            name: name for this op
 
         Returns:
             `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
     """
-    column_indices = to_tensor_cast(column_indices, dtypes.int64)
-    matrix_indices = column_indices_to_matrix_indices(column_indices, dtype=dtypes.int64)
+    with ops.name_scope(name, values=[column_indices, num_cols]):
+        column_indices = to_tensor_cast(column_indices, dtypes.int64)
+        matrix_indices = column_indices_to_matrix_indices(column_indices, dtype=dtypes.int64)
 
-    dense_shape = math_ops.cast([array_ops.shape(column_indices)[0], num_cols], dtype=dtypes.int64)
+        dense_shape = math_ops.cast([array_ops.shape(column_indices)[0], num_cols], dtype=dtypes.int64)
 
-    return sparse_ones(matrix_indices, dense_shape, dtype)
+        return sparse_ones(matrix_indices, dense_shape, dtype)
 
 
-def dense_one_hot(column_indices, num_cols, dtype=dtypes.float32):
+def dense_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="dense_one_hot"):
     """Transforms a batch of indices to a dense ``Tensor`` by adding the `one-hot` encoding for each index.
 
     Example::
@@ -432,21 +439,22 @@ def dense_one_hot(column_indices, num_cols, dtype=dtypes.float32):
         column_indices: a dense ``Tensor`` with the active indices for each sample (row).
         num_cols: number of columns for the one-hot encoding
         dtype: the type for the output tensor.
+        name: name for this op
 
     Returns:
         ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices.
     """
-    column_indices = to_tensor_cast(column_indices, dtypes.int64)
+    with ops.name_scope(name, values=[column_indices, num_cols]):
+        column_indices = to_tensor_cast(column_indices, dtypes.int64)
+        one_hot_dense = array_ops.one_hot(column_indices, depth=num_cols, dtype=dtype)
 
-    one_hot_dense = array_ops.one_hot(column_indices, depth=num_cols, dtype=dtype)
+        if column_indices.get_shape().ndims == 2:
+            one_hot_dense = math_ops.reduce_sum(one_hot_dense, axis=1)
 
-    if column_indices.get_shape().ndims == 2:
-        one_hot_dense = math_ops.reduce_sum(one_hot_dense, axis=1)
-
-    return one_hot_dense
+        return one_hot_dense
 
 
-def sp_indices_from_sp_tensor(sp_values):
+def sparse_indices(sp_values, name="sparse_indices"):
     """ Returns the a ``SparseTensor`` with the indices for the active values on a given ``SparseTensor`` .
 
     Use Case:
@@ -455,12 +463,14 @@ def sp_indices_from_sp_tensor(sp_values):
 
     Args:
         sp_values: a ``SparseTensor`` for which we extract the active indices.
+        name: name for this op
 
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor`` .
     """
-    _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
-    return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
+    with ops.name_scope(name, values=[sp_values]):
+        _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
+        return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
 
 def to_sparse(tensor, name="to_sparse"):
@@ -488,14 +498,14 @@ def to_sparse(tensor, name="to_sparse"):
         with the non-zero entries of the given input.
 
     """
-    with ops.name_scope(name):
+    with ops.name_scope(name, values=[tensor]):
         indices = array_ops.where(math_ops.not_equal(tensor, 0))
         dense_shape = array_ops.shape(tensor, out_type=dtypes.int64)
 
         values = array_ops.gather_nd(tensor, indices)
         sp_tensor = SparseTensor(indices, values, dense_shape)
 
-    return sp_tensor
+        return sp_tensor
 
 
 def sparse_tensor_value_one_hot(indices, dense_shape):
@@ -539,7 +549,7 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
     return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
 
 
-def filter_nd(condition, params):
+def filter_nd(condition, params, name="filter_nd"):
     """ Filters a given tensor based on a condition tensor
 
     condition and params must have the same shape
@@ -550,39 +560,42 @@ def filter_nd(condition, params):
     Returns:
         ``SparseTensor``: a `SparseTensor` with the values in params filtered according to condition
     """
-    indices = math_ops.cast(array_ops.where(condition), dtype=dtypes.int64)
-    values = array_ops.gather_nd(params, indices)
-    dense_shape = math_ops.cast(array_ops.shape(params), dtypes.int64)
-    sp_result = SparseTensor(indices, values, dense_shape)
-    return sp_result
+    with ops.name_scope(name, [condition, params]):
+        indices = math_ops.cast(array_ops.where(condition), dtype=dtypes.int64)
+        values = array_ops.gather_nd(params, indices)
+        dense_shape = math_ops.cast(array_ops.shape(params), dtypes.int64)
+        sp_result = SparseTensor(indices, values, dense_shape)
+        return sp_result
 
 
-def sparse_overlap(sp_tensor1, sp_tensor2):
+def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
     """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
     with the values of the first one
 
     Args:
+        name: name for this op
         sp_tensor1: a `SparseTensor`
         sp_tensor2: a `SparseTensor`
 
     Returns:
         `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
     """
-    ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
-    ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
+    with ops.name_scope(name, [sp_tensor1, sp_tensor2]):
+        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
+        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
 
-    indice_union = sparse_ops.sparse_add(ones1, ones2)
+        index_union = sparse_ops.sparse_add(ones1, ones2)
 
-    index_filter = math_ops.equal(indice_union.values, 2.)
+        index_filter = math_ops.equal(index_union.values, 2.)
 
-    zeros1 = sparse_zeros(indice_union.indices, indice_union.dense_shape, sp_tensor1.values.dtype)
-    expand1 = sparse_ops.sparse_add(zeros1, sp_tensor1)
+        zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
+        expand1 = sparse_ops.sparse_add(zeros1, sp_tensor1)
 
-    filtered = sparse_ops.sparse_retain(expand1, index_filter)
-    return filtered
+        filtered = sparse_ops.sparse_retain(expand1, index_filter)
+        return filtered
 
 
-def gather_sparse(sp_tensor, ids):
+def gather_sparse(sp_tensor, ids, name="gather_sparse"):
     """ Gather on SparseTensor
 
     performs a row gather operation on a ``SparseTensor`` returning
@@ -596,33 +609,35 @@ def gather_sparse(sp_tensor, ids):
 
 
     Args:
-        sp_tensor: a ``SparseTensor``
+        sp_tensor: a ``SparseTensor`` with the rows from which we will slice
         ids: ``Tensor`` with row ids to be gathered from the sparse tensor
+        name: name for this op
 
     Returns:
         a ``SparseTensor`` with a number of rows equal to the number of ids to be gathered.
 
     """
-    ids = math_ops.cast(ids, dtypes.int64)
+    with ops.name_scope(name, [sp_tensor, ids]):
+        ids = math_ops.cast(ids, dtypes.int64)
 
-    row_i, col_j = array_ops.split(sp_tensor.indices, 2, axis=-1)
-    row_i = array_ops.reshape(row_i, shape=[-1])
-    col_j = array_ops.reshape(col_j, shape=[-1])
+        row_i, col_j = array_ops.split(sp_tensor.indices, 2, axis=-1)
+        row_i = array_ops.reshape(row_i, shape=[-1])
+        col_j = array_ops.reshape(col_j, shape=[-1])
 
-    # reshape ids for equal broadcasting
-    row_filter = array_ops.where(math_ops.equal(row_i, array_ops.reshape(ids, [-1, 1])))
-    new_rows, row_indices = array_ops.split(row_filter, 2, -1)
-    num_rows = math_ops.reduce_max(new_rows) + 1
+        # reshape ids for equal broadcasting
+        row_filter = array_ops.where(math_ops.equal(row_i, array_ops.reshape(ids, [-1, 1])))
+        new_rows, row_indices = array_ops.split(row_filter, 2, -1)
+        num_rows = math_ops.reduce_max(new_rows) + 1
 
-    cols = array_ops.gather(col_j, row_indices)
-    values = array_ops.gather_nd(sp_tensor.values, row_indices)
+        cols = array_ops.gather(col_j, row_indices)
+        values = array_ops.gather_nd(sp_tensor.values, row_indices)
 
-    sp_indices = array_ops.concat([new_rows, cols], axis=-1)
-    dense_shape = array_ops.stack([math_ops.cast(num_rows, dtypes.int64), sp_tensor.dense_shape[-1]])
+        sp_indices = array_ops.concat([new_rows, cols], axis=-1)
+        dense_shape = array_ops.stack([math_ops.cast(num_rows, dtypes.int64), sp_tensor.dense_shape[-1]])
 
-    gather_sp = SparseTensor(indices=sp_indices, values=values, dense_shape=dense_shape)
+        gather_sp = SparseTensor(indices=sp_indices, values=values, dense_shape=dense_shape)
 
-    return gather_sp
+        return gather_sp
 
 
 __all__ = ["empty_sparse_tensor",
@@ -634,11 +649,11 @@ __all__ = ["empty_sparse_tensor",
            "dense_put",
            "sparse_put",
            "sparse_tensor_value_one_hot",
-           "sp_indices_from_sp_tensor",
+           "sparse_indices",
            "sparse_ones",
            "sparse_dropout",
            "pairs",
-           "indices",
+           "grid",
            "filter_nd",
            "repeat"
            ]

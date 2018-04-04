@@ -109,7 +109,7 @@ class MyTestCase(unittest.TestCase):
 
         # for sparse inputs
         sp_weights = transform.to_sparse(inputs)
-        sp_indices = transform.sp_indices_from_sp_tensor(sp_weights)
+        sp_indices = transform.sparse_indices(sp_weights)
 
         # this doesnt work with rank 3 shapes, we need to expand the sp_indices and sp_values
         # or use map_fn
@@ -184,7 +184,7 @@ class MyTestCase(unittest.TestCase):
         # **************************************************************************************************************
         # SOM Neighbourhood - GAUSSIAN(L1(GRID))
         # **************************************************************************************************************
-        som_indices = transform.indices(som_shape)
+        som_indices = transform.grid(som_shape)
         distances = batch_cosine_distance(inputs, som)
         print(distances.eval())
         bmu = tf.argmin(distances, axis=1)
@@ -371,7 +371,7 @@ class MyTestCase(unittest.TestCase):
         self.ss.run(init)
 
         # DISTANCES
-        som_indices = transform.indices(som_shape)
+        som_indices = transform.grid(som_shape)
         if isinstance(inputs, tf.Tensor):
             distances = batch_cosine_distance(inputs, som)
         elif isinstance(inputs, tf.SparseTensor):

@@ -271,7 +271,7 @@ def torus_l1_distance(point, shape):
         max_x = shape[0]
         max_y = shape[1]
 
-        xys = transf.indices(shape)
+        xys = transf.grid(shape)
         xys = math_ops.cast(xys, dtypes.float32)
 
         xs, ys = array_ops.unstack(xys, num=2, axis=-1)
