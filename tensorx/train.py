@@ -24,6 +24,8 @@ from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.training.saver import Saver, import_meta_graph, export_meta_graph
 
+from tensorflow.core.protobuf.config_pb2 import RunOptions, RunMetadata
+
 from tensorx.layers import layers_to_list, Layer, TensorLayer, Input, SparseInput
 
 
@@ -443,6 +445,41 @@ class ModelRunner:
             self.saver = Saver()
         self.init_var_op = None
 
+        self.log_writer = None
+        self.logdir = None
+        self.runtime_stats = None
+        self.run_metadata = None
+
+        # TODO for now this is only activate with runtime stats set to True
+        self.run_options = None
+
+        self.run_step_counter = 1
+        self.train_step_counter = 1
+        self.eval_step_counter = 1
+
+    def set_logdir(self, logdir=None):
+        if logdir is not None:
+            self.logdir = logdir
+
+        else:
+            self.logdir = os.path.join(os.getcwd(), "log")
+
+        if not os.path.exists(self.logdir):
+            os.mkdir(self.logdir)
+
+        if not os.path.exists(self.logdir) or not os.path.isdir(self.logdir):
+            raise ValueError("logdir {} does not exist or is not a directory".format(logdir))
+
+    def set_log_writer(self):
+        # logdir changed, change writer
+        if self.log_writer is None or not os.path.samefile(self.log_writer.get_logdir(), self.logdir):
+            self.log_writer = FileWriter(self.logdir, self.session.graph)
+
+    def close_logs(self):
+        """ Closes log writers, etc
+        """
+        self.log_writer.close()
+
     def _set_vars_inited(self):
         """ Set variables as inited
         Marks the current model as inited
@@ -463,14 +500,20 @@ class ModelRunner:
         inited, init_sess = self._var_inited
         return inited and init_sess == self.session
 
-    def save_graph(self, save_dir=None):
+    def log_graph(self, logdir=None):
+        """ outputs the graph meta file to be open in tensorboard
+        Args:
+            logdir: path to directory where the graph is to be written
+
+        """
         self.set_session()
+        if self.logdir is not None and logdir is None:
+            logdir = self.logdir
+        self.set_logdir(logdir)
+        self.set_log_writer()
+        self.log_writer.add_graph(self.session.graph)
 
-        summary_writer = FileWriter(save_dir)
-        summary_writer.add_graph(self.session.graph)
-        summary_writer.close()
-
-    def save_model(self, save_dir=None, model_name="model.ckpt", step=None, epoch=None, save_graph=False,
+    def save_model(self, logdir=None, model_name="model.ckpt", step=None, epoch=None, save_graph=False,
                    write_state=True):
         """ Saves all the variables by default
         # TODO add feature to save only some variables this requires init vars to run only
@@ -483,7 +526,7 @@ class ModelRunner:
             write_state: if true writes the checkpoint file with a list of all checkpoints
             save_graph: if true also exports the graph to model_Name.meta
             model_name: name for the model to be saved
-            save_dir: path to a ckpt file where the model is to be stored
+            logdir: path to a ckpt file where the model is to be stored
             step: integer or tensor with the current step for the model checkpoint
 
         """
@@ -494,12 +537,8 @@ class ModelRunner:
         if self.session is None:
             self.set_session()
 
-        if save_dir is None:
-            save_dir = os.path.dirname(os.path.realpath(__file__))
-        else:
-            assert (os.path.exists(save_dir) and os.path.isdir(save_dir))
-
-        model_path = os.path.join(save_dir, model_name)
+        self.set_logdir(logdir)
+        model_path = os.path.join(self.logdir, model_name)
 
         if save_graph:
             meta_path = "{model_path}.meta".format(model_path=model_path)
@@ -508,7 +547,7 @@ class ModelRunner:
         if self.model.has_vars():
             self.saver.save(self.session, model_path, step, write_meta_graph=False, write_state=write_state)
 
-    def load_model(self, save_dir=None, model_name="model.ckpt", global_step=None, load_graph=False):
+    def load_model(self, logdir=None, model_name="model.ckpt", global_step=None, load_graph=False):
         """ Loads the variables on the given path to the current graph, if
         global_step is provided loads that particular checkpoint (if it exists)
         otherwise tries to load the most recent checkpoint with the given name
@@ -520,18 +559,14 @@ class ModelRunner:
         Args:
             load_graph:
             global_step: step from which the model should be restored
-            save_dir: path to the directory where the model is to be saved
+            logdir: path to the directory where the model is to be saved
             model_name: the path where the model is to be restored
         """
         if self.session is None:
             self.set_session()
 
-        if save_dir is None:
-            save_dir = os.path.dirname(os.path.realpath(__file__))
-        else:
-            assert (os.path.exists(save_dir) and os.path.isdir(save_dir))
-
-        model_path = os.path.join(save_dir, model_name)
+        self.set_logdir(logdir)
+        model_path = os.path.join(self.logdir, model_name)
 
         if global_step is not None:
             if isinstance(global_step, Variable):
@@ -547,7 +582,7 @@ class ModelRunner:
         # we don't need to init vars after loading a model
         self._set_vars_inited()
 
-    def set_session(self, session=None):
+    def set_session(self, session=None, runtime_stats=False, run_options=None):
         """ Sets the session being used by :class:`Model` class.
 
         If no session is passed it sets the session as follows:
@@ -567,6 +602,13 @@ class ModelRunner:
         if session is None:
             session = _default_session()
         self.session = session
+
+        if self.runtime_stats is None:
+            self.runtime_stats = runtime_stats
+            self.run_metadata = RunMetadata()
+        if self.run_options is None:
+            self.run_options = run_options
+
         return self.session
 
     def reset_session(self):
@@ -620,6 +662,7 @@ class ModelRunner:
         Note: it uses the default session if available, if not, creates a new session which is stored in `self.session`
 
         Args:
+            run_step: an integer or str that tags this run step if runtime stats are used with set session
             *data: a :obj:`list` or multiple parameters with the data to be fed to each model input
 
         Returns:
@@ -643,7 +686,19 @@ class ModelRunner:
 
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
         output_tensors = [output.tensor for output in self.model.run_out_layers]
-        result = self.session.run(output_tensors, feed_dict)
+
+        if self.runtime_stats:
+            result = self.session.run(output_tensors, feed_dict, options=self.run_options,
+                                      run_metadata=self.run_metadata)
+            if self.logdir is None:
+                self.set_logdir()
+            self.set_log_writer()
+            self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_step_counter),
+                                             global_step=self.run_step_counter)
+        else:
+            result = self.session.run(output_tensors, feed_dict)
+
+        self.run_step_counter += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
         if len(self.model.run_out_layers) == 1:
@@ -721,6 +776,7 @@ class ModelRunner:
             You need to run :func:`config` before calling `train`.
 
         Args:
+            train_step: int with the current train step used to tag runtime metadata
             optimizer_params: values to be fed to the feedable ``Params`` specified in ``config_optimizer``
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             loss_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
@@ -783,7 +839,21 @@ class ModelRunner:
         feed_dict.update(target_dict)
         feed_dict.update(param_dict)
 
-        self.session.run(self.train_step, feed_dict)
+        # RUNTIME STATISTICS such as compute time, memory etc
+        if self.runtime_stats:
+            if self.logdir is None:
+                self.set_logdir()
+            self.set_log_writer()
+
+            self.session.run(self.train_step, feed_dict, options=self.run_options, run_metadata=self.run_metadata)
+
+            self.log_writer.add_run_metadata(self.run_metadata,
+                                             tag="train step {}".format(self.train_step_counter),
+                                             global_step=self.train_step_counter)
+        else:
+            self.session.run(self.train_step, feed_dict)
+
+        self.train_step_counter += 1
 
     def eval(self, data=None, eval_input_data=None):
         """ Evaluates the model on the given data.

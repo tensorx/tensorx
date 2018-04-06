@@ -46,7 +46,7 @@ class TestScopes(TestCase):
 
         model = tx.Model(run_in_layers=inputs,run_out_layers=layer, train_out_layers=[layer2,layer3])
         runner = tx.ModelRunner(model)
-        runner.save_graph(save_dir="/tmp/")
+        runner.log_graph(save_dir="/tmp/")
 
         print(layer.full_str())
         print(layer.gate_input.full_str())

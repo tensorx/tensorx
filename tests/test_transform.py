@@ -5,6 +5,7 @@ import tensorflow as tf
 import numpy as np
 
 from tensorflow.python.ops import linalg_ops
+from tensorflow.python.client import timeline
 
 import tensorx.transform as transform
 
@@ -236,6 +237,38 @@ class TestTransform(unittest.TestCase):
         overlap = transform.sparse_overlap(tensor2, tensor3)
         expected_overlap_value = [5]
         self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
+
+    def test_gather_sparse(self):
+        sess = tf.Session()
+        n_runs = 1000
+
+        v = np.array([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtype=np.float32)
+        sp = transform.to_sparse(v)
+
+        indices = np.array([[0, 1], [0, 0], [1, 2]], dtype=np.int64)
+
+        gather_sp_tx = transform.gather_sparse(sp, indices)
+
+        # debug gather sparse with timeline
+        # https://www.tensorflow.org/programmers_guide/graph_viz
+        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        run_metadata = tf.RunMetadata()
+        summary_writer = tf.summary.FileWriter('/tmp/performance/', sess.graph)
+
+        for i in range(n_runs):
+            step = i + 1
+            sess.run(gather_sp_tx, options=run_options, run_metadata=run_metadata)
+            summary_writer.add_run_metadata(run_metadata, 'step%d' % step)
+
+            # Create the Timeline object, and write it to a json
+            tl = timeline.Timeline(run_metadata.step_stats)
+
+        summary_writer.add_graph(sess.graph)
+        summary_writer.close()
+
+        ctf = tl.generate_chrome_trace_format()
+        with open('/tmp/performance/timeline.json', 'w') as f:
+            f.write(ctf)
 
 
 if __name__ == '__main__':

@@ -149,7 +149,7 @@ class ModelRunnerTest(unittest.TestCase):
 
         result = run.run()
 
-        run.save_model(save_dir="/tmp/", model_name="graph_only", save_graph=True)
+        run.save_model(logdir="/tmp/", model_name="graph_only", save_graph=True)
 
         tf.reset_default_graph()
         all_ops = tf.get_default_graph().get_operations()
