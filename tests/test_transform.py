@@ -240,6 +240,8 @@ class TestTransform(unittest.TestCase):
 
     def test_gather_sparse(self):
         sess = tf.Session()
+
+        #with tf.name_scope("test_setup"):
         n_runs = 1000
 
         v = np.array([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtype=np.float32)
@@ -253,7 +255,7 @@ class TestTransform(unittest.TestCase):
         # https://www.tensorflow.org/programmers_guide/graph_viz
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         run_metadata = tf.RunMetadata()
-        summary_writer = tf.summary.FileWriter('/tmp/performance/', sess.graph)
+        summary_writer = tf.summary.FileWriter('/tmp/', sess.graph)
 
         for i in range(n_runs):
             step = i + 1
@@ -267,7 +269,7 @@ class TestTransform(unittest.TestCase):
         summary_writer.close()
 
         ctf = tl.generate_chrome_trace_format()
-        with open('/tmp/performance/timeline.json', 'w') as f:
+        with open('/tmp/timeline.json', 'w') as f:
             f.write(ctf)
 
 

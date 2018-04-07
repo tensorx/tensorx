@@ -130,7 +130,7 @@ def pairs(tensor1, tensor2, name="pairs"):
         return result
 
 
-def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
+def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int64):
     """ Converts batches of column indices to batches of [row,column] indices
 
     For a given batch of indices of shape [n,m] or [b,n,m] this op outputs a 2-D ``Tensor``
