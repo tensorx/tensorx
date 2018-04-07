@@ -5,12 +5,11 @@ Utilities to create, convert between, and combine tensors
 from tensorflow.contrib.layers.python.ops import sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import sparse_ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import sparse_ops, control_flow_ops, array_ops, math_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops.nn import dropout
 import numbers
+from tensorflow.python.framework.tensor_shape import TensorShape
 
 import numpy as np
 
@@ -638,6 +637,96 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse"):
         gather_sp = SparseTensor(indices=sp_indices, values=values, dense_shape=dense_shape)
 
         return gather_sp
+
+
+def gather_sparse_v2(sp_tensor, ids, name="gather_sparse_v2"):
+    """ Gather on SparseTensor v2
+
+    Note:
+        this should be more efficient than my previous implementation. The problem with the previous implementation
+        is  that it requires an equals to be computed between every row slice requested and every row index of a SparseTensor
+        I think this was the cause of the bottleneck and the reason there is an issue that was never solved
+        on Tensorflows' github issues.
+
+        https://github.com/tensorflow/tensorflow/issues/1950
+
+        My proposed solution is to pre-compute row index positions based on column counts,
+        after, we just need to convert each row to a set of coordinates to be gathered. Not sure if this implementation
+        is optimal given what I'm trying to do. I used while_loop to concat all the expanded
+        coordinates to be gathered as well as compute the new row indexes for the resulting SparseTensor
+
+        after that it's just a matter of gathering values and columns from the computed coordinates
+
+    performs a row gather operation on a ``SparseTensor`` returning
+    a new ``SparseTensor`` with one row per id gathered
+
+    Example:
+        gather_sparse(sp_tensor,[1,1,4])
+
+        returns a [3,sp_tensor.dense_shape[-1]] ``SparseTensor``
+
+
+
+    Args:
+        sp_tensor: a ``SparseTensor`` with the rows from which we will slice
+        ids: ``Tensor`` with row ids to be gathered from the sparse tensor
+        name: name for this op
+
+    Returns:
+        a ``SparseTensor`` with a number of rows equal to the number of ids to be gathered.
+
+    """
+    with ops.name_scope(name, [sp_tensor, ids]):
+        ids = math_ops.cast(ids, dtypes.int64)
+        flat_ids = array_ops.reshape(ids, [-1])
+        num_gather = array_ops.shape(flat_ids)[0]
+
+        # count columns and compute row coordinates
+        sp_cols = sparse_ones(sp_tensor.indices, sp_tensor.dense_shape, dtype=dtypes.int64)
+        col_count = sparse_ops.sparse_reduce_sum(sp_cols, axis=-1)
+        col_count_cs = math_ops.cumsum(col_count)
+        start_coord = col_count_cs - col_count
+
+        def row_coordinates(row_id):
+            start = start_coord[row_id]
+            num_coors = col_count[row_id]
+            row_coors = math_ops.range(start, start + num_coors, dtype=dtypes.int64)
+
+            return row_coors
+
+        # find gather coordinates and new row indexes
+        def gather_coordinates(i, gather_rows, new_rows):
+            row_ids = row_coordinates(flat_ids[i])
+            row_size = col_count[flat_ids[i]]
+            current_rows = array_ops.tile(input=array_ops.expand_dims(math_ops.cast(i, dtypes.int64), -1),
+                                          multiples=array_ops.expand_dims(row_size, -1))
+            return i + 1, array_ops.concat([gather_rows, row_ids], axis=-1), array_ops.concat([new_rows, current_rows],
+                                                                                              axis=-1)
+
+        # define loop
+        init_gather_rows = array_ops.constant([], dtype=dtypes.int64)
+        init_new_rows = array_ops.constant([], dtype=dtypes.int64)
+        i0 = array_ops.constant(0)
+
+        _, gather_ids, new_rows = control_flow_ops.while_loop(cond=lambda i, ri, nr: i < num_gather,
+                                                              body=gather_coordinates,
+                                                              loop_vars=[i0, init_gather_rows, init_new_rows],
+                                                              shape_invariants=[i0.get_shape(),
+                                                                                TensorShape([None]),
+                                                                                TensorShape([None])])
+
+        cols = sp_tensor.indices[:, -1]
+        new_cols = array_ops.gather(cols, gather_ids)
+
+        new_indices = array_ops.stack([new_rows, new_cols], axis=-1)
+
+        new_values = array_ops.gather(sp_tensor.values, gather_ids)
+
+        new_shape = array_ops.concat([array_ops.expand_dims(math_ops.cast(num_gather, dtypes.int64), -1),
+                                      sp_tensor.dense_shape[1:]],
+                                     axis=-1)
+
+        return SparseTensor(new_indices, new_values, new_shape)
 
 
 __all__ = ["empty_sparse_tensor",
