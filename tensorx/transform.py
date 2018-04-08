@@ -81,6 +81,34 @@ def repeat(x, n, name="repeat"):
     return rep_x
 
 
+def repeat_each(x, repeats, name="repeat_each"):
+    """ Repeats each element in x its corresponding number of repetitions
+
+
+    Args:
+        x: Tensor with the same shape as repeats
+        repeats: Tensor with the same shape as x
+        name: name for this op
+
+    Returns:
+
+    """
+    with ops.name_scope(name, values=[x, repeats]):
+        # get maximum repeat length in x
+        maxlen = math_ops.reduce_max(repeats)
+
+        # tile it to the maximum repeat length, it should be of shape [xlen, maxlen] now
+        rng_tiled = array_ops.tile(array_ops.expand_dims(x, 1), array_ops.stack([1, maxlen], axis=0))
+
+        # create a sequence mask using x
+        # this will create a boolean matrix of shape [xlen, maxlen]
+        # where result[i,j] is true if j < x[i].
+        mask = array_ops.sequence_mask(repeats, maxlen)
+
+        # mask the elements based on the sequence mask
+        return array_ops.boolean_mask(rng_tiled, mask)
+
+
 def grid(shape, name="grid"):
     with ops.name_scope(name):
         if len(shape) == 1:
@@ -639,7 +667,7 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse"):
         return gather_sp
 
 
-def gather_sparse_v2(sp_tensor, ids, name="gather_sparse_v2"):
+def _gather_sparse_v2(sp_tensor, ids, name="gather_sparse_v2"):
     """ Gather on SparseTensor v2
 
     Note:
@@ -656,6 +684,8 @@ def gather_sparse_v2(sp_tensor, ids, name="gather_sparse_v2"):
         coordinates to be gathered as well as compute the new row indexes for the resulting SparseTensor
 
         after that it's just a matter of gathering values and columns from the computed coordinates
+
+        it turns out while has a huge overhead here... not a good idea
 
     performs a row gather operation on a ``SparseTensor`` returning
     a new ``SparseTensor`` with one row per id gathered
@@ -744,5 +774,6 @@ __all__ = ["empty_sparse_tensor",
            "pairs",
            "grid",
            "filter_nd",
-           "repeat"
+           "repeat",
+           "repeat_each"
            ]
