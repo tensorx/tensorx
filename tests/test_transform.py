@@ -274,28 +274,37 @@ class TestTransform(unittest.TestCase):
 
     def test_gather_sparse_v2(self):
         sess = tf.Session()
-        v = np.array([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtype=np.float32)
-        indices = np.array([[0, 1], [0, 0], [1, 2]], dtype=np.int64)
+
+        # dummy data =====================================================================
+        num_cols = 100
+        num_rows = 10000
+
+        num_gather = 400
+
+        v = np.ones([num_rows * num_cols])
+        mask = np.random.choice(int(num_cols * num_rows), int(num_cols * num_rows / 0.8))
+        v[mask] = 0
+        v = np.reshape(v, [num_rows, num_cols])
+        indices = np.random.random_integers(0, num_rows - 1, [num_gather])
+        # ================================================================================
 
         sp_tensor = transform.to_sparse(v)
-        gather_1 = transform.gather_sparse(sp_tensor, indices)
-        gather_2 = transform.gather_sparse_v2(sp_tensor, indices)
+        gather = transform.gather_sparse(sp_tensor, indices)
 
         # measure runtime performance
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         run_metadata = tf.RunMetadata()
         log_writer = tf.summary.FileWriter('/tmp/', sess.graph)
 
-        for i in range(100):
-            stv1, stv2 = sess.run([gather_1, gather_2], options=run_options, run_metadata=run_metadata)
-            log_writer.add_run_metadata(run_metadata, 'test run {}'.format(i))
+        # for i in range(100):
+        i = 1
+        stv1 = sess.run(gather, options=run_options, run_metadata=run_metadata)
+        log_writer.add_run_metadata(run_metadata, 'test run {}'.format(i))
 
         log_writer.add_graph(sess.graph)
         log_writer.close()
 
-        self.assertTrue(np.array_equal(stv1.indices, stv2.indices))
-        self.assertTrue(np.array_equal(stv1.values, stv2.values))
-        self.assertTrue(np.array_equal(stv1.dense_shape, stv2.dense_shape))
+
 
 
 if __name__ == '__main__':
