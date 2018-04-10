@@ -603,11 +603,15 @@ class ModelRunner:
             session = _default_session()
         self.session = session
 
-        if self.runtime_stats is None:
-            self.runtime_stats = runtime_stats
-            self.run_metadata = RunMetadata()
         if self.run_options is None:
             self.run_options = run_options
+
+        if self.runtime_stats is None and runtime_stats:
+            self.runtime_stats = runtime_stats
+            self.run_metadata = RunMetadata()
+            # setup default run options
+            if self.run_options is None:
+                self.run_options = RunOptions(trace_level=RunOptions.FULL_TRACE)
 
         return self.session
 
