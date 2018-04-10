@@ -240,6 +240,8 @@ class TestTransform(unittest.TestCase):
 
     def test_gather_sparse(self):
         sess = tf.Session()
+
+        # with tf.name_scope("test_setup"):
         n_runs = 1000
 
         v = np.array([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtype=np.float32)
@@ -253,7 +255,7 @@ class TestTransform(unittest.TestCase):
         # https://www.tensorflow.org/programmers_guide/graph_viz
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         run_metadata = tf.RunMetadata()
-        summary_writer = tf.summary.FileWriter('/tmp/performance/', sess.graph)
+        summary_writer = tf.summary.FileWriter('/tmp/', sess.graph)
 
         for i in range(n_runs):
             step = i + 1
@@ -267,8 +269,42 @@ class TestTransform(unittest.TestCase):
         summary_writer.close()
 
         ctf = tl.generate_chrome_trace_format()
-        with open('/tmp/performance/timeline.json', 'w') as f:
+        with open('/tmp/timeline.json', 'w') as f:
             f.write(ctf)
+
+    def test_gather_sparse_v2(self):
+        sess = tf.Session()
+
+        # dummy data =====================================================================
+        num_cols = 100
+        num_rows = 10000
+
+        num_gather = 400
+
+        v = np.ones([num_rows * num_cols])
+        mask = np.random.choice(int(num_cols * num_rows), int(num_cols * num_rows / 0.8))
+        v[mask] = 0
+        v = np.reshape(v, [num_rows, num_cols])
+        indices = np.random.random_integers(0, num_rows - 1, [num_gather])
+        # ================================================================================
+
+        sp_tensor = transform.to_sparse(v)
+        gather = transform.gather_sparse(sp_tensor, indices)
+
+        # measure runtime performance
+        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        run_metadata = tf.RunMetadata()
+        log_writer = tf.summary.FileWriter('/tmp/', sess.graph)
+
+        # for i in range(100):
+        i = 1
+        stv1 = sess.run(gather, options=run_options, run_metadata=run_metadata)
+        log_writer.add_run_metadata(run_metadata, 'test run {}'.format(i))
+
+        log_writer.add_graph(sess.graph)
+        log_writer.close()
+
+
 
 
 if __name__ == '__main__':

@@ -5,12 +5,11 @@ Utilities to create, convert between, and combine tensors
 from tensorflow.contrib.layers.python.ops import sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import sparse_ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import sparse_ops, control_flow_ops, array_ops, math_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops.nn import dropout
 import numbers
+from tensorflow.python.framework.tensor_shape import TensorShape
 
 import numpy as np
 
@@ -82,6 +81,82 @@ def repeat(x, n, name="repeat"):
     return rep_x
 
 
+def repeat_each(x, repeats, name="repeat_each"):
+    """ Repeats each element in x its corresponding number of repetitions
+
+
+    Args:
+        x: Tensor with the same shape as repeats
+        repeats: Tensor with the same shape as x
+        name: name for this op
+
+    Returns:
+
+    """
+    with ops.name_scope(name, values=[x, repeats]):
+        x = ops.convert_to_tensor(x)
+        repeats = ops.convert_to_tensor(repeats)
+
+        # get maximum repeat length in x
+        maxlen = math_ops.reduce_max(repeats)
+
+        # tile it to the maximum repeat length, it should be of shape [xlen, maxlen] now
+        x_repeat = array_ops.stack([1, maxlen], axis=0)
+        x_tiled = array_ops.tile(array_ops.expand_dims(x, 1), x_repeat)
+
+        # create a sequence mask using x
+        # this will create a boolean matrix of shape [xlen, maxlen]
+        # where result[i,j] is true if j < x[i].
+        mask = array_ops.sequence_mask(repeats, maxlen)
+
+        # mask the elements based on the sequence mask
+        return array_ops.boolean_mask(x_tiled, mask)
+
+
+def enum_each(enum_sizes, name="repeat_each"):
+    """ creates an enumeration for each repeat
+    and concatenates the results because we can't have
+    a tensor with different row or column sizes
+
+    Example:
+
+        enum_each([1,2,4])
+
+        Returns
+
+        [0,0,1,0,1,2,3]
+
+        the enums are [0], [0,1], [0,1,2,3]
+
+    Args:
+        enum_sizes: Tensor with the size for each enum
+        name: name for this op
+
+    Returns:
+        A 1-D Tensor with reduce_sum(enum_sizes) dimension
+
+    """
+    with ops.name_scope(name, values=[enum_sizes]):
+        enum_sizes = ops.convert_to_tensor(enum_sizes)
+        num_enums = array_ops.shape(enum_sizes)[0]
+
+        # get maximum repeat length in x
+        maxlen = math_ops.reduce_max(enum_sizes)
+        x = math_ops.range(maxlen)
+
+        # tile it to the maximum repeat length, it should be of shape [maxlen x maxlen] now
+        x_repeat = array_ops.stack([num_enums, 1], axis=0)
+        x_tiled = array_ops.tile(array_ops.expand_dims(x, 0), x_repeat)
+
+        # create a sequence mask using x
+        # this will create a boolean matrix of shape [xlen, maxlen]
+        # where result[i,j] is true if j < x[i].
+        mask = array_ops.sequence_mask(enum_sizes, maxlen)
+
+        # mask the elements based on the sequence mask
+        return array_ops.boolean_mask(x_tiled, mask)
+
+
 def grid(shape, name="grid"):
     with ops.name_scope(name):
         if len(shape) == 1:
@@ -130,7 +205,7 @@ def pairs(tensor1, tensor2, name="pairs"):
         return result
 
 
-def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int32):
+def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int64):
     """ Converts batches of column indices to batches of [row,column] indices
 
     For a given batch of indices of shape [n,m] or [b,n,m] this op outputs a 2-D ``Tensor``
@@ -595,11 +670,10 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
         return filtered
 
 
-def gather_sparse(sp_tensor, ids, name="gather_sparse"):
-    """ Gather on SparseTensor
+def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
+    """ gather_sparse.
 
-    performs a row gather operation on a ``SparseTensor`` returning
-    a new ``SparseTensor`` with one row per id gathered
+    Performs gather on sparse tensors.
 
     Example:
         gather_sparse(sp_tensor,[1,1,4])
@@ -619,25 +693,42 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse"):
     """
     with ops.name_scope(name, [sp_tensor, ids]):
         ids = math_ops.cast(ids, dtypes.int64)
+        ids = array_ops.reshape(ids, [-1])
 
-        row_i, col_j = array_ops.split(sp_tensor.indices, 2, axis=-1)
-        row_i = array_ops.reshape(row_i, shape=[-1])
-        col_j = array_ops.reshape(col_j, shape=[-1])
+        # count columns and compute row coordinates
+        sp_column_ones = sparse_ones(sp_tensor.indices, sp_tensor.dense_shape, dtype=dtypes.int64)
+        col_count = sparse_ops.sparse_reduce_sum(sp_column_ones, axis=-1)
+        # sparse_reduce_sum sets shape to unknown
+        col_count.set_shape([sp_tensor.get_shape().as_list()[0]])
+        col_count_cs = math_ops.cumsum(col_count)
+        row_start_coor = col_count_cs - col_count
 
-        # reshape ids for equal broadcasting
-        row_filter = array_ops.where(math_ops.equal(row_i, array_ops.reshape(ids, [-1, 1])))
-        new_rows, row_indices = array_ops.split(row_filter, 2, -1)
-        num_rows = math_ops.reduce_max(new_rows) + 1
+        g_col_count = array_ops.gather(col_count, ids)
+        g_row_start_coor = array_ops.gather(row_start_coor, ids)
 
-        cols = array_ops.gather(col_j, row_indices)
-        values = array_ops.gather_nd(sp_tensor.values, row_indices)
+        row_start_coor = repeat_each(g_row_start_coor, g_col_count)
+        # col_counts = repeat_each(g_col_count, g_col_count)
 
-        sp_indices = array_ops.concat([new_rows, cols], axis=-1)
-        dense_shape = array_ops.stack([math_ops.cast(num_rows, dtypes.int64), sp_tensor.dense_shape[-1]])
+        offset = enum_each(g_col_count)
 
-        gather_sp = SparseTensor(indices=sp_indices, values=values, dense_shape=dense_shape)
+        # use modular arithmetic to make sure we get incremental coordinates
+        # gather_ids = row_start_coor + offset % col_counts
+        gather_ids = row_start_coor + offset
 
-        return gather_sp
+        num_ids = math_ops.cast(array_ops.shape(ids)[0], dtypes.int64)
+        new_rows = repeat_each(math_ops.range(num_ids), g_col_count)
+
+        sp_cols = sp_tensor.indices[:, -1]
+        new_cols = array_ops.gather(sp_cols, gather_ids)
+        new_indices = array_ops.stack([new_rows, new_cols], axis=-1)
+        new_values = array_ops.gather(sp_tensor.values, gather_ids)
+
+        new_shape = array_ops.concat([array_ops.expand_dims(math_ops.cast(num_ids, dtypes.int64), -1),
+                                      sp_tensor.dense_shape[1:]],
+                                     axis=-1)
+
+        sp = SparseTensor(new_indices, new_values, new_shape)
+        return sp
 
 
 __all__ = ["empty_sparse_tensor",
@@ -655,5 +746,6 @@ __all__ = ["empty_sparse_tensor",
            "pairs",
            "grid",
            "filter_nd",
-           "repeat"
+           "repeat",
+           "repeat_each"
            ]
