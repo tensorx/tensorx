@@ -9,12 +9,10 @@ from tensorflow.python.ops import sparse_ops, control_flow_ops, array_ops, math_
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops.nn import dropout
 import numbers
-from tensorflow.python.framework.tensor_shape import TensorShape
 
 import numpy as np
 
 from tensorx.utils import to_tensor_cast, complete_shape
-import contextlib
 
 
 def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor"):
