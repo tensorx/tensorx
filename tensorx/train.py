@@ -898,7 +898,18 @@ class ModelRunner:
                        zip(feedable_eval_inputs, eval_input_data)}
         feed_dict.update(target_dict)
 
-        result = self.session.run(self.model.eval_tensors, feed_dict)
+        if self.runtime_stats:
+            result = self.session.run(self.model.eval_tensors, feed_dict, options=self.run_options,
+                                      run_metadata=self.run_metadata)
+            if self.logdir is None:
+                self.set_logdir()
+            self.set_log_writer()
+            self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_step_counter),
+                                             global_step=self.eval_step_counter)
+        else:
+            result = self.session.run(self.model.eval_tensors, feed_dict)
+
+        self.eval_step_counter += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
         if len(self.model.eval_tensors) == 1:

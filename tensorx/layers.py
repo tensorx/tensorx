@@ -14,6 +14,7 @@ from functools import partial
 import itertools
 
 from tensorflow.python.framework import ops, dtypes
+from tensorflow.python.framework.tensor_shape import TensorShape
 
 from tensorflow.python.framework.ops import Tensor, name_scope
 from tensorflow.python.ops import array_ops, check_ops
@@ -310,6 +311,16 @@ class WrapLayer(Layer):
                 self.dtype = tensor.dtype
         return tensor
 
+    def reuse_with(self, layer):
+        """ Reuse this WrapLayer with another layer
+
+        # TODO this should be called ApplyLayer or FNLayer or something similar
+
+        Reusing this layer is a matter of applying the tf graph building function
+        to the new layer
+        """
+        return WrapLayer(layer, self.n_units, self.tf_fn)
+
 
 class Compose(Layer):
     """ Compose Layer.
@@ -536,10 +547,13 @@ class Linear(Layer):
         layer: an input :class:`Layer` used to build a fully connected layer
         n_units: an :obj:`int` with the number of units for this layer
         init: an initializer for the weights of this layer
-        weights: None if we wish the layer to create a new variable or a tensorflow variable otherwise
+        shared_weights: None if we wish the layer to create a new variable or a tensorflow variable otherwise
         bias: if true creates a bias variable and the transformation becomes an affine transformation
+        transpose_weights: if true transposes the weights of this linear layer. This is useful when we want to use tied
+        weights but do not wish to transpose the weights passed to this layer, because transpose in tf is not a constant-time
+        op.
         dtype: dtype for the output of this layer
-        name: name to create a tensorflow named_scope
+        name: name for this layer scope
     """
 
     def __init__(self,
@@ -547,6 +561,7 @@ class Linear(Layer):
                  n_units,
                  init=random_uniform(),
                  shared_weights=None,
+                 transpose_weights=False,
                  bias=True,
                  dtype=dtypes.float32,
                  name="linear", share_vars_with=None):
@@ -555,6 +570,7 @@ class Linear(Layer):
         self.init = init
         self.bias = bias
         self.share_vars_with = share_vars_with
+        self.transpose_weights = transpose_weights
 
         shape = [layer.shape[1], n_units]
         super().__init__(layer, n_units, shape, dtype, name)
@@ -571,11 +587,19 @@ class Linear(Layer):
 
         # if weights are passed, check that their shape matches the layer shape
         if self.shared_weights is not None:
-            weights_shape = self.shared_weights.get_shape()
-            if weights_shape[-1] != n_units:
-                raise ValueError(
-                    "weight shape mismatch: layer expects (,{}), provided weights have (,{})".format(n_units,
-                                                                                                     weights_shape[-1]))
+            weight_shape = self.shared_weights.get_shape()
+            if self.transpose_weights:
+                if not TensorShape([layer.n_units]).is_compatible_with(TensorShape([weight_shape[-1]])):
+                    raise ValueError(
+                        "weight shape mismatch: input_layer shape {} :: weights shape {} with transpose_weights=True".format(
+                            layer.shape,
+                            weight_shape))
+            else:
+                if not TensorShape([layer.n_units]).is_compatible_with(TensorShape([weight_shape[0]])):
+                    raise ValueError(
+                        "weight shape mismatch: input_layer shape {} :: weights shape {} with transpose_weights=False".format(
+                            layer.shape,
+                            weight_shape))
 
         self.tensor = self._build_graph(layer)
 
@@ -600,16 +624,26 @@ class Linear(Layer):
             # y = xW
             if input_layer.is_sparse():
                 sp_values = input_layer.tensor
-                sp_indices = transform.sparse_indices(sp_values)
 
-                lookup_sum = embedding_lookup_sparse(params=self.weights,
-                                                     sp_ids=sp_indices,
-                                                     sp_weights=sp_values,
-                                                     combiner="sum",
-                                                     name=self.scoped_name + "_embeddings")
+                # if we use shared weights that must be transposed
+                # but we have a sparse input to this layer, this is the most efficient way to do it
+                if self.transpose_weights:
+                    dense_sp = sparse_ops.sparse_tensor_to_dense(sp_values)
+                    lookup_sum = math_ops.sparse_matmul(dense_sp, self.weights,
+                                                        a_is_sparse=True,
+                                                        transpose_b=True)
+                else:
+
+                    sp_indices = transform.sparse_indices(sp_values)
+                    lookup_sum = embedding_lookup_sparse(params=self.weights,
+                                                         sp_ids=sp_indices,
+                                                         sp_weights=sp_values,
+                                                         combiner="sum",
+                                                         name=self.scoped_name + "_embeddings")
                 tensor = lookup_sum
             else:
-                tensor = math_ops.matmul(input_layer.tensor, self.weights, name="mat_mul")
+                tensor = math_ops.matmul(input_layer.tensor, self.weights, name="mat_mul",
+                                         transpose_b=self.transpose_weights)
 
             # y = xW + [b]
             if self.bias:
@@ -621,7 +655,7 @@ class Linear(Layer):
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
 
-    def reuse_with(self, input_layer, name=None):
+    def reuse_with(self, input_layer, name=None, transpose_weights=False):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -642,10 +676,16 @@ class Linear(Layer):
         if name is None:
             name = self.name
 
+        transpose_weights = self.transpose_weights
+        # only change the original if forced to change
+        if transpose_weights:
+            transpose_weights = True
+
         return Linear(layer=input_layer,
                       n_units=self.n_units,
                       init=self.init,
                       shared_weights=self.shared_weights,
+                      transpose_weights=transpose_weights,
                       bias=self.bias,
                       name=name,
                       share_vars_with=share_vars_with)
@@ -683,6 +723,7 @@ class Lookup(Layer):
                  feature_shape,
                  weight_init=random_uniform(),
                  batch_size=None,
+                 shared_weights=None,
                  dtype=dtypes.float32,
                  name="seq_lookup",
                  share_vars_with=None):
@@ -694,8 +735,15 @@ class Lookup(Layer):
         self.batch_size = batch_size
         shape = [batch_size, n_units]
         self.share_vars_with = share_vars_with
+        self.shared_weights = shared_weights
 
         super().__init__(layer, n_units, shape, dtype, name)
+
+        if self.shared_weights is not None:
+            weight_shape = shared_weights.get_shape().as_list()
+            if feature_shape != weight_shape:
+                raise ValueError(
+                    "shared weight shape {} and feature shape {} mismatch".format(weight_shape, feature_shape))
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Lookup):
@@ -719,7 +767,11 @@ class Lookup(Layer):
             # with name_scope(name) as scope, variable_scope.variable_scope(scope):
             # init weights
 
-            self.weights = variable_scope.get_variable("w", shape=self.feature_shape, initializer=self.weight_init)
+            if self.shared_weights is None:
+                self.weights = variable_scope.get_variable("w", shape=self.feature_shape, initializer=self.weight_init)
+            else:
+                self.weights = self.shared_weights
+
             self._add_variable(self.weights)
 
             # batch size is dynamic and should be computed here because we need it
@@ -767,7 +819,7 @@ class Lookup(Layer):
                 filled = array_ops.shape(flat_lookup)[0]
 
                 padding_shape = [math_ops.maximum(self.n_units * batch_size - filled, 0)]
-                padding = array_ops.zeros(padding_shape)
+                padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
                 flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 
                 # tensor = array_ops.reshape(lookup, [self.batch_size, -1])
@@ -800,6 +852,7 @@ class Lookup(Layer):
                       seq_size=self.seq_size,
                       feature_shape=self.feature_shape,
                       batch_size=self.batch_size,
+                      shared_weights=self.shared_weights,
                       weight_init=None,
                       dtype=self.dtype,
                       name=name,

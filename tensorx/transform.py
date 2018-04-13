@@ -681,7 +681,6 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
         returns a [3,sp_tensor.dense_shape[-1]] ``SparseTensor``
 
 
-
     Args:
         sp_tensor: a ``SparseTensor`` with the rows from which we will slice
         ids: ``Tensor`` with row ids to be gathered from the sparse tensor
