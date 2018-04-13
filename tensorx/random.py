@@ -228,7 +228,7 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
         return empty_sparse_tensor(dense_shape)
     else:
         mask_values = [salt_value, pepper_value]
-        return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype)
+        return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype,seed=seed)
 
 
 def sample_sigmoid_from_logits(x, n, dtype=None, seed=None, name="sample_sigmoid"):
