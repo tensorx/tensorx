@@ -51,6 +51,72 @@ def _sample(range_max, num_sampled, unique=True, seed=None):
     return candidates
 
 
+def _sample_with_expected(range_max, num_sampled, true_classes, num_true, unique=True, seed=None):
+    if tensor_util.is_tensor(range_max):
+        range_max = tensor_util.constant_value(range_max)
+
+    if tensor_util.is_tensor(num_sampled):
+        num_sampled = tensor_util.constant_value(num_sampled)
+
+    if tensor_util.is_tensor(seed):
+        seed = tensor_util.constant_value(seed)
+
+    candidates, true_expected, sampled_expected = tf.nn.uniform_candidate_sampler(
+        true_classes,  # this used just for its shape     (num columns must match next arg)
+        num_true,  # this is not used either (minimum 1 required)
+        num_sampled,
+        unique,
+        range_max,
+        seed,
+    )
+    return candidates, true_expected, sampled_expected
+
+
+def sample_with_expected(range_max, num_sampled, true_classes, num_true, batch_size=None, unique=True, seed=None,
+                         name="sample_with_expected"):
+    """ Like Uniform candidate sampler but returns a batch of results instead of just one sample
+
+    the expected true counts and sampled counts are a rank 3 and 2 tensor respectively since this requires true
+    classes to be a rank 2 tensor (because we might want to enter a batch of true classes to this op)
+    the sampled counts follows the shape for the returned candidates.
+
+    Tips:
+        if we want to use the expected probabilities after calling this, one might want to reduce_mean on axis 0, to
+        get the counts over the batch (average of probabilities)
+
+    Args:
+        range_max:
+        num_sampled:
+        true_classes:
+        num_true:
+        batch_size:
+        unique:
+        seed:
+        name:
+
+    Returns:
+
+    """
+    with ops.name_scope(name):
+        if tensor_util.is_tensor(num_sampled):
+            num_sampled = tensor_util.constant_value(num_sampled)
+            if num_sampled is None:
+                raise ValueError("num_sampled could not be converted to constant value")
+
+        if batch_size is None:
+            return _sample_with_expected(range_max, num_sampled, true_classes, num_true, unique, seed)
+        else:
+            i = tf.range(0, batch_size)
+
+            def fn_sample(_):
+                return _sample_with_expected(range_max, num_sampled, true_classes, num_true)
+
+            res = tf.map_fn(fn_sample, i, dtype=(dtypes.int64, dtypes.float32, dtypes.float32))
+            candidates, true_expected, sampled_expected = res
+
+            return candidates, true_expected, sampled_expected
+
+
 def sample(range_max, num_sampled, batch_size=None, unique=True, seed=None, name="sample"):
     """
 
@@ -228,7 +294,7 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
         return empty_sparse_tensor(dense_shape)
     else:
         mask_values = [salt_value, pepper_value]
-        return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype,seed=seed)
+        return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype, seed=seed)
 
 
 def sample_sigmoid_from_logits(x, n, dtype=None, seed=None, name="sample_sigmoid"):
@@ -263,6 +329,7 @@ def sample_sigmoid_from_logits(x, n, dtype=None, seed=None, name="sample_sigmoid
 
 
 __all__ = ["sample",
+           "sample_with_expected",
            "sparse_random_normal",
            "sparse_random_mask",
            "salt_pepper_noise",
