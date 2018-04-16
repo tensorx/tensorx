@@ -2,7 +2,7 @@
 -----------------
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
 [![Docs](https://readthedocs.org/projects/tensorx/badge/?version=latest)](http://tensorx.readthedocs.io/en/latest/?badge=latest)
-
+[![dev build](https://travis-ci.org/davidenunes/tensorx.svg?branch=dev)](https://travis-ci.org/davidenunes/tensorx)
 
 **TensorX** is an free and open-source minimalistic high-level library to build, train, and run neural network models in [TensorFlow](https://github.com/tensorflow/tensorflow). 
 This library aims to provide simple, extensible, and modular components, without unnecessary levels of abstraction or verbose.
