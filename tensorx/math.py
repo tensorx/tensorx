@@ -57,25 +57,25 @@ def gaussian(x, sigma=0.5):
     return gauss
 
 
-def sparse_l2_norm(sp_tensor, axis, name=None, keep_sparse=False, keep_dims=False):
+def sparse_l2_norm(sp_tensor, axis, name=None, keep_sparse=False, keepdims=False):
     with ops.name_scope(name, "l2_norm", [sp_tensor]) as name:
         square = math_ops.square(sp_tensor)
         if not keep_sparse:
-            square_sum = sparse_ops.sparse_reduce_sum(square, axis=axis, keep_dims=keep_dims)
+            square_sum = sparse_ops.sparse_reduce_sum(square, axis, keepdims)
         else:
-            square_sum = sparse_ops.sparse_reduce_sum_sparse(square, axis=axis, keep_dims=keep_dims)
+            square_sum = sparse_ops.sparse_reduce_sum_sparse(square, axis, keepdims)
         l2_norm = math_ops.sqrt(square_sum)
         return l2_norm
 
 
-def batch_sparse_dot(sp_tensor1, tensor2, name=None, keep_dims=True):
+def batch_sparse_dot(sp_tensor1, tensor2, name=None, keepdims=True):
     """
 
     Args:
         sp_tensor1: a ``SparseTensor``
         tensor2: a ``Tensor
         name: the name for this op
-        keep_dims: if true keeps the dimensions of the dot product:
+        keepdims: if true keeps the dimensions of the dot product:
          tensor1.shape[0] x tensor2.shape[0] x tensor2.shape[1]
 
     Returns:
@@ -88,7 +88,7 @@ def batch_sparse_dot(sp_tensor1, tensor2, name=None, keep_dims=True):
         sp_shape = math_ops.cast(sp_tensor1.dense_shape, dtypes.int32)
         dense_shape = array_ops.shape(tensor2)
 
-        if keep_dims:
+        if keepdims:
             dot_prod = array_ops.reshape(dot_prod, [sp_shape[0], dense_shape[0], 1])
 
         return dot_prod

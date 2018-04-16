@@ -43,7 +43,7 @@ class DSOMLearner(Learner):
         som_indices = transform.grid(som_shape)
         distances = self.metric(data, codebook)
 
-        max_dist = math_ops.reduce_max(distances, axis=1, keep_dims=True)
+        max_dist = math_ops.reduce_max(distances, axis=1, keepdims=True)
         norm_dist = distances / max_dist
 
         # l1 distance to winner neuron

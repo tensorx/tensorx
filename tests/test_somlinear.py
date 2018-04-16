@@ -50,6 +50,8 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(np.array_equal(result[0:2], result[3:5][::-1]))
 
     def test_stage_implementation(self):
+        tf.reset_default_graph()
+
         n_inputs = 3
         n_partitions = 2
         n_hidden = 1
@@ -166,6 +168,9 @@ class MyTestCase(unittest.TestCase):
         # sparse_h_weighed = tf.multiply(sp_weights.values,sparse_h_gather)
 
     def test_som_2d(self):
+        tf.reset_default_graph()
+        self.setUp()
+
         som_shape = [2, 2]
         n_partitions = som_shape[0] * som_shape[1]
         n_inputs = 2
@@ -203,15 +208,19 @@ class MyTestCase(unittest.TestCase):
         learning_rate = 0.1
         elasticity = 1.2
         neighbourhood_threshold = 1e-6
-        dsom_learner = DSOMLearner(som_shape=som_shape,
+        dsom_learner = DSOMLearner(var_list=[],
+                                   som_shape=som_shape,
                                    learning_rate=learning_rate,
                                    elasticity=elasticity,
-                                   distance_metric=batch_cosine_distance,
+                                   metric=batch_cosine_distance,
                                    neighbourhood_threshold=neighbourhood_threshold)
 
-        deltas = dsom_learner.compute_delta(inputs, [som])
+        deltas = dsom_learner.compute_delta(inputs)
 
     def test_batch_som_indices(self):
+        tf.reset_default_graph()
+        self.setUp()
+
         n_partitions = 4
         n_inputs = 2
         n_hidden = 1
@@ -281,8 +290,6 @@ class MyTestCase(unittest.TestCase):
             np.array_equal(tf.sparse_tensor_to_dense(sp_gauss_neighbourhood).eval(), gauss_neighbourhood.eval()))
         # print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
 
-
-
         learning_rate = 0.1
         delta = tf.expand_dims(inputs, 1) - som
         # since dense x is usually a batch, the delta should be the average
@@ -315,7 +322,6 @@ class MyTestCase(unittest.TestCase):
         # gathered_sum = tf.unsorted_segment_sum(gathered_mul, sp_slices,num_indices)
         # gathered_mean = tf.divide(gathered_sum,count)
         # print("sum gathered \n", gathered_sum.eval())
-
 
         # print("delta_modulated by neihbourhood \n", som_delta.eval())
         # print("delta_modulated by sp neihbourhood \n", sp_som_delta.eval())
@@ -356,6 +362,9 @@ class MyTestCase(unittest.TestCase):
         # both the gaussian distances and the distances to the data of each partition neuron
 
     def test_delta_computing(self):
+        tf.reset_default_graph()
+        self.setUp()
+
         n_partitions = 4
         n_inputs = 3
         n_hidden = 1
@@ -379,7 +388,7 @@ class MyTestCase(unittest.TestCase):
         else:
             raise TypeError("invalid inputs")
         # print("distances \n ",distances.eval())
-        max_dist = tf.reduce_max(distances, axis=1, keep_dims=True)
+        max_dist = tf.reduce_max(distances, axis=1, keepdims=True)
         # print(max_dist.eval())
         norm_dist = distances / max_dist
         # print("normalised distances ",  norm_dist.eval())
@@ -421,7 +430,7 @@ class MyTestCase(unittest.TestCase):
         print("shape lr * delta ", tf.shape(delta).eval())
         print(delta.eval())
 
-        delta = tf.reduce_mean(delta,0)
+        delta = tf.reduce_mean(delta, 0)
 
         dsom_learner = DSOMLearner(var_list=[som],
                                    som_shape=som_shape,
@@ -432,19 +441,14 @@ class MyTestCase(unittest.TestCase):
 
         deltas = dsom_learner.compute_delta(inputs)
 
-        delta_learner,learning_vars = deltas[0]
-        self.assertEqual(learning_vars,som)
+        delta_learner, learning_vars = deltas[0]
+        self.assertEqual(learning_vars, som)
         self.assertTrue(np.array_equal(delta.eval(), delta_learner.eval()))
 
         dsom_learner.adapt_to([inputs])
 
         som2 = tf.identity(som)
         print("som 2", som2.eval())
-
-
-
-
-
 
 
 if __name__ == '__main__':

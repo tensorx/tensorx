@@ -26,13 +26,13 @@ class TestLoss(unittest.TestCase):
         self.assertEqual(result.eval(), 0)
 
     def test_binary_cross_entropy(self):
-        labels = [[1.0, 0.0, 0.0, 0.0],
-                  [1.0, 0.0, 0.0, 0.0]]
-        predicted = np.zeros([2, 4])
+        labels = np.array([[1.0, 0.0, 0.0, 0.0],
+                           [1.0, 0.0, 0.0, 0.0]])
+        predicted = np.zeros([2, 4], np.float64)
 
         result = binary_cross_entropy(labels, predicted)
         result = result.eval()
-        self.assertGreater(result, 0)
+        self.assertTrue(np.all(np.greater(result, 0)))
 
     def test_categorical_cross_entropy(self):
         labels = [[1.0, 0.0, 0.0, 0.0],

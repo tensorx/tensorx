@@ -285,7 +285,7 @@ class TestTransform(unittest.TestCase):
         mask = np.random.choice(int(num_cols * num_rows), int(num_cols * num_rows / 0.8))
         v[mask] = 0
         v = np.reshape(v, [num_rows, num_cols])
-        indices = np.random.random_integers(0, num_rows - 1, [num_gather])
+        indices = np.random.randint(0, num_rows - 1, [num_gather])
         # ================================================================================
 
         sp_tensor = transform.to_sparse(v)
