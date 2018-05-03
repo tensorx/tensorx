@@ -193,8 +193,8 @@ class Layer:
         if shape is None:
             self.shape = [None, n_units]
         else:
-            if shape[1] < n_units:
-                raise ValueError("Shape mismatch: shape[1] < n_units")
+            if shape[-1] != n_units:
+                raise ValueError("Shape mismatch: shape[-1] != n_units")
             self.shape = shape
 
         # stores the variables if this layer has any
@@ -284,7 +284,7 @@ class WrapLayer(Layer):
 
     """
 
-    def __init__(self, layer, n_units, tf_fn, name="wrap"):
+    def __init__(self, layer, n_units, tf_fn, shape=None, name="wrap"):
         if name == "wrap":
             name = "wrap_{}".format(layer.name)
 
@@ -296,7 +296,8 @@ class WrapLayer(Layer):
         self.variable_names = layer.variable_names
         self.variables = layer.variables
 
-        shape = [layer.shape[0], n_units]
+        if shape is None:
+            shape = [layer.shape[0], n_units]
         super().__init__(layer, n_units, shape, dtype=layer.tensor.dtype, name=name)
         self.tensor = self._build_graph(layer)
 

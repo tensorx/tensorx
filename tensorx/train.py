@@ -304,6 +304,14 @@ class Model:
         self.run_in_layers = _as_list(run_in_layers)
         self.run_out_layers = _as_list(run_out_layers)
 
+        for layer in self.run_in_layers:
+            if not isinstance(layer, Layer):
+                raise TypeError("run_in_layers expected one or more Layer objects got {} instead".format(type(layer)))
+
+        for layer in self.run_out_layers:
+            if not isinstance(layer, Layer):
+                raise TypeError("run_out_layers expected one or more Layer objects got {} instead".format(type(layer)))
+
         # train graph and ops
         if train_in_layers is None:
             self.train_in_layers = self.run_in_layers

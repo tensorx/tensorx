@@ -8,6 +8,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import random_ops
 from tensorflow.python.ops import init_ops
+from tensorflow.python.ops.linalg_ops import qr
 
 
 def zero_init(dtype=dt.float32):
@@ -58,6 +59,20 @@ def xavier_init(seed=None, dtype=dt.float32):
         Tensor: a TensorFlow tensor used to initialise variable
     """
     return init_ops.glorot_uniform_initializer(seed, dtype)
+
+
+def orthogonal_init(gain=1.0, seed=None, dtype=dt.float32):
+    """Initializer that generates an orthogonal matrix.
+
+    Args:
+    gain: multiplicative factor to apply to the orthogonal matrix
+    dtype: The type of the output.
+    seed: A Python integer. Used to create random seeds. See
+      @{tf.set_random_seed}
+      for behavior.
+    """
+
+    return init_ops.orthogonal_initializer(gain, seed, dtype)
 
 
 class HeNormal(init_ops.Initializer):
