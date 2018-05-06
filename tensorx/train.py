@@ -509,7 +509,7 @@ class ModelRunner:
         return inited and init_sess == self.session
 
     def log_graph(self, logdir=None):
-        """ outputs the graph meta file to be open in tensorboard
+        """ outputs the graph meta file to be open in Tensorboard
         Args:
             logdir: path to directory where the graph is to be written
 
