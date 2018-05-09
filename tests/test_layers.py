@@ -3,17 +3,22 @@ import tensorflow as tf
 from tensorflow.python.framework import ops
 import numpy as np
 from tensorx.layers import *
-from tensorx.layers import Lookup
 from tensorx.init import *
 
 from tensorx.layers import layers_to_list
 from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
+from tensorx.train import Model, ModelRunner
 import math
 
 
 class TestLayers(unittest.TestCase):
     # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
+    def reset(self):
+        tf.reset_default_graph()
+        self.ss.close()
+        self.ss = tf.InteractiveSession()
+
     def setUp(self):
         self.ss = tf.InteractiveSession()
 
@@ -191,7 +196,7 @@ class TestLayers(unittest.TestCase):
         np.testing.assert_array_equal(y2_output, y3_output)
 
     def test_linear_variable_names(self):
-        tf.reset_default_graph()
+        self.reset()
 
         inputs = TensorLayer([[1]], 1, batch_size=1)
         layer = Linear(inputs, 10)
@@ -516,8 +521,7 @@ class TestLayers(unittest.TestCase):
             self.assertTrue(np.array_equal(v1, v2))
 
     def test_lookup_padding(self):
-        tf.reset_default_graph()
-        self.ss = tf.InteractiveSession()
+        self.reset()
 
         ri_size = 4
         vocab_size = 4
@@ -548,8 +552,7 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(res2, res3))
 
     def test_gating(self):
-        tf.reset_default_graph()
-        self.ss = tf.InteractiveSession()
+        self.reset()
 
         vocab_size = 4
         n_features = 3
@@ -602,6 +605,35 @@ class TestLayers(unittest.TestCase):
         # they gate different features
         self.assertFalse(np.array_equal(out1, out2))
         self.assertTrue(np.array_equal(out1, out3))
+
+    def test_rnn_cell(self):
+        self.reset()
+
+        n_inputs = 4
+        n_hidden = 2
+        batch_size = 2
+
+        inputs = Input(n_inputs)
+        rnn_1 = RNNCell(inputs, n_hidden)
+        rnn_2 = rnn_1.reuse_with(inputs, previous_state=rnn_1)
+
+        rnn_3 = rnn_1.reuse_with(inputs)
+
+        tf.global_variables_initializer().run()
+
+        data = np.ones([batch_size, 4])
+
+        res1 = rnn_1.tensor.eval({inputs.placeholder: data})
+        res2 = rnn_2.tensor.eval({inputs.placeholder: data})
+        res3 = rnn_3.tensor.eval({inputs.placeholder: data})
+
+        self.assertEqual((batch_size, n_hidden), np.shape(res1))
+        self.assertTrue(np.array_equal(res1, res3))
+        self.assertFalse(np.array_equal(res1, res2))
+
+        #m = Model(inputs, rnn_2)
+        #r = ModelRunner(m)
+        #r.log_graph("/tmp")
 
 
 if __name__ == '__main__':

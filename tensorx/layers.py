@@ -28,12 +28,12 @@ from tensorflow.python.ops import random_ops, sparse_ops
 from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout, embedding_lookup
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.init import random_uniform, zero_init
+from tensorx.init import random_uniform, zero_init, xavier_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal
 from tensorx import transform
 from tensorx import utils as txutils
 from tensorx.metrics import batch_cosine_distance
-from tensorx.activation import sigmoid, elu
+from tensorx.activation import sigmoid, elu, tanh
 from tensorx import math as mathx
 
 from contextlib import ExitStack
@@ -690,6 +690,90 @@ class Linear(Layer):
                       bias=self.bias,
                       name=name,
                       share_vars_with=share_vars_with)
+
+
+class RNNCell(Layer):
+    """ Recurrent Cell
+        Corresponds to a single step on an unrolled RNN network
+
+        Args:
+                layer: the input layer to the RNN Cell
+                n_units: number of output units for this RNN Cell
+                previous_state: a RNNCell from which we can extract output
+                activation: activation function to be used in the cell
+                use_bias: if True adds biases before the activation
+                init: weight initialisation function
+                recurrent_init: initialisation function for the recurrent weights
+                share_state_with: a ``Layer`` with the same number of units than this Cell
+                name: name for the RNN cell
+        """
+
+    def __init__(self, layer, n_units,
+                 previous_state=None,
+                 activation=tanh,
+                 use_bias=True,
+                 init=xavier_init(),
+                 recurrent_init=xavier_init(),
+                 share_state_with=None,
+                 name="rnn_cell"):
+        self.activation = activation
+        self.use_bias = use_bias
+        self.init = init
+
+        self.recurrent_init = recurrent_init
+
+        # if previous state is None start with zeros
+        if previous_state is not None:
+            if previous_state.n_units != n_units:
+                raise ValueError(
+                    "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
+        else:
+            input_batch = array_ops.shape(layer.tensor)[0]
+            zero_state = array_ops.zeros([input_batch, n_units])
+            previous_state = TensorLayer(zero_state, n_units)
+
+        self.previous_state = previous_state
+
+        if share_state_with is not None and not isinstance(share_state_with, RNNCell):
+            raise TypeError("shared_gate must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+        self.share_state_with = share_state_with
+
+        super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
+
+        self.tensor = self._build_graph(layer, previous_state)
+
+    def _build_graph(self, layer, previous_state):
+        with layer_scope(self):
+
+            if self.share_state_with is None:
+                self.weights = Linear(layer, self.n_units, bias=True, init=self.init, name="w")
+                self.recurrent_weights = Linear(previous_state, self.n_units, bias=False, init=self.recurrent_init,
+                                                name="r_w")
+            else:
+                self.weights = self.share_state_with.weights.reuse_with(layer)
+                self.recurrent_weights = self.share_state_with.recurrent_weights.reuse_with(previous_state)
+
+            state = Add([self.weights, self.recurrent_weights])
+            self.state = Activation(state, self.activation)
+
+            return self.state.tensor
+
+    def reuse_with(self, input_layer, previous_state=None, name=None):
+        if previous_state is None:
+            previous_state = self.previous_state
+
+        if name is None:
+            name = self.name
+
+        return RNNCell(
+            layer=input_layer,
+            n_units=self.n_units,
+            previous_state=previous_state,
+            activation=self.activation,
+            use_bias=self.use_bias,
+            share_state_with=self,
+            name=name
+        )
 
 
 class Lookup(Layer):
@@ -1377,6 +1461,11 @@ class Merge(Layer):
 
         self.tensor = tensor
 
+    def reuse_with(self, layers, name=None):
+        if name is None:
+            name = self.name
+        return Merge(layers, self.merge_fn, name)
+
 
 class Add(Merge):
     """ Adds the outputs of multiple layers with the same shape
@@ -1416,36 +1505,8 @@ class Concat(Layer):
         self.tensor = tensor
 
 
-class SOMLinear(Layer):
-    def __init__(self,
-                 layer,
-                 n_units,
-                 map_size,
-                 map_distance=batch_cosine_distance,
-                 init=random_uniform(), weights=None, bias=True, dtype=dtypes.float32, name="som_linear"):
-        shape = [layer.shape[1], n_units]
-        super().__init__(layer, n_units, shape, dtype, name)
-
-        self.map_size = map_size
-        self.weights_shape = [map_size, layer.shape[1], n_units]
-        self.map_weights = None
-        self.map_shape = [map_size, layer.shape[1]]
-        self.bias = None
-
-        with layer_scope(self):
-            # init weights
-            self.weights = variable_scope.get_variable("w", shape=self.weights_shape, initializer=init)
-            self.map_weights = variable_scope.get_variable("som_w", shape=self.map_shape, initializer=init)
-
-            if layer.is_sparse():
-                self.tensor = None
-            else:
-                som_dist = batch_cosine_distance(layer.tensor, self.map_weights)
-                # Best Matching Unit (BMU)
-                bmu = math_ops.argmin(som_dist, axis=0)
-
-
 __all__ = ["Input",
+           "RNNCell",
            "Gate",
            "Compose",
            "TensorLayer",
