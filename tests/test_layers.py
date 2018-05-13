@@ -58,6 +58,24 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(res1, res2))
         self.assertTrue(np.array_equal(res1, res3))
 
+    def test_compose_merge(self):
+        in1 = Input(1)
+        in2 = TensorLayer([[1.]], 1)
+        in3 = Input(1)
+
+        a1 = Add([in1, in2])
+        l1 = Linear(a1, 4)
+
+        comp = Compose([a1, l1])
+        comp2 = comp.reuse_with([in1, in3])
+
+        tf.global_variables_initializer().run()
+
+        res1 = comp.tensor.eval({in1.placeholder: [[1.]]})
+        res2 = comp2.tensor.eval({in1.placeholder: [[1.]], in3.placeholder: [[1.]]})
+
+        self.assertTrue(np.array_equal(res1, res2))
+
     def test_bias_reuse(self):
         in1 = TensorLayer([[1.]], 1)
         in2 = TensorLayer([[1.]], 1)
@@ -631,9 +649,9 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(res1, res3))
         self.assertFalse(np.array_equal(res1, res2))
 
-        #m = Model(inputs, rnn_2)
-        #r = ModelRunner(m)
-        #r.log_graph("/tmp")
+        m = Model(inputs, rnn_2)
+        r = ModelRunner(m)
+        r.log_graph("/tmp")
 
 
 if __name__ == '__main__':

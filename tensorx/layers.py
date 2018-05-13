@@ -368,12 +368,23 @@ class Compose(Layer):
 
         self.tensor = out_layer.tensor
 
-    def reuse_with(self, input_layer, name=None):
+    def reuse_with(self, input_layers, name=None):
         if name is None:
             name = self.name
 
+        input_layers = _as_list(input_layers)
+
         layer1, *layers = self.layers
-        layer1 = layer1.reuse_with(input_layer)
+
+        # check how many inputs for layer 1
+        if len(layer1.input_layers) != len(input_layers):
+            raise ValueError(
+                "first layer of compose requires {} input layers {} passed".format(len(layer1.input_layers),
+                                                                                   len(input_layers)))
+        if len(layer1.input_layers) > 1:
+            layer1 = layer1.reuse_with(input_layers)
+        else:
+            layer1 = layer1.reuse_with(input_layers[0])
         layers = [layer1] + layers
         return Compose(layers, name=name)
 
@@ -754,6 +765,101 @@ class RNNCell(Layer):
                 self.recurrent_weights = self.share_state_with.recurrent_weights.reuse_with(previous_state)
 
             state = Add([self.weights, self.recurrent_weights])
+            self.state = Activation(state, self.activation)
+
+            return self.state.tensor
+
+    def reuse_with(self, input_layer, previous_state=None, name=None):
+        if previous_state is None:
+            previous_state = self.previous_state
+
+        if name is None:
+            name = self.name
+
+        return RNNCell(
+            layer=input_layer,
+            n_units=self.n_units,
+            previous_state=previous_state,
+            activation=self.activation,
+            use_bias=self.use_bias,
+            share_state_with=self,
+            name=name
+        )
+
+
+class GRUCell(Layer):
+    """ Gated Recurrent Unit Cell.
+
+        Performs a single step with a gated recurrent unit where. These units have two gates:
+        The first defines how much do we use the values from the recurrent connection to predict the current state
+        The second
+    """
+
+    def __init__(self, layer, n_units,
+                 previous_state=None,
+                 activation=tanh,
+                 use_bias=True,
+                 init=xavier_init(),
+                 recurrent_init=xavier_init(),
+                 share_state_with=None,
+                 name="rnn_cell"):
+        self.activation = activation
+        self.use_bias = use_bias
+        self.init = init
+
+        self.recurrent_init = recurrent_init
+
+        # if previous state is None start with zeros
+        if previous_state is not None:
+            if previous_state.n_units != n_units:
+                raise ValueError(
+                    "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
+        else:
+            input_batch = array_ops.shape(layer.tensor)[0]
+            zero_state = array_ops.zeros([input_batch, n_units])
+            previous_state = TensorLayer(zero_state, n_units)
+
+        self.previous_state = previous_state
+
+        if share_state_with is not None and not isinstance(share_state_with, RNNCell):
+            raise TypeError("shared_gate must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+        self.share_state_with = share_state_with
+
+        super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
+
+        self.tensor = self._build_graph(layer, previous_state)
+
+    def _build_graph(self, layer, previous_state):
+        with layer_scope(self):
+
+            if self.share_state_with is None:
+                self.w_h = Linear(layer, self.n_units, bias=True, init=self.init, name="w_h")
+                self.u_h = Linear(previous_state, self.n_units, bias=False, init=self.recurrent_init,
+                                  name="u_h")
+                # recurrent gate
+                self.w_z = Linear(layer, self.n_units, bias=True)
+                self.u_z = Linear(previous_state, self.n_units, bias=False)
+
+                # update gate
+                self.w_s = Linear(layer, self.n_units, bias=True)
+                self.u_s = Linear(previous_state, self.n_units, bias=False)
+
+            else:
+                self.w_h = self.share_state_with.w_h.reuse_with(layer)
+                self.u_h = self.share_state_with.u_h.reuse_with(previous_state)
+
+                # recurrent gate
+                self.w_z = self.share_state_with.w_z.reuse_with(layer)
+                self.u_z = self.share_state_with.u_z.reuse_with(previous_state)
+
+                # update gate
+                self.w_s = self.share_state_with.w_s.reuse_with(layer)
+                self.u_s = self.share_state_with.u_s.reuse_with(previous_state)
+
+            z_linear = Add([self.w_z, self.u_z])
+            self.gate_z = Activation(z_linear, fn=sigmoid)
+
+            state = Add([self.w_h, self.u_h])
             self.state = Activation(state, self.activation)
 
             return self.state.tensor
@@ -1464,7 +1570,7 @@ class Merge(Layer):
     def reuse_with(self, layers, name=None):
         if name is None:
             name = self.name
-        return Merge(layers, self.merge_fn, name)
+        return Merge(layers, self.weights, self.merge_fn, name)
 
 
 class Add(Merge):
