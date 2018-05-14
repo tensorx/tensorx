@@ -13,6 +13,8 @@ Types of layers:
 from functools import partial
 import itertools
 
+from collections import deque
+
 from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
 
@@ -102,6 +104,27 @@ class LayerScope:
 
 # alias for layer scopes
 layer_scope = LayerScope
+
+
+class Graph:
+    """ Simple append only graph"""
+
+    def __init__(self):
+        self.nodes = set()
+        self.edges_in = dict()
+        self.edges_out = dict()
+
+    def add_node(self, node):
+        if node not in self.nodes:
+            self.nodes.add(node)
+            self.edges_in[node] = []
+            self.edges_out[node] = []
+
+    def add_edge(self, node1, node2):
+        self.add_node(node1)
+        self.add_node(node2)
+        self.edges_out[node1] += node2
+        self.edges_in[node2] += node1
 
 
 def _as_list(elems):
@@ -321,6 +344,41 @@ class WrapLayer(Layer):
         to the new layer
         """
         return WrapLayer(layer, self.n_units, self.tf_fn)
+
+
+class Module(Layer):
+    """ Module Layer
+
+    Defines a reusable module with multiple possible inputs and a single output
+
+    Warnings:
+        if any path from the layers in inputs does not lead to the output, this is an invalid module
+        and an exception is raised when the Module is created
+
+    Args:
+        inputs: one or more input layers
+        output: a single output layer
+    """
+
+    def __init__(self, inputs, output:Layer, name="module"):
+        inputs = _as_list(inputs)
+
+        layer_stack = deque(output.input_layers)
+        graph = Graph()
+        graph.add_node(output)
+
+
+        #graph.add_edge()
+
+
+        while len(layer_stack) > 0:
+
+
+
+
+
+        # 1. map out from out_layer to in_layer
+
 
 
 class Compose(Layer):
