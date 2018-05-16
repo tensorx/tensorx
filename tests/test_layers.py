@@ -650,8 +650,39 @@ class TestLayers(unittest.TestCase):
         self.assertFalse(np.array_equal(res1, res2))
 
         m = Model(inputs, rnn_2)
-        r = ModelRunner(m)
-        r.log_graph("/tmp")
+        #r = ModelRunner(m)
+        #r.log_graph("/tmp")
+
+    def test_module(self):
+        l1 = Input(1)
+        l2 = Input(1)
+        l3 = Add([l1, l2])
+        l4 = Add([l1, l2])
+        l5 = Linear(l4,1)
+        t1 = TensorLayer([[1]], n_units=1)
+        l6 = Add([l3, t1])
+        l7 = Add([l6, l5])
+
+
+        t2 = TensorLayer([[1]], n_units=1)
+        t3 = TensorLayer([[1]], n_units=1)
+
+        m = Module([l1, l2, t1], l7)
+        with tf.name_scope("module_reuse"):
+            m2 = m.reuse_with([t2, t3, t1])
+
+        tf.global_variables_initializer().run()
+
+
+        feed = {l1.placeholder: [[1]], l2.placeholder: [[1]]}
+        res1 = m.tensor.eval(feed)
+        res2 = m2.tensor.eval()
+        print(res1)
+        print(res2)
+
+        model = Model(m2.input_layers, m2)
+        runner = ModelRunner(model)
+        runner.log_graph("/tmp")
 
 
 if __name__ == '__main__':

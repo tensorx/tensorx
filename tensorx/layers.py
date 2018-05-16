@@ -123,8 +123,8 @@ class Graph:
     def add_edge(self, node1, node2):
         self.add_node(node1)
         self.add_node(node2)
-        self.edges_out[node1] += node2
-        self.edges_in[node2] += node1
+        self.edges_out[node1].append(node2)
+        self.edges_in[node2].append(node1)
 
 
 def _as_list(elems):
@@ -360,25 +360,78 @@ class Module(Layer):
         output: a single output layer
     """
 
-    def __init__(self, inputs, output:Layer, name="module"):
+    def __init__(self, inputs, output: Layer, name="module"):
         inputs = _as_list(inputs)
-
-        layer_stack = deque(output.input_layers)
+        in_set = set(inputs)
         graph = Graph()
-        graph.add_node(output)
+        lstack = deque([output])
 
+        while len(lstack) > 0:
+            layer = lstack.pop()
+            graph.add_node(output)
 
-        #graph.add_edge()
+            if layer not in in_set:
+                # one node terminated but was not in the input list
+                if len(layer.input_layers) == 0:
+                    raise ValueError("Module is not self-contained: \n "
+                                     "the Module graph reached {layer}, this layer has no input layers but it was not "
+                                     "in the input list".format(layer=layer))
+                lstack.extendleft(layer.input_layers)
+                for in_layer in layer.input_layers:
+                    graph.add_edge(in_layer, layer)
 
+        self.graph = graph
+        self.output = output
+        super().__init__(input_layers=inputs,
+                       n_units=output.n_units,
+                       shape=output.shape,
+                       dtype=output.dtype,
+                       name=name)
 
-        while len(layer_stack) > 0:
+        self.tensor = output.tensor
 
+    def reuse_with(self, layers, name=None):
+        if name is None:
+            name = self.name
 
+        layers = _as_list(layers)
+        if len(layers) != len(self.input_layers):
+            raise ValueError("Module has {} input layers, {} provided".format(len(self.input_layers)), len(layers))
 
+        node_set = set()
+        lstack = deque()
 
+        def stack_out(in_layer):
+            for out_layer in self.graph.edges_out[in_layer]:
+                if out_layer not in node_set:
+                    lstack.appendleft(out_layer)
+                    node_set.add(out_layer)
 
-        # 1. map out from out_layer to in_layer
+        for in_layer in self.input_layers:
+            stack_out(in_layer)
 
+        # maps old layers to new layers
+        lmap = dict(zip(self.input_layers, layers))
+
+        # transverse graph and apply reuse
+        # TODO problem, reuse is applied different ways for different types of layers
+        # should I make a universal reuse that would accept a list as well as a single layer?
+        while len(lstack) > 0:
+            current_layer = lstack.pop()
+            new_inputs = [lmap[l] for l in self.graph.edges_in[current_layer]]
+            # TODO recurrent layers use a different signature for reuse ...
+            # we can thing of it as just a layer with two inputs but order matters
+            if not issubclass(type(current_layer), Merge):
+                new_inputs = new_inputs[0]
+
+            new_layer = current_layer.reuse_with(new_inputs)
+            # map out how the current node corresponds to a new layer
+            lmap[current_layer] = new_layer
+            # add descendants to the stack
+            stack_out(current_layer)
+
+        new_output = lmap[self.output]
+        return Module(inputs=layers, output=new_output, name=name)
 
 
 class Compose(Layer):
@@ -403,7 +456,7 @@ class Compose(Layer):
         # if layers were not connected, connect them
         out_layer = layer1
 
-        shape = [layer1.shape[0], out_layer.n_units]
+        shape = out_layer.shape
 
         super().__init__(input_layers=layer1.input_layers,
                          n_units=out_layer.n_units,
@@ -1689,5 +1742,6 @@ __all__ = ["Input",
            "SaltPepperNoise",
            "Lookup",
            "layers_to_list",
-           "WrapLayer"
+           "WrapLayer",
+           "Module"
            ]
