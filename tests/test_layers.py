@@ -538,6 +538,65 @@ class TestLayers(unittest.TestCase):
 
             self.assertTrue(np.array_equal(v1, v2))
 
+    def test_lookup_sequence(self):
+        vocab_size = 4
+        n_features = 3
+        seq_size = 2
+
+        inputs = Input(seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2], [0, 2]])
+        lookup = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features], as_sequence=True)
+        lookup_flat = lookup.reuse_with(inputs, as_sequence=False)
+
+        var_init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(var_init)
+
+            v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
+            v2 = sess.run(lookup_flat.tensor, {inputs.placeholder: input_data})
+
+            # print(v1)
+            # print(v2)
+
+            self.assertEqual(np.shape(v1), (seq_size, 3, n_features))
+            self.assertEqual(np.shape(v2), (3, seq_size * n_features))
+
+    def test_lookup_padding_sequence(self):
+        self.reset()
+
+        ri_size = 4
+        vocab_size = 4
+        embed_dim = 3
+        seq_size = 2
+        batch_size = 2
+
+        inputs = TensorLayer(tf.constant([[0, 2]]), 2, dtype=tf.int32)
+        sp_inputs = TensorLayer(
+            tf.SparseTensorValue(indices=[[0, 0], [1, 2]], values=[1, 1],
+                                 dense_shape=[2, ri_size]),
+            ri_size)
+        sp_inputs2 = Input(n_units=4, n_active=1, dtype=tf.int32)
+
+        lookup_dense = Lookup(inputs, seq_size=seq_size,
+                              feature_shape=[vocab_size, embed_dim],
+                              batch_size=batch_size,
+                              as_sequence=True)
+
+        lookup_sparse = lookup_dense.reuse_with(sp_inputs)
+
+        lookup_sparse2 = lookup_dense.reuse_with(sp_inputs2)
+
+        tf.global_variables_initializer().run()
+
+        res1 = lookup_sparse.tensor.eval()
+        res2 = lookup_dense.tensor.eval()
+
+        res3 = lookup_sparse2.tensor.eval({sp_inputs2.placeholder: [[0], [2]]})
+
+        print(res3)
+        self.assertTrue(np.array_equal(res1, res2))
+        self.assertTrue(np.array_equal(res2, res3))
+
     def test_lookup_padding(self):
         self.reset()
 
@@ -650,19 +709,18 @@ class TestLayers(unittest.TestCase):
         self.assertFalse(np.array_equal(res1, res2))
 
         m = Model(inputs, rnn_2)
-        #r = ModelRunner(m)
-        #r.log_graph("/tmp")
+        # r = ModelRunner(m)
+        # r.log_graph("/tmp")
 
     def test_module(self):
         l1 = Input(1)
         l2 = Input(1)
         l3 = Add([l1, l2])
         l4 = Add([l1, l2])
-        l5 = Linear(l4,1)
+        l5 = Linear(l4, 1)
         t1 = TensorLayer([[1]], n_units=1)
         l6 = Add([l3, t1])
         l7 = Add([l6, l5])
-
 
         t2 = TensorLayer([[1]], n_units=1)
         t3 = TensorLayer([[1]], n_units=1)
@@ -672,7 +730,6 @@ class TestLayers(unittest.TestCase):
             m2 = m.reuse_with([t2, t3, t1])
 
         tf.global_variables_initializer().run()
-
 
         feed = {l1.placeholder: [[1]], l2.placeholder: [[1]]}
         res1 = m.tensor.eval(feed)

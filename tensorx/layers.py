@@ -285,6 +285,9 @@ class Layer:
         full_str = "\n".join(fullstr)
         return full_str + "\n"
 
+    def __getitem__(self, item):
+        return WrapLayer(self, self.n_units, tf_fn=lambda tensor: tensor[item])
+
 
 class WrapLayer(Layer):
     """ Wraps another layer with tf code
@@ -383,10 +386,10 @@ class Module(Layer):
         self.graph = graph
         self.output = output
         super().__init__(input_layers=inputs,
-                       n_units=output.n_units,
-                       shape=output.shape,
-                       dtype=output.dtype,
-                       name=name)
+                         n_units=output.n_units,
+                         shape=output.shape,
+                         dtype=output.dtype,
+                         name=name)
 
         self.tensor = output.tensor
 
@@ -1015,7 +1018,7 @@ class Lookup(Layer):
         feature_shape: lookup table feature dimension
         batch_size: number of sequences to be looked up,
         if not None, will force a padding up to the specified batch_size
-
+        as_sequence: if True returns a [seq_size, batch_size, feature_shape[-1]] tensor
     """
 
     # TODO adaptive feature shape based on input if input has n_active
@@ -1028,12 +1031,18 @@ class Lookup(Layer):
                  shared_weights=None,
                  dtype=dtypes.float32,
                  name="seq_lookup",
-                 share_vars_with=None):
+                 share_vars_with=None,
+                 as_sequence=False):
 
         self.weight_init = weight_init
+        self.as_sequence = as_sequence
         self.feature_shape = feature_shape
         self.seq_size = seq_size
-        n_units = seq_size * feature_shape[-1]
+
+        n_units = feature_shape[-1]
+        if not as_sequence:
+            n_units = seq_size * n_units
+
         self.batch_size = batch_size
         shape = [batch_size, n_units]
         self.share_vars_with = share_vars_with
@@ -1051,11 +1060,12 @@ class Lookup(Layer):
             if not isinstance(self.share_vars_with, Lookup):
                 raise TypeError("Layer can only share variables with other layer of the same type (Lookup)")
 
-            if self.shape != self.share_vars_with.shape:
-                raise ValueError("Can only share variables with layers with the same shape: "
+            if self.feature_shape != self.share_vars_with.feature_shape:
+                raise ValueError("Can only share variables with layers with the same feature shape: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
-                                 "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
+                                 "other shape: {s1}".format(s0=self.feature_shape,
+                                                            s1=self.share_vars_with.feature_shape))
 
         # if weights are passed, check that their shape matches the layer shape
 
@@ -1075,6 +1085,12 @@ class Lookup(Layer):
                 self.weights = self.shared_weights
 
             self._add_variable(self.weights)
+
+            # total number of features that should be looked up
+            # used to compute padding if necessary
+            n_features = self.n_units
+            if self.as_sequence:
+                n_features = self.n_units * self.seq_size
 
             # batch size is dynamic and should be computed here because we need it
             # y = xW
@@ -1100,13 +1116,11 @@ class Lookup(Layer):
                 # for sparse tensors this is int64
                 batch_size = math_ops.cast(batch_size, dtypes.int32)
 
-                fill_diff = (self.n_units * batch_size) - filled
+                fill_diff = (n_features * batch_size) - filled
                 padding_shape = [math_ops.maximum(fill_diff, 0)]
                 padding = array_ops.zeros(padding_shape)
                 flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 
-                # tensor = array_ops.reshape(lookup_sum, [-1, self.n_units])
-                tensor = array_ops.reshape(flat_lookup, [-1, self.n_units])
             else:
                 # if dense batch size is known
                 if self.batch_size is None:
@@ -1120,16 +1134,19 @@ class Lookup(Layer):
                 flat_lookup = array_ops.reshape(lookup, [-1])
                 filled = array_ops.shape(flat_lookup)[0]
 
-                padding_shape = [math_ops.maximum(self.n_units * batch_size - filled, 0)]
+                padding_shape = [math_ops.maximum(n_features * batch_size - filled, 0)]
                 padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
                 flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 
-                # tensor = array_ops.reshape(lookup, [self.batch_size, -1])
-                tensor = array_ops.reshape(flat_lookup, [-1, self.n_units])
+        tensor = array_ops.reshape(flat_lookup, [-1, n_features])
+        if self.as_sequence:
+            seqs = array_ops.split(tensor, self.seq_size, -1)
+            tensor = array_ops.concat(seqs, 0)
+            tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
 
         return tensor
 
-    def reuse_with(self, input_layer, name=None):
+    def reuse_with(self, input_layer, as_sequence=None, name=None):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -1149,6 +1166,8 @@ class Lookup(Layer):
 
         if name is None:
             name = self.name
+        if as_sequence is None:
+            as_sequence = self.as_sequence
 
         return Lookup(input_layer,
                       seq_size=self.seq_size,
@@ -1158,7 +1177,8 @@ class Lookup(Layer):
                       weight_init=None,
                       dtype=self.dtype,
                       name=name,
-                      share_vars_with=share_vars_with)
+                      share_vars_with=share_vars_with,
+                      as_sequence=as_sequence)
 
 
 class Gate(Layer):
