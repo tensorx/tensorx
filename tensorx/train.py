@@ -776,7 +776,7 @@ class ModelRunner:
         else:
             self.train_step = self.optimizer.minimize(self.joint_loss, var_list=var_list)
 
-    def train(self, data=None, loss_input_data=None, optimizer_params={}):
+    def train(self, data=None, loss_input_data=None, optimizer_params={}, output_loss=False):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -851,21 +851,29 @@ class ModelRunner:
         feed_dict.update(target_dict)
         feed_dict.update(param_dict)
 
+        fetches = [self.train_step]
+        if output_loss:
+            fetches.append(self.model.train_loss_tensors)
+
         # RUNTIME STATISTICS such as compute time, memory etc
         if self.runtime_stats:
             if self.logdir is None:
                 self.set_logdir()
             self.set_log_writer()
 
-            self.session.run(self.train_step, feed_dict, options=self.run_options, run_metadata=self.run_metadata)
+            res = self.session.run(fetches, feed_dict, options=self.run_options, run_metadata=self.run_metadata)
 
             self.log_writer.add_run_metadata(self.run_metadata,
                                              tag="train step {}".format(self.train_step_counter),
                                              global_step=self.train_step_counter)
         else:
-            self.session.run(self.train_step, feed_dict)
+            res = self.session.run(fetches, feed_dict)
 
         self.train_step_counter += 1
+
+        if output_loss:
+            # res has
+            return res[-1]
 
     def eval(self, data=None, eval_input_data=None):
         """ Evaluates the model on the given data.

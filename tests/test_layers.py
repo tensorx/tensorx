@@ -561,6 +561,29 @@ class TestLayers(unittest.TestCase):
             self.assertEqual(np.shape(v1), (seq_size, 3, n_features))
             self.assertEqual(np.shape(v2), (3, seq_size * n_features))
 
+    def test_lookup_sequence_bias(self):
+        vocab_size = 4
+        n_features = 3
+        seq_size = 2
+
+        inputs = Input(seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2], [0, 2]])
+        lookup = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features], as_sequence=True, bias=True)
+        lookup_flat = lookup.reuse_with(inputs, as_sequence=False)
+
+        var_init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(var_init)
+
+            v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
+            v2 = sess.run(lookup_flat.tensor, {inputs.placeholder: input_data})
+
+            # print(v1)
+            # print(v2)
+            #print(v1)
+            self.assertEqual(np.shape(v1), (seq_size, 3, n_features))
+            self.assertEqual(np.shape(v2), (3, seq_size * n_features))
+
     def test_lookup_padding_sequence(self):
         self.reset()
 

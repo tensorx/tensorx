@@ -1028,6 +1028,8 @@ class Lookup(Layer):
                  feature_shape,
                  weight_init=random_uniform(),
                  batch_size=None,
+                 bias=False,
+                 shared_bias=None,
                  shared_weights=None,
                  dtype=dtypes.float32,
                  name="seq_lookup",
@@ -1038,6 +1040,9 @@ class Lookup(Layer):
         self.as_sequence = as_sequence
         self.feature_shape = feature_shape
         self.seq_size = seq_size
+
+        self.bias = bias
+        self.shared_bias = shared_bias
 
         n_units = feature_shape[-1]
         if not as_sequence:
@@ -1055,6 +1060,12 @@ class Lookup(Layer):
             if feature_shape != weight_shape:
                 raise ValueError(
                     "shared weight shape {} and feature shape {} mismatch".format(weight_shape, feature_shape))
+
+        if self.shared_bias is not None:
+            num_bias = shared_bias.get_shape().as_list()[-1]
+            if feature_shape[0] != num_bias:
+                raise ValueError(
+                    "number of bias {} and number of feature rows {} mismatch".format(num_bias, feature_shape[0]))
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Lookup):
@@ -1086,6 +1097,17 @@ class Lookup(Layer):
 
             self._add_variable(self.weights)
 
+            if self.bias:
+                if self.shared_bias is None:
+                    self.bias = variable_scope.get_variable("b", shape=self.feature_shape[0], initializer=zero_init())
+                else:
+                    self.bias = self.bias
+            else:
+                self.bias = None
+
+            if self.bias is not None:
+                self._add_variable(self.bias)
+
             # total number of features that should be looked up
             # used to compute padding if necessary
             n_features = self.n_units
@@ -1105,12 +1127,23 @@ class Lookup(Layer):
                 sp_indices = transform.sparse_indices(sp_values)
 
                 # sums the lookups for the same row
-                lookup_sum = embedding_lookup_sparse(params=self.weights,
-                                                     sp_ids=sp_indices,
-                                                     sp_weights=sp_values,
-                                                     combiner="sum")
+                lookup_weights = embedding_lookup_sparse(params=self.weights,
+                                                         sp_ids=sp_indices,
+                                                         sp_weights=sp_values,
+                                                         combiner="sum")
 
-                flat_lookup = array_ops.reshape(lookup_sum, [-1])
+                if self.bias is not None:
+                    # lookup bias
+                    lookup_bias = embedding_lookup_sparse(params=self.bias,
+                                                          sp_ids=sp_indices,
+                                                          sp_weights=sp_values,
+                                                          combiner="sum")
+
+                    lookup_bias = array_ops.expand_dims(lookup_bias, -1)
+
+                    lookup_weights += lookup_bias
+
+                flat_lookup = array_ops.reshape(lookup_weights, [-1])
                 filled = array_ops.shape(flat_lookup)[0]
 
                 # for sparse tensors this is int64
@@ -1128,10 +1161,22 @@ class Lookup(Layer):
                 else:
                     batch_size = self.batch_size
 
-                lookup = embedding_lookup(params=self.weights,
-                                          ids=layer.tensor)
+                lookup_weights = embedding_lookup(params=self.weights,
+                                                  ids=layer.tensor)
 
-                flat_lookup = array_ops.reshape(lookup, [-1])
+                if self.bias is not None:
+                    lookup_bias = embedding_lookup(params=self.bias,
+                                                   ids=layer.tensor)
+
+                    lookup_bias = array_ops.expand_dims(lookup_bias, -1)
+
+                    # print(layer.tensor)
+                    # print()
+                    # print(lookup_bias)
+                    # print(lookup_weights)
+                    lookup_weights += lookup_bias
+
+                flat_lookup = array_ops.reshape(lookup_weights, [-1])
                 filled = array_ops.shape(flat_lookup)[0]
 
                 padding_shape = [math_ops.maximum(n_features * batch_size - filled, 0)]
