@@ -36,6 +36,8 @@ from tensorx import transform
 from tensorx import utils as txutils
 from tensorx.metrics import batch_cosine_distance
 from tensorx.activation import sigmoid, elu, tanh
+from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
+
 from tensorx import math as mathx
 
 from contextlib import ExitStack
@@ -591,15 +593,18 @@ class TensorLayer(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, tensor, n_units, batch_size=None, var_list=None, dtype=dtypes.float32, name="tensor_input"):
+    def __init__(self, tensor, n_units, batch_size=None, var_list=None, dtype=None, name="tensor_input"):
         tensor = txutils.to_tensor_cast(tensor, dtype)
+        dtype = tensor.dtype
 
         if batch_size is not None:
             shape = [batch_size, n_units]
         else:
             shape = tensor.get_shape()
-            shape.assert_is_compatible_with([batch_size, n_units])
             shape = shape.as_list()
+
+            if shape[-1] != n_units or (batch_size is not None and shape[0] != batch_size):
+                raise ValueError("tensor shape does not match expected batch size and n_units")
 
             # if dynamic shape can't be determined, use the supplied values
             if all(dim is None for dim in shape):
@@ -935,8 +940,8 @@ class GRUCell(Layer):
 
         self.previous_state = previous_state
 
-        if share_state_with is not None and not isinstance(share_state_with, RNNCell):
-            raise TypeError("shared_gate must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+        if share_state_with is not None and not isinstance(share_state_with, GRUCell):
+            raise TypeError("shared_gate must be of type {} got {} instead".format(GRUCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
         super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
@@ -970,11 +975,8 @@ class GRUCell(Layer):
                 self.w_s = self.share_state_with.w_s.reuse_with(layer)
                 self.u_s = self.share_state_with.u_s.reuse_with(previous_state)
 
-            z_linear = Add([self.w_z, self.u_z])
-            self.gate_z = Activation(z_linear, fn=sigmoid)
-
-            state = Add([self.w_h, self.u_h])
-            self.state = Activation(state, self.activation)
+            self.gate_z = Activation(Add([self.w_z, self.u_z]), fn=sigmoid)
+            self.state = Activation(Add([self.w_h, self.u_h]), self.activation)
 
             return self.state.tensor
 
@@ -990,6 +992,138 @@ class GRUCell(Layer):
             n_units=self.n_units,
             previous_state=previous_state,
             activation=self.activation,
+            use_bias=self.use_bias,
+            share_state_with=self,
+            name=name
+        )
+
+
+class LSTMCell(Layer):
+    """ LSTM Cell
+
+        Performs a single step with a gated recurrent unit where. These units have two gates:
+        The first defines how much do we use the values from the recurrent connection to predict the current state
+        The second
+    """
+
+    def __init__(self, layer, n_units,
+                 previous_state=None,
+                 memory_state=None,
+                 candidate_activation=tanh,
+                 output_activation=tanh,
+                 init=xavier_init(),
+                 recurrent_init=xavier_init(),
+                 share_state_with=None,
+                 name="lstm_cell"):
+
+        self.candidate_activation = candidate_activation
+        self.output_activation = output_activation
+        self.init = init
+
+        self.recurrent_init = recurrent_init
+
+        # if previous state is None start with zeros
+        if previous_state is not None:
+            if previous_state.n_units != n_units:
+                raise ValueError(
+                    "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
+        else:
+            input_batch = array_ops.shape(layer.tensor)[0]
+            zero_state = array_ops.zeros([input_batch, n_units])
+            previous_state = TensorLayer(zero_state, n_units)
+
+        if memory_state is not None:
+            if memory_state.n_units != n_units:
+                raise ValueError(
+                    "previous memory_state n_units ({}) != current n_units ({})".format(memory_state.n_units,
+                                                                                        self.n_units))
+        else:
+            input_batch = array_ops.shape(layer.tensor)[0]
+            zero_state = array_ops.zeros([input_batch, n_units])
+            memory_state = TensorLayer(zero_state, n_units)
+
+        self.previous_state = previous_state
+        self.memory_state = memory_state
+
+        if share_state_with is not None and not isinstance(share_state_with, LSTMCell):
+            raise TypeError("shared_gate must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+        self.share_state_with = share_state_with
+
+        super().__init__([layer, previous_state, memory_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
+
+        self.tensor = self._build_graph(layer, previous_state)
+
+    def _build_graph(self, layer, previous_state):
+        with layer_scope(self):
+
+            if self.share_state_with is None:
+                # forget gate linear
+                self.w_f = Linear(layer, self.n_units, bias=True)
+                self.u_f = Linear(previous_state, self.n_units, bias=False)
+
+                # input gate linear
+                self.w_i = Linear(layer, self.n_units, bias=True)
+                self.u_i = Linear(previous_state, self.n_units, bias=False)
+
+                # candidate linear
+                self.w_c = Linear(layer, self.n_units, bias=True)
+                self.u_c = Linear(previous_state, self.n_units, bias=False)
+
+                # output gate
+                self.w_o = Linear(layer, self.n_units, bias=True)
+                self.u_o = Linear(previous_state, self.n_units, bias=False)
+
+            else:
+                # forget gate linear
+                self.w_f = self.share_state_with.w_f.reuse_with(layer)
+                self.u_f = self.share_state_with.u_f.reuse_with(previous_state)
+
+                # input gate linear
+                self.w_i = self.share_state_with.w_i.reuse_with(layer)
+                self.u_i = self.share_state_with.u_i.reuse_with(previous_state)
+
+                # candidate linear
+                self.w_c = self.share_state_with.w_c.reuse_with(layer)
+                self.u_c = self.share_state_with.u_c.reuse_with(previous_state)
+
+                # output gate
+                self.w_o = self.share_state_with.w_o.reuse_with(layer)
+                self.u_o = self.share_state_with.u_o.reuse_with(previous_state)
+
+            # build gates
+            gate_f = Add([self.w_f, self.u_f])
+            gate_i = Add([self.w_i, self.u_i])
+            gate_o = Add([self.w_o, self.u_o])
+
+            memory_state = Gate(self.memory_state, gate_f)
+
+            candidate = Activation(Add([self.w_c, self.u_c]), fn=self.candidate_activation)
+            candidate = Gate(candidate, gate_i)
+
+            self.memory_state = Add([memory_state, candidate])
+
+            output = Activation(memory_state, fn=self.output_activation)
+            self.state = Gate(output, gate_o)
+
+            return self.state.tensor
+
+    def reuse_with(self, input_layer, previous_state=None, memory_state=None, name=None):
+        if previous_state is None:
+            previous_state = self.previous_state
+
+        if memory_state is None:
+            memory_state = self.memory_state
+
+        if name is None:
+            name = self.name
+
+        return LSTMCell(
+            layer=input_layer,
+            n_units=self.n_units,
+            previous_state=previous_state,
+            memory_state=memory_state,
+            candidate_activation=self.candidate_activation,
+            output_activation=self.output_activation,
             use_bias=self.use_bias,
             share_state_with=self,
             name=name
@@ -1238,101 +1372,37 @@ class Gate(Layer):
         [-1,2,3] meaning the batch dimension will be the same but each gating unit will modulate 3
         input units at a time.
 
-    Note:
-        The original description (see reference) uses a re-scaled sigmoid (by 2) to make sure the gates
-        output 1 when the input weights are 0, this is to guarantee that initially the network outputs
-        the same as other models without gating (to allow for comparison with initial conditions), I make
-        no such assumption with the default values of this layer -- although gate_fn can be specified to
-        mimic this behaviour.
-
-    Reference:
-        (Mnih, et al. 2009) "Improving a statistical language model by modulating the effects of context words"
 
     Args:
             layer: a Layer to be gated
-            n_units: number of gate units, the number of units of the layer to be gated should be a multiple of the
-                    number of gate units (see Warning)
-            h_dim: dimension for gate hidden unit
             gate_input: a layer to be used as the gate input
-            h_fn: function for hidden layer
             gate_fn: function for gate
-            shared_gate: if another gate is provided use the gate variables from that gate instead
     """
 
-    def _apply_gate(self, layer, gate_tensor):
-        feature_dim = layer.n_units // self.n_gates
-        if layer.is_sparse():
+    def __init__(self, layer, gate_input, gate_fn=sigmoid, name="gate"):
+        if layer.n_units % gate_input.n_units != 0:
+            raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
+                layer.n_units, gate_input.n_units))
 
-            tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, self.n_gates, feature_dim])
-            gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate_tensor, -1))
-        else:
-            tensor_in = array_ops.reshape(layer.tensor, [-1, self.n_gates, feature_dim])
-            gated = tensor_in * array_ops.expand_dims(gate_tensor, -1)
+        super().__init__([layer, gate_input], layer.n_units, layer.shape, dtype=dtypes.float32, name=name)
 
-        return array_ops.reshape(gated, array_ops.shape(layer.tensor))
-
-    def __init__(self, layer, n_gates, h_dim=None, gate_input=None, h_fn=elu, gate_fn=sigmoid, shared_gate=None,
-                 name="gate"):
-        super().__init__(layer, layer.n_units, layer.shape, dtype=dtypes.float32, name=name)
-
-        self.h_dim = h_dim
-        self.h_fn = h_fn
         self.gate_fn = gate_fn
-        self.n_gates = n_gates
         self.gate_input = gate_input
-        self.gate_weights = None
-        self.gate_bias = None
-
-        if h_dim is None and gate_input is None:
-            raise ValueError("h_dim and gate_input cannot both be None")
-
-        if gate_input is not None and h_dim is not None:
-            if gate_input.n_units != h_dim:
-                raise ValueError("Gate input n_units {} does not match h_dim {}".format(gate_input.n_units, h_dim))
-
-        if shared_gate is not None and not isinstance(shared_gate, Gate):
-            raise TypeError("shared_gate must be of type {} got {} instead".format(Gate, type(shared_gate)))
-
-        self.shared_gate = shared_gate
 
         with layer_scope(self):
-            if self.gate_input is None:
-                h_l = Linear(layer, self.h_dim)
-                h_a = Activation(h_l, h_fn)
-                self.gate_input = Compose([h_l, h_a], name="gate_h")
+            n_gates = self.gate_input.n_units
+            feature_dim = self.n_units // n_gates
+            if layer.is_sparse():
+
+                tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, n_gates, feature_dim])
+                gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate_input.tensor, -1))
             else:
-                self.h_dim = self.gate_input.n_units
+                tensor_in = array_ops.reshape(layer.tensor, [-1, n_gates, feature_dim])
+                gated = tensor_in * array_ops.expand_dims(gate_input.tensor, -1)
 
-            if self.shared_gate is None:
-                gate_l = Linear(self.gate_input, n_gates)
-                gate_a = Activation(gate_l, gate_fn)
-                self.gate = Compose([gate_l, gate_a], name="gate_units")
-
-            else:
-                self.gate = shared_gate.gate.reuse_with(self.gate_input, name="gate_units")
-
-            self.gate_weights = self.gate.layers[-2].weights
-            self.gate_bias = self.gate.layers[-2].bias
-            tensor = self._apply_gate(layer, self.gate.tensor)
-
-        self.tensor = tensor
-
-        # add variables from all the inner gate layer
-        for var in self.gate.variables:
-            self._add_variable(var)
+            self.tensor = array_ops.reshape(gated, array_ops.shape(layer.tensor))
 
     def reuse_with(self, layer, gate_input=None, name=None):
-        """ If we want to reuse this gate with a different
-        gate_input, we must supply gate_input to reuse_with
-
-        Args:
-            layer: the new layer to be gated
-            gate_input: the new gate_input
-
-        Returns: ``Gate`` layer transforming the given layer
-        with the current gate according to the current or supplied gate_input
-
-        """
         if gate_input is None:
             gate_input = self.gate_input
 
@@ -1340,12 +1410,8 @@ class Gate(Layer):
             name = self.name
 
         return Gate(layer=layer,
-                    n_gates=self.n_gates,
-                    h_dim=self.h_dim,
-                    h_fn=self.h_fn,
-                    gate_fn=self.gate_fn,
                     gate_input=gate_input,
-                    shared_gate=self,
+                    gate_fn=self.gate_fn,
                     name=name)
 
 
@@ -1789,6 +1855,7 @@ class Concat(Layer):
 
 __all__ = ["Input",
            "RNNCell",
+           "LSTMCell",
            "Gate",
            "Compose",
            "TensorLayer",

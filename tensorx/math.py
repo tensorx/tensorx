@@ -12,7 +12,7 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor, convert_to_t
 from tensorx.transform import sparse_overlap
 
 
-def safe_div(numerator, denominator, name="value"):
+def safe_div(numerator, denominator, name=None):
     """Computes a safe divide which returns 0 if the denominator is zero.
     Note that the function contains an additional conditional check that is
     necessary for avoiding situations where the loss is zero causing NaNs to
@@ -25,10 +25,12 @@ def safe_div(numerator, denominator, name="value"):
     Returns:
       The element-wise value of the numerator divided by the denominator.
     """
-    res = math_ops.div(numerator,
-                       array_ops.where(math_ops.equal(denominator, 0), array_ops.ones_like(denominator), denominator)),
-    res = array_ops.where(math_ops.is_finite(res), res, array_ops.zeros_like(res))
-    return res
+    with ops.name_scope(name, "safe_div", [numerator, denominator]):
+        res = math_ops.div(numerator,
+                           array_ops.where(math_ops.equal(denominator, 0), array_ops.ones_like(denominator),
+                                           denominator)),
+        res = array_ops.where(math_ops.is_finite(res), res, array_ops.zeros_like(res))
+        return res
 
 
 def gaussian(x, sigma=0.5):

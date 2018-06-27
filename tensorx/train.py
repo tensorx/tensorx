@@ -288,7 +288,7 @@ class Model:
 
     def __init__(self,
                  run_in_layers,
-                 run_out_layers,
+                 run_out_layers=None,
                  train_in_layers=None,
                  train_out_layers=None,
                  train_loss_in=None,

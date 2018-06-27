@@ -30,6 +30,9 @@ class AMSGrad(optimizer.Optimizer):
         self._beta1_power = None
         self._beta2_power = None
 
+    def variables(self):
+        return [self._beta1_power, self._beta2_power]
+
     def _create_slots(self, var_list):
         first_var = min(var_list, key=lambda x: x.name)
 

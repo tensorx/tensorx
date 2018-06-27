@@ -8,11 +8,16 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import sparse_ops, control_flow_ops, array_ops, math_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops.nn import dropout
+
 import numbers
 
 import numpy as np
 
 from tensorx.utils import to_tensor_cast, complete_shape
+
+
+def to_tensor(tensor, dtype=None):
+    return to_tensor_cast(tensor, dtype)
 
 
 def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor"):
@@ -641,33 +646,6 @@ def filter_nd(condition, params, name="filter_nd"):
         return sp_result
 
 
-def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
-    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
-    with the values of the first one
-
-    Args:
-        name: name for this op
-        sp_tensor1: a `SparseTensor`
-        sp_tensor2: a `SparseTensor`
-
-    Returns:
-        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
-    """
-    with ops.name_scope(name, [sp_tensor1, sp_tensor2]):
-        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
-        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
-
-        index_union = sparse_ops.sparse_add(ones1, ones2)
-
-        index_filter = math_ops.equal(index_union.values, 2.)
-
-        zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
-        expand1 = sparse_ops.sparse_add(zeros1, sp_tensor1)
-
-        filtered = sparse_ops.sparse_retain(expand1, index_filter)
-        return filtered
-
-
 def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
     """ gather_sparse.
 
@@ -728,7 +706,35 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
         return sp
 
 
-__all__ = ["empty_sparse_tensor",
+def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
+    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
+    with the values of the first one
+
+    Args:
+        name: name for this op
+        sp_tensor1: a `SparseTensor`
+        sp_tensor2: a `SparseTensor`
+
+    Returns:
+        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
+    """
+    with ops.name_scope(name, [sp_tensor1, sp_tensor2]):
+        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
+        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
+
+        index_union = sparse_ops.sparse_add(ones1, ones2)
+
+        index_filter = math_ops.equal(index_union.values, 2.)
+
+        zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
+        expand1 = sparse_ops.sparse_add(zeros1, sp_tensor1)
+
+        filtered = sparse_ops.sparse_retain(expand1, index_filter)
+        return filtered
+
+
+__all__ = ["sparse_overlap",
+           "empty_sparse_tensor",
            "to_sparse",
            "gather_sparse",
            "column_indices_to_matrix_indices",

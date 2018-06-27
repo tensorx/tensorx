@@ -580,7 +580,7 @@ class TestLayers(unittest.TestCase):
 
             # print(v1)
             # print(v2)
-            #print(v1)
+            # print(v1)
             self.assertEqual(np.shape(v1), (seq_size, 3, n_features))
             self.assertEqual(np.shape(v2), (3, seq_size * n_features))
 
@@ -658,53 +658,26 @@ class TestLayers(unittest.TestCase):
         n_features = 3
         seq_size = 2
         batch_size = 4
-        h_dim = 10
 
         inputs = Input(seq_size, dtype=tf.int32)
         input_data = np.array([[2, 0], [1, 2]])
 
         features = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features])
-        features2 = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features])
+        sp_features = ToSparse(features)
 
-        gated = Gate(features, n_gates=seq_size, h_dim=h_dim)
-
-        # gates with custom hidden layer
-        hl = Linear(features, h_dim)
-        ha = Activation(hl, sigmoid)
-        h = Compose([hl, ha])
-
-        gated2 = Gate(features, n_gates=seq_size, gate_input=h)
-
-        gate2_features2 = gated2.reuse_with(features2)
-
-        # back to features 1 but with same params
-        gate2_copy = gate2_features2.reuse_with(features)
+        gate_w = Linear(features, seq_size)
+        gate1 = Gate(features, gate_w)
+        gate2 = gate1.reuse_with(sp_features)
 
         init = tf.global_variables_initializer()
         init.run()
 
         feed = {inputs.placeholder: input_data}
 
-        print(gated.full_str())
-        print("inner hidden layer:\n", gated.gate_input.full_str())
-        print(tf.shape(gated.tensor).eval(feed))
+        r1 = gate1.tensor.eval(feed)
+        r2 = gate2.tensor.eval(feed)
 
-        print(gated2.full_str())
-        # print(h.full_str())
-        print(tf.shape(gated2.tensor).eval(feed))
-
-        print(gate2_features2.full_str())
-        print("inner hidden layer:\n", gated2.gate_input.full_str())
-        # print(h.full_str())
-        print(tf.shape(gate2_features2.tensor).eval(feed))
-
-        out1 = gated2.tensor.eval(feed)
-        out2 = gate2_features2.tensor.eval(feed)
-        out3 = gate2_copy.tensor.eval(feed)
-
-        # they gate different features
-        self.assertFalse(np.array_equal(out1, out2))
-        self.assertTrue(np.array_equal(out1, out3))
+        self.assertTrue(np.array_equal(r1, r2))
 
     def test_rnn_cell(self):
         self.reset()
@@ -716,6 +689,37 @@ class TestLayers(unittest.TestCase):
         inputs = Input(n_inputs)
         rnn_1 = RNNCell(inputs, n_hidden)
         rnn_2 = rnn_1.reuse_with(inputs, previous_state=rnn_1)
+
+        rnn_3 = rnn_1.reuse_with(inputs)
+
+        tf.global_variables_initializer().run()
+
+        data = np.ones([batch_size, 4])
+
+        res1 = rnn_1.tensor.eval({inputs.placeholder: data})
+        res2 = rnn_2.tensor.eval({inputs.placeholder: data})
+        res3 = rnn_3.tensor.eval({inputs.placeholder: data})
+
+        self.assertEqual((batch_size, n_hidden), np.shape(res1))
+        self.assertTrue(np.array_equal(res1, res3))
+        self.assertFalse(np.array_equal(res1, res2))
+
+        m = Model(inputs, rnn_2)
+        # r = ModelRunner(m)
+        # r.log_graph("/tmp")
+
+    def test_lstm_cell(self):
+        self.reset()
+
+        n_inputs = 4
+        n_hidden = 2
+        batch_size = 2
+
+        inputs = Input(n_inputs)
+        rnn_1 = LSTMCell(inputs, n_hidden)
+        rnn_2 = rnn_1.reuse_with(inputs,
+                                 previous_state=rnn_1,
+                                 memory_state=rnn_1.memory_state)
 
         rnn_3 = rnn_1.reuse_with(inputs)
 

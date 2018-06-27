@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.python.framework import dtypes, ops
-from tensorflow.python.ops import array_ops, random_ops, math_ops, sparse_ops
+from tensorflow.python.ops import check_ops, array_ops, random_ops, math_ops, sparse_ops
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
@@ -328,9 +328,34 @@ def sample_sigmoid_from_logits(x, n, dtype=None, seed=None, name="sample_sigmoid
         return tf.cast(math_ops.greater(x, z), dtypes.float32)
 
 
+def sample_categorical_dist(x, n, seed=None, name="sample_from_dist"):
+    """
+
+    Args:
+        x: a tensor that must represent a categorical distribution, not the unnormalised logits
+        n: number of samples to be drawn from the given distribution
+        seed: random number generator seed
+        name: op name
+
+    Returns:
+        a [n,batch_size,shape(x)[-1]] tensor with the samples from the given distribution
+
+    """
+    with ops.name_scope(name, values=[x]):
+        x = ops.convert_to_tensor(x)
+        n = ops.convert_to_tensor(n)
+
+        check_ops.assert_rank_at_least(x, 2)
+
+        y = tf.multinomial(tf.log(x), n)
+
+        return tf.cast(y, dtypes.int32)
+
+
 __all__ = ["sample",
            "sample_with_expected",
            "sparse_random_normal",
            "sparse_random_mask",
            "salt_pepper_noise",
+           "sample_categorical_dist",
            "sample_sigmoid_from_logits"]
