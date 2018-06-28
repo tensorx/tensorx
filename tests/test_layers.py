@@ -37,19 +37,6 @@ class TestLayers(unittest.TestCase):
 
         tf.global_variables_initializer().run()
 
-        """
-        for layer in layers_to_list(l2):
-            print(layer.full_str())
-
-        print("=" * 10)
-        for layer in layers_to_list(comp):
-            print(layer.full_str())
-
-        print("=" * 10)
-        for layer in layers_to_list(comp2):
-            print(layer.full_str())
-        """
-
         res1 = l2.tensor.eval({in1.placeholder: [[1.]]})
         res2 = comp.tensor.eval({in1.placeholder: [[1.]]})
 
@@ -57,6 +44,38 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(np.array_equal(res1, res2))
         self.assertTrue(np.array_equal(res1, res3))
+
+    def test_fn_compose(self):
+        in1 = Input(1)
+        in2 = TensorLayer([[1.]], 1)
+
+        l1 = Linear(in1, 4)
+        l2 = Activation(l1, relu)
+
+        comp = Compose([l1, l2])
+        comp2 = comp.reuse_with(in2)
+
+        fn1 = Fn(in1, 4, fn=relu, share_vars_with=l1)
+        fn2 = fn1.reuse_with(in2, name="fn2")
+
+        tf.global_variables_initializer().run()
+
+        feed = {in1.placeholder: [[1.]]}
+        res1 = l2.tensor.eval(feed)
+        res2 = comp.tensor.eval(feed)
+        res3 = comp2.tensor.eval()
+
+        self.assertTrue(np.array_equal(res1, res2))
+        self.assertTrue(np.array_equal(res1, res3))
+
+        res_fn1 = fn1.tensor.eval(feed)
+        res_fn2 = fn2.tensor.eval()
+
+        self.assertTrue(np.array_equal(res_fn1, res_fn2))
+
+        # m = Model(in1, fn1)
+        # r = ModelRunner(m)
+        # r.log_graph("/tmp")
 
     def test_compose_merge(self):
         in1 = Input(1)
@@ -216,7 +235,7 @@ class TestLayers(unittest.TestCase):
     def test_linear_variable_names(self):
         self.reset()
 
-        inputs = TensorLayer([[1]], 1, batch_size=1)
+        inputs = TensorLayer([[1]], 1, batch_size=1, dtype=tf.float32)
         layer = Linear(inputs, 10)
         layer2 = Linear(inputs, 10)
         layer_shared = Linear(inputs, 10, shared_weights=layer.weights)
@@ -718,10 +737,10 @@ class TestLayers(unittest.TestCase):
         inputs = Input(n_inputs)
         rnn_1 = LSTMCell(inputs, n_hidden)
         rnn_2 = rnn_1.reuse_with(inputs,
-                                 previous_state=rnn_1,
-                                 memory_state=rnn_1.memory_state)
+                                 previous_state=rnn_1)
 
-        rnn_3 = rnn_1.reuse_with(inputs)
+        # if we don't wipe the memory it reuses it
+        rnn_3 = rnn_1.reuse_with(inputs, reset_memory=True)
 
         tf.global_variables_initializer().run()
 
@@ -740,17 +759,17 @@ class TestLayers(unittest.TestCase):
         # r.log_graph("/tmp")
 
     def test_module(self):
-        l1 = Input(1)
-        l2 = Input(1)
+        l1 = Input(1, name="in1")
+        l2 = Input(1, name="in2")
         l3 = Add([l1, l2])
         l4 = Add([l1, l2])
         l5 = Linear(l4, 1)
-        t1 = TensorLayer([[1]], n_units=1)
+        t1 = TensorLayer([[1]], n_units=1, dtype=tf.float32)
         l6 = Add([l3, t1])
         l7 = Add([l6, l5])
 
-        t2 = TensorLayer([[1]], n_units=1)
-        t3 = TensorLayer([[1]], n_units=1)
+        t2 = TensorLayer([[1]], n_units=1, dtype=tf.float32)
+        t3 = TensorLayer([[1]], n_units=1, dtype=tf.float32)
 
         m = Module([l1, l2, t1], l7)
         with tf.name_scope("module_reuse"):
@@ -767,6 +786,41 @@ class TestLayers(unittest.TestCase):
         model = Model(m2.input_layers, m2)
         runner = ModelRunner(model)
         runner.log_graph("/tmp")
+
+    def test_module_gate(self):
+        l1 = Input(4, name="in1")
+        l2 = Input(2, name="in2")
+
+        gate = Gate(l1, l2)
+        m = Module([l1, l2], gate)
+
+        model = Model(m.input_layers, m)
+        runner = ModelRunner(model)
+        runner.log_graph("/tmp")
+
+        t1 = TensorLayer([[1, 1, 1, 1]], n_units=4, dtype=tf.float32)
+        t2 = TensorLayer([[1, 1]], n_units=2, dtype=tf.float32)
+
+        # TODO gate has the same problem as LSTM and RNN with the reuse and Module / Merge, etc
+
+        # with tf.name_scope("module_reuse"):
+        #    m2 = m.reuse_with([t1, t2])
+
+        # model = Model(m2.input_layers, m2)
+        # runner = ModelRunner(model)
+        # runner.log_graph("/tmp")
+
+        # tf.global_variables_initializer().run()
+
+        # feed = {l1.placeholder: [[1, 1, 1, 1]], l2.placeholder: [[1, 1]]}
+        # res1 = m.tensor.eval(feed)
+        # res2 = m2.tensor.eval()
+        # print(res1)
+        # print(res2)
+
+        # model = Model(m2.input_layers, m2)
+        # runner = ModelRunner(model)
+        # runner.log_graph("/tmp")
 
 
 if __name__ == '__main__':

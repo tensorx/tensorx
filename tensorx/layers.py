@@ -35,7 +35,7 @@ from tensorx.random import salt_pepper_noise, sparse_random_normal
 from tensorx import transform
 from tensorx import utils as txutils
 from tensorx.metrics import batch_cosine_distance
-from tensorx.activation import sigmoid, elu, tanh
+from tensorx.activation import sigmoid, elu, tanh, identity
 from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
 
 from tensorx import math as mathx
@@ -60,10 +60,13 @@ class LayerScope:
         var_scope_name: if not None uses this name instead of the layer unique layer.scoped_name as a var scope
     """
 
-    def __init__(self, layer, values=None, var_scope=None, var_reuse=False, var_scope_name=None, reuse=False):
+    def __init__(self, layer, name=None, values=None, var_scope=None, var_reuse=False, var_scope_name=None,
+                 reuse=False):
         self.reuse = reuse
         self.var_scope_name = var_scope_name
         self.layer = layer
+        if name is not None:
+            self.layer.name = name
         self.values = values
         self.var_scope = var_scope
         self._stack = None
@@ -80,6 +83,7 @@ class LayerScope:
             # but take the current scope into account
             # this guarantees that reuse will not chain scoped names
             # like scope2/layer1/scope1/layer1 ...
+
             layer_name_scope = name_scope(self.layer.name, values=self.values)
 
             scoped_name = stack.enter_context(layer_name_scope)
@@ -210,7 +214,8 @@ class Layer:
 
     def __init__(self, input_layers, n_units, shape=None, dtype=dtypes.float32, name="layer"):
         self.n_units = n_units
-        self.name = name
+        # only sets the name if it hasn't been set before
+        self.name = getattr(self, "name", name)
         self.scoped_name = name
         self.dtype = dtype
         self.input_layers = _as_list(input_layers)
@@ -378,8 +383,9 @@ class Module(Layer):
             if layer not in in_set:
                 # one node terminated but was not in the input list
                 if len(layer.input_layers) == 0:
-                    raise ValueError("Module is not self-contained: \n "
-                                     "the Module graph reached {layer}, this layer has no input layers but it was not "
+                    raise ValueError("\n\n Module not self-contained: \n "
+                                     "the Module graph reached {layer}, \n "
+                                     "this layer has no input layers but it was not "
                                      "in the input list".format(layer=layer))
                 lstack.extendleft(layer.input_layers)
                 for in_layer in layer.input_layers:
@@ -424,6 +430,7 @@ class Module(Layer):
         while len(lstack) > 0:
             current_layer = lstack.pop()
             new_inputs = [lmap[l] for l in self.graph.edges_in[current_layer]]
+
             # TODO recurrent layers use a different signature for reuse ...
             # we can thing of it as just a layer with two inputs but order matters
             if not issubclass(type(current_layer), Merge):
@@ -436,6 +443,7 @@ class Module(Layer):
             stack_out(current_layer)
 
         new_output = lmap[self.output]
+
         return Module(inputs=layers, output=new_output, name=name)
 
 
@@ -456,23 +464,21 @@ class Compose(Layer):
     def __init__(self, layers, name="compose"):
 
         self.layers = layers
-
         layer1, *layers = layers
-        # if layers were not connected, connect them
-        out_layer = layer1
 
-        shape = out_layer.shape
-
+        in_layer = layer1
+        shape = in_layer.shape
         super().__init__(input_layers=layer1.input_layers,
-                         n_units=out_layer.n_units,
+                         n_units=in_layer.n_units,
                          shape=shape,
-                         dtype=out_layer.dtype,
+                         dtype=in_layer.dtype,
                          name=name)
 
         for curr_layer in layers:
-            if out_layer not in curr_layer.input_layers:
-                curr_layer = curr_layer.reuse_with(out_layer)
-            out_layer = curr_layer
+            if in_layer not in curr_layer.input_layers:
+                raise ValueError("\n Invalid Compose: \n {} --x {} \n [not connected]".format(in_layer, curr_layer))
+                # curr_layer = curr_layer.reuse_with(out_layer)
+            in_layer = curr_layer
 
         # forward any feedable layer from the first layer
         if hasattr(layer1, "placeholder"):
@@ -482,7 +488,7 @@ class Compose(Layer):
         for var in itertools.chain.from_iterable([layer.variables for layer in self.layers]):
             self._add_variable(var)
 
-        self.tensor = out_layer.tensor
+        self.tensor = in_layer.tensor
 
     def reuse_with(self, input_layers, name=None):
         if name is None:
@@ -493,6 +499,7 @@ class Compose(Layer):
         layer1, *layers = self.layers
 
         # check how many inputs for layer 1
+        # this way we can compose with merge layers etc
         if len(layer1.input_layers) != len(input_layers):
             raise ValueError(
                 "first layer of compose requires {} input layers {} passed".format(len(layer1.input_layers),
@@ -501,8 +508,17 @@ class Compose(Layer):
             layer1 = layer1.reuse_with(input_layers)
         else:
             layer1 = layer1.reuse_with(input_layers[0])
-        layers = [layer1] + layers
-        return Compose(layers, name=name)
+
+        new_layers = []
+        # if layers were not connected, connect them
+        in_layer = layer1
+        for curr_layer in layers:
+            if in_layer not in curr_layer.input_layers:
+                curr_layer = curr_layer.reuse_with(in_layer)
+                new_layers.append(curr_layer)
+            in_layer = curr_layer
+
+        return Compose(new_layers, name=name)
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -786,7 +802,7 @@ class Linear(Layer):
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
 
-    def reuse_with(self, input_layer, name=None, transpose_weights=False):
+    def reuse_with(self, input_layer, name=None, transpose_weights=None):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -807,10 +823,8 @@ class Linear(Layer):
         if name is None:
             name = self.name
 
-        transpose_weights = self.transpose_weights
-        # only change the original if forced to change
-        if transpose_weights:
-            transpose_weights = True
+        if transpose_weights is None:
+            transpose_weights = self.transpose_weights
 
         return Linear(layer=input_layer,
                       n_units=self.n_units,
@@ -820,6 +834,57 @@ class Linear(Layer):
                       bias=self.bias,
                       name=name,
                       share_vars_with=share_vars_with)
+
+
+class Fn(Layer):
+    def __init__(self,
+                 layer,
+                 n_units,
+                 fn=identity,
+                 init=random_uniform(),
+                 shared_weights=None,
+                 transpose_weights=False,
+                 bias=True,
+                 dtype=dtypes.float32,
+                 name="fn",
+                 share_vars_with=None):
+        with layer_scope(self, name=name):
+            self.linear = Linear(layer,
+                                 n_units,
+                                 init,
+                                 shared_weights,
+                                 transpose_weights,
+                                 bias,
+                                 dtype,
+                                 "{}_linear".format(name),
+                                 share_vars_with)
+
+            self.activation = Activation(self.linear, fn=fn, name="{}_activation".format(name))
+
+        super().__init__(input_layers=layer,
+                         n_units=self.activation.n_units,
+                         shape=self.activation.shape,
+                         dtype=self.activation.dtype,
+                         name=name)
+
+        for var in self.linear.variables:
+            self._add_variable(var)
+        self.tensor = self.activation.tensor
+
+    def reuse_with(self, layer, name=None):
+        if name is None:
+            name = self.name
+
+        return Fn(layer,
+                  self.n_units,
+                  self.activation.fn,
+                  self.linear.init,
+                  self.linear.shared_weights,
+                  self.linear.transpose_weights,
+                  self.linear.bias,
+                  self.activation.dtype,
+                  name,
+                  self.linear.share_vars_with)
 
 
 class RNNCell(Layer):
@@ -1107,11 +1172,13 @@ class LSTMCell(Layer):
 
             return self.state.tensor
 
-    def reuse_with(self, input_layer, previous_state=None, memory_state=None, name=None):
+    def reuse_with(self, input_layer, previous_state=None, reset_memory=False, name=None):
         if previous_state is None:
             previous_state = self.previous_state
 
-        if memory_state is None:
+        if reset_memory:
+            memory_state = None
+        else:
             memory_state = self.memory_state
 
         if name is None:
@@ -1124,8 +1191,6 @@ class LSTMCell(Layer):
             memory_state=memory_state,
             candidate_activation=self.candidate_activation,
             output_activation=self.output_activation,
-            use_bias=self.use_bias,
-            share_state_with=self,
             name=name
         )
 
@@ -1854,6 +1919,7 @@ class Concat(Layer):
 
 
 __all__ = ["Input",
+           "Fn",
            "RNNCell",
            "LSTMCell",
            "Gate",
