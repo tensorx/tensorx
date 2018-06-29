@@ -32,7 +32,7 @@ class TestLayers(unittest.TestCase):
         l1 = Linear(in1, 4)
         l2 = Activation(l1, relu)
 
-        comp = Compose([l1, l2])
+        comp = Compose(l1, l2)
         comp2 = comp.reuse_with(in2)
 
         tf.global_variables_initializer().run()
@@ -52,7 +52,7 @@ class TestLayers(unittest.TestCase):
         l1 = Linear(in1, 4)
         l2 = Activation(l1, relu)
 
-        comp = Compose([l1, l2])
+        comp = Compose(l1, l2)
         comp2 = comp.reuse_with(in2)
 
         fn1 = Fn(in1, 4, fn=relu, share_vars_with=l1)
@@ -82,11 +82,11 @@ class TestLayers(unittest.TestCase):
         in2 = TensorLayer([[1.]], 1)
         in3 = Input(1)
 
-        a1 = Add([in1, in2])
+        a1 = Add(in1, in2)
         l1 = Linear(a1, 4)
 
-        comp = Compose([a1, l1])
-        comp2 = comp.reuse_with([in1, in3])
+        comp = Compose(a1, l1)
+        comp2 = comp.reuse_with(in1, in3)
 
         tf.global_variables_initializer().run()
 
@@ -465,28 +465,30 @@ class TestLayers(unittest.TestCase):
         """ layers_to_list returns the layers without repetition using a breadth first search from the last layer
         and then reversing the layers found.
         """
-        l11 = Input(1)
-        l12 = Input(1)
-        l2 = Add([l11, l12])
+        l11 = Input(1, name="in1")
+        l12 = Input(1, name="in2")
+        l121 = WrapLayer(l12, l12.n_units, tf_fn=lambda x: tf.identity(x))
+        l2 = Add(l11, l121)
 
         l3 = Linear(l2, 1)
+        l4 = Add(l3, l12)
 
-        l41 = Activation(l3, fn=sigmoid)
-        l42 = Activation(l3, fn=hard_sigmoid)
+        l41 = Activation(l4, fn=sigmoid, name="act1")
+        l42 = Activation(l4, fn=hard_sigmoid, name="act2")
 
         l5 = ToSparse(l41)
 
         outs = [l5, l42]
-        layers = layers_to_list(outs)
+        layers = layers_to_list(outs, l3)
+        # for layer in layers:
+        #    print(layer)
 
-        self.assertEqual(len(layers), 7)
-        self.assertEqual(layers[0], l11)
-        self.assertEqual(layers[1], l12)
-        self.assertEqual(layers[2], l2)
-        self.assertEqual(layers[3], l3)
-        self.assertEqual(layers[4], l41)
-        self.assertEqual(layers[5], l42)
-        self.assertEqual(layers[6], l5)
+        self.assertEqual(len(layers), 6)
+        self.assertEqual(layers[0], l3)
+        self.assertEqual(layers[-1], l5)
+        self.assertIn(l12, layers)
+        self.assertNotIn(l2, layers)
+        self.assertNotIn(l11, layers)
 
     def test_wrap_layer(self):
         data = np.random.uniform(-1, 1, [1, 4])
@@ -707,7 +709,7 @@ class TestLayers(unittest.TestCase):
 
         inputs = Input(n_inputs)
         rnn_1 = RNNCell(inputs, n_hidden)
-        rnn_2 = rnn_1.reuse_with(inputs, previous_state=rnn_1)
+        rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
 
         rnn_3 = rnn_1.reuse_with(inputs)
 
@@ -740,7 +742,9 @@ class TestLayers(unittest.TestCase):
                                  previous_state=rnn_1)
 
         # if we don't wipe the memory it reuses it
-        rnn_3 = rnn_1.reuse_with(inputs, reset_memory=True)
+        rnn_3 = rnn_1.reuse_with(inputs,
+                                 previous_state=None,
+                                 memory_state=LSTMCell.zero_memory_state(inputs, rnn_1.n_units))
 
         tf.global_variables_initializer().run()
 
@@ -761,19 +765,19 @@ class TestLayers(unittest.TestCase):
     def test_module(self):
         l1 = Input(1, name="in1")
         l2 = Input(1, name="in2")
-        l3 = Add([l1, l2])
-        l4 = Add([l1, l2])
+        l3 = Add(l1, l2)
+        l4 = Add(l1, l2)
         l5 = Linear(l4, 1)
         t1 = TensorLayer([[1]], n_units=1, dtype=tf.float32)
-        l6 = Add([l3, t1])
-        l7 = Add([l6, l5])
+        l6 = Add(l3, t1)
+        l7 = Add(l6, l5)
 
         t2 = TensorLayer([[1]], n_units=1, dtype=tf.float32)
         t3 = TensorLayer([[1]], n_units=1, dtype=tf.float32)
 
         m = Module([l1, l2, t1], l7)
         with tf.name_scope("module_reuse"):
-            m2 = m.reuse_with([t2, t3, t1])
+            m2 = m.reuse_with(t2, t3, t1)
 
         tf.global_variables_initializer().run()
 
@@ -791,10 +795,10 @@ class TestLayers(unittest.TestCase):
         l1 = Input(4, name="in1")
         l2 = Input(2, name="in2")
 
-        gate = Gate(l1, l2)
-        m = Module([l1, l2], gate)
+        gate = Gate(layer=l1, gate_input=l2)
+        gate_module = Module([l1, l2], gate)
 
-        model = Model(m.input_layers, m)
+        model = Model(run_in_layers=gate_module.input_layers, run_out_layers=gate_module)
         runner = ModelRunner(model)
         runner.log_graph("/tmp")
 
@@ -803,12 +807,12 @@ class TestLayers(unittest.TestCase):
 
         # TODO gate has the same problem as LSTM and RNN with the reuse and Module / Merge, etc
 
-        # with tf.name_scope("module_reuse"):
-        #    m2 = m.reuse_with([t1, t2])
+        with tf.name_scope("module_reuse"):
+            m2 = gate_module.reuse_with(t1, t2)
 
-        # model = Model(m2.input_layers, m2)
-        # runner = ModelRunner(model)
-        # runner.log_graph("/tmp")
+        model = Model(m2.input_layers, m2)
+        runner = ModelRunner(model)
+        runner.log_graph("/tmp/")
 
         # tf.global_variables_initializer().run()
 

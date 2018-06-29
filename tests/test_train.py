@@ -252,7 +252,7 @@ class ModelRunnerTest(unittest.TestCase):
         inputs1 = Input(1)
         inputs2 = Input(1)
 
-        merge = Add([inputs1, inputs2])
+        merge = Add(inputs1, inputs2)
 
         model = Model([inputs1, inputs2], merge)
         model_runner = ModelRunner(model)

@@ -242,7 +242,7 @@ class TestTransform(unittest.TestCase):
         sess = tf.Session()
 
         # with tf.name_scope("test_setup"):
-        n_runs = 1000
+        n_runs = 10
 
         v = np.array([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtype=np.float32)
         sp = transform.to_sparse(v)

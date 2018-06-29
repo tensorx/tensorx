@@ -133,6 +133,51 @@ class Graph:
         self.edges_in[node2].append(node1)
 
 
+def _get_subgraph(input_layers, output_layers):
+    input_layers = _as_list(input_layers)
+    output_layers = _as_list(output_layers)
+
+    endpoints = set()
+    graph = Graph()
+
+    def _update_graph(current_layer):
+        in_layers = current_layer.input_layers
+
+        if len(input_layers) > 0:
+            if current_layer in input_layers:
+                endpoints.add(current_layer)
+                return True
+        elif len(in_layers) == 0:
+            endpoints.add(current_layer)
+            return True
+
+        path_found = {l: _update_graph(l) for l in in_layers}
+        found = False
+        terminals = set()
+        for input_layer in path_found.keys():
+            if path_found[input_layer]:
+                graph.add_edge(input_layer, current_layer)
+                found = found or True
+            else:
+                terminals.add(input_layer)
+
+        # not all paths were valid, mark terminals
+        if found and len(terminals) > 0:
+            for terminal_layer in terminals:
+                graph.add_edge(terminal_layer, current_layer)
+                endpoints.add(terminal_layer)
+
+        return found
+
+    paths_found = [_update_graph(out_layer) for out_layer in output_layers]
+    if not all(paths_found):
+        failed = [output_layers[i] for i, path_found in enumerate(paths_found) if not path_found]
+        failed_layers = "\n".join(failed)
+        raise ValueError("no path found between inputs and layers: \n {}".format(failed_layers))
+
+    return graph, endpoints
+
+
 def _as_list(elems):
     """ returns a list from the given element(s)
 
@@ -151,7 +196,7 @@ def _as_list(elems):
     return elems
 
 
-def layers_to_list(output_layers):
+def layers_to_list(output_layers, input_layers=[]):
     """ Converts a layer or a list of layers to a list of all the layers connected to it.
 
     Warning:
@@ -166,16 +211,22 @@ def layers_to_list(output_layers):
         in a breadth-first fashion.
 
     """
-    flat_layers, visited, stack = [], set(), _as_list(output_layers)
+    graph, terminals = _get_subgraph(input_layers, output_layers)
+
+    visited = set()
+    flat_layers = list()
+    stack = output_layers
+
     while stack:
         layer = stack.pop(0)
         if layer not in visited:
             visited.add(layer)
             flat_layers.append(layer)
-            next_layers = layer.input_layers
-            if len(next_layers) > 1:
-                next_layers.reverse()
-            stack.extend(layer.input_layers)
+            out_layers = graph.edges_in[layer]
+            if len(out_layers) > 1:
+                pass
+                out_layers = out_layers[::-1]
+            stack.extend(out_layers)
 
     flat_layers.reverse()
     return flat_layers
@@ -218,7 +269,7 @@ class Layer:
         self.name = getattr(self, "name", name)
         self.scoped_name = name
         self.dtype = dtype
-        self.input_layers = _as_list(input_layers)
+        self._input_layers = _as_list(input_layers)
 
         if shape is None:
             self.shape = [None, n_units]
@@ -232,6 +283,14 @@ class Layer:
         self.variables = []
 
         self._tensor = None
+
+    @property
+    def input_layers(self):
+        return list(self._input_layers)
+
+    @input_layers.setter
+    def input_layers(self, input_layers):
+        raise ValueError("input_layers can't be set")
 
     @property
     def tensor(self):
@@ -274,11 +333,12 @@ class Layer:
         """
         class_name = type(self).__name__
         sparse_dense = "[Sparse]" if self.is_sparse() else "[Dense]"
-        return "{layer_name}::{class_name}({n_units},{dtype}){sparse_dense}".format(class_name=class_name,
+        return "{layer_name}::{class_name}({n_units},{dtype}){sparse_dense}".format(layer_name=self.scoped_name,
+                                                                                    class_name=class_name,
                                                                                     n_units=self.n_units,
                                                                                     dtype=self.dtype,
-                                                                                    sparse_dense=sparse_dense,
-                                                                                    layer_name=self.scoped_name)
+                                                                                    sparse_dense=sparse_dense
+                                                                                    )
 
     def full_str(self):
         """ Informal string representation for a layer that includes inner variables
@@ -367,32 +427,17 @@ class Module(Layer):
 
     Args:
         inputs: one or more input layers
-        output: a single output layer
+        outputs: output layer
     """
 
-    def __init__(self, inputs, output: Layer, name="module"):
+    def __init__(self, inputs, output, name="module"):
         inputs = _as_list(inputs)
-        in_set = set(inputs)
-        graph = Graph()
-        lstack = deque([output])
 
-        while len(lstack) > 0:
-            layer = lstack.pop()
-            graph.add_node(output)
-
-            if layer not in in_set:
-                # one node terminated but was not in the input list
-                if len(layer.input_layers) == 0:
-                    raise ValueError("\n\n Module not self-contained: \n "
-                                     "the Module graph reached {layer}, \n "
-                                     "this layer has no input layers but it was not "
-                                     "in the input list".format(layer=layer))
-                lstack.extendleft(layer.input_layers)
-                for in_layer in layer.input_layers:
-                    graph.add_edge(in_layer, layer)
-
+        graph, endpoints = _get_subgraph(inputs, output)
         self.graph = graph
+        self.end_points = endpoints
         self.output = output
+
         super().__init__(input_layers=inputs,
                          n_units=output.n_units,
                          shape=output.shape,
@@ -401,11 +446,10 @@ class Module(Layer):
 
         self.tensor = output.tensor
 
-    def reuse_with(self, layers, name=None):
+    def reuse_with(self, *layers, name=None):
         if name is None:
             name = self.name
 
-        layers = _as_list(layers)
         if len(layers) != len(self.input_layers):
             raise ValueError("Module has {} input layers, {} provided".format(len(self.input_layers)), len(layers))
 
@@ -422,27 +466,22 @@ class Module(Layer):
             stack_out(in_layer)
 
         # maps old layers to new layers
-        lmap = dict(zip(self.input_layers, layers))
+        layer_map = dict(zip(self.input_layers, layers))
 
         # transverse graph and apply reuse
-        # TODO problem, reuse is applied different ways for different types of layers
-        # should I make a universal reuse that would accept a list as well as a single layer?
         while len(lstack) > 0:
             current_layer = lstack.pop()
-            new_inputs = [lmap[l] for l in self.graph.edges_in[current_layer]]
 
-            # TODO recurrent layers use a different signature for reuse ...
-            # we can thing of it as just a layer with two inputs but order matters
-            if not issubclass(type(current_layer), Merge):
-                new_inputs = new_inputs[0]
+            # if layer exists in the map get it from the map
+            new_inputs = [layer_map.get(in_layer, in_layer) for in_layer in self.graph.edges_in[current_layer]]
+            new_layer = current_layer.reuse_with(*new_inputs)
 
-            new_layer = current_layer.reuse_with(new_inputs)
             # map out how the current node corresponds to a new layer
-            lmap[current_layer] = new_layer
+            layer_map[current_layer] = new_layer
             # add descendants to the stack
             stack_out(current_layer)
 
-        new_output = lmap[self.output]
+        new_output = layer_map[self.output]
 
         return Module(inputs=layers, output=new_output, name=name)
 
@@ -461,7 +500,7 @@ class Compose(Layer):
     the variables involved in the composition
     """
 
-    def __init__(self, layers, name="compose"):
+    def __init__(self, *layers, name="compose"):
 
         self.layers = layers
         layer1, *layers = layers
@@ -490,11 +529,9 @@ class Compose(Layer):
 
         self.tensor = in_layer.tensor
 
-    def reuse_with(self, input_layers, name=None):
+    def reuse_with(self, *input_layers, name=None):
         if name is None:
             name = self.name
-
-        input_layers = _as_list(input_layers)
 
         layer1, *layers = self.layers
 
@@ -504,10 +541,8 @@ class Compose(Layer):
             raise ValueError(
                 "first layer of compose requires {} input layers {} passed".format(len(layer1.input_layers),
                                                                                    len(input_layers)))
-        if len(layer1.input_layers) > 1:
-            layer1 = layer1.reuse_with(input_layers)
-        else:
-            layer1 = layer1.reuse_with(input_layers[0])
+
+        layer1 = layer1.reuse_with(*input_layers)
 
         new_layers = []
         # if layers were not connected, connect them
@@ -518,7 +553,7 @@ class Compose(Layer):
                 new_layers.append(curr_layer)
             in_layer = curr_layer
 
-        return Compose(new_layers, name=name)
+        return Compose(*new_layers, name=name)
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -585,14 +620,18 @@ class Input(Layer):
     def __str__(self):
         class_name = type(self).__name__
         if self.is_sparse():
-            str_representation = "{class_name}({n_active}/{n_units},{dtype})[Sparse]".format(class_name=class_name,
-                                                                                             n_active=self.n_active,
-                                                                                             n_units=self.n_units,
-                                                                                             dtype=self.dtype)
+            str_representation = "{layer_name}::{class_name}({n_active}/{n_units},{dtype})[Sparse]".format(
+                layer_name=self.scoped_name,
+                class_name=class_name,
+                n_active=self.n_active,
+                n_units=self.n_units,
+                dtype=self.dtype)
         else:
-            str_representation = "{class_name}({n_units},{dtype})[Dense]".format(class_name=class_name,
-                                                                                 n_units=self.n_units,
-                                                                                 dtype=self.dtype)
+            str_representation = "{layer_name}::{class_name}({n_units},{dtype})[Dense]".format(
+                layer_name=self.scoped_name,
+                class_name=class_name,
+                n_units=self.n_units,
+                dtype=self.dtype)
         return str_representation
 
 
@@ -948,7 +987,7 @@ class RNNCell(Layer):
                 self.weights = self.share_state_with.weights.reuse_with(layer)
                 self.recurrent_weights = self.share_state_with.recurrent_weights.reuse_with(previous_state)
 
-            state = Add([self.weights, self.recurrent_weights])
+            state = Add(self.weights, self.recurrent_weights)
             self.state = Activation(state, self.activation)
 
             return self.state.tensor
@@ -1040,8 +1079,8 @@ class GRUCell(Layer):
                 self.w_s = self.share_state_with.w_s.reuse_with(layer)
                 self.u_s = self.share_state_with.u_s.reuse_with(previous_state)
 
-            self.gate_z = Activation(Add([self.w_z, self.u_z]), fn=sigmoid)
-            self.state = Activation(Add([self.w_h, self.u_h]), self.activation)
+            self.gate_z = Activation(Add(self.w_z, self.u_z), fn=sigmoid)
+            self.state = Activation(Add(self.w_h, self.u_h), self.activation)
 
             return self.state.tensor
 
@@ -1070,6 +1109,12 @@ class LSTMCell(Layer):
         The first defines how much do we use the values from the recurrent connection to predict the current state
         The second
     """
+
+    @staticmethod
+    def zero_memory_state(input_layer, n_units):
+        input_batch = array_ops.shape(input_layer.tensor)[0]
+        zero_state = array_ops.zeros([input_batch, n_units])
+        return TensorLayer(zero_state, n_units)
 
     def __init__(self, layer, n_units,
                  previous_state=None,
@@ -1103,9 +1148,7 @@ class LSTMCell(Layer):
                     "previous memory_state n_units ({}) != current n_units ({})".format(memory_state.n_units,
                                                                                         self.n_units))
         else:
-            input_batch = array_ops.shape(layer.tensor)[0]
-            zero_state = array_ops.zeros([input_batch, n_units])
-            memory_state = TensorLayer(zero_state, n_units)
+            memory_state = LSTMCell.zero_memory_state(layer, n_units)
 
         self.previous_state = previous_state
         self.memory_state = memory_state
@@ -1156,29 +1199,27 @@ class LSTMCell(Layer):
                 self.u_o = self.share_state_with.u_o.reuse_with(previous_state)
 
             # build gates
-            gate_f = Add([self.w_f, self.u_f])
-            gate_i = Add([self.w_i, self.u_i])
-            gate_o = Add([self.w_o, self.u_o])
+            gate_f = Add(self.w_f, self.u_f)
+            gate_i = Add(self.w_i, self.u_i)
+            gate_o = Add(self.w_o, self.u_o)
 
             memory_state = Gate(self.memory_state, gate_f)
 
-            candidate = Activation(Add([self.w_c, self.u_c]), fn=self.candidate_activation)
+            candidate = Activation(Add(self.w_c, self.u_c), fn=self.candidate_activation)
             candidate = Gate(candidate, gate_i)
 
-            self.memory_state = Add([memory_state, candidate])
+            self.memory_state = Add(memory_state, candidate)
 
             output = Activation(memory_state, fn=self.output_activation)
             self.state = Gate(output, gate_o)
 
             return self.state.tensor
 
-    def reuse_with(self, input_layer, previous_state=None, reset_memory=False, name=None):
+    def reuse_with(self, input_layer, previous_state=None, memory_state=None, name=None):
         if previous_state is None:
             previous_state = self.previous_state
 
-        if reset_memory:
-            memory_state = None
-        else:
+        if memory_state is None:
             memory_state = self.memory_state
 
         if name is None:
@@ -1849,7 +1890,7 @@ class Merge(Layer):
     """
 
     def __init__(self,
-                 layers,
+                 *layers,
                  weights=None,
                  merge_fn=math_ops.add_n,
                  name="merge"):
@@ -1874,10 +1915,10 @@ class Merge(Layer):
 
         self.tensor = tensor
 
-    def reuse_with(self, layers, name=None):
+    def reuse_with(self, *layers, name=None):
         if name is None:
             name = self.name
-        return Merge(layers, self.weights, self.merge_fn, name)
+        return Merge(*layers, weights=self.weights, merge_fn=self.merge_fn, name=name)
 
 
 class Add(Merge):
@@ -1889,8 +1930,8 @@ class Add(Merge):
             name: name for layer scope
     """
 
-    def __init__(self, layers, weights=None, name="add"):
-        super().__init__(layers, weights, math_ops.add_n, name)
+    def __init__(self, *layers, weights=None, name="add"):
+        super().__init__(*layers, weights=weights, merge_fn=math_ops.add_n, name=name)
 
 
 class Concat(Layer):
@@ -1903,7 +1944,7 @@ class Concat(Layer):
         name: name for the layer scope
     """
 
-    def __init__(self, layers, name="concat"):
+    def __init__(self, *layers, name="concat"):
         first, *rest = layers
         if not all(layer.dtype == first.dtype for layer in rest):
             raise ValueError("Layers must have the same type to be concatenated")
@@ -1916,6 +1957,11 @@ class Concat(Layer):
             tensor = array_ops.concat(tensors, axis=-1)
 
         self.tensor = tensor
+
+    def reuse_with(self, *layers, name=None):
+        if name is None:
+            name = self.name
+        return Concat(*layers, name)
 
 
 __all__ = ["Input",
