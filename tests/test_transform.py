@@ -239,7 +239,9 @@ class TestTransform(unittest.TestCase):
         self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
 
     def test_gather_sparse(self):
-        sess = tf.Session()
+        tf.reset_default_graph()
+        self.setUp()
+        #sess = tf.Session()
 
         # with tf.name_scope("test_setup"):
         n_runs = 10
@@ -255,17 +257,17 @@ class TestTransform(unittest.TestCase):
         # https://www.tensorflow.org/programmers_guide/graph_viz
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         run_metadata = tf.RunMetadata()
-        summary_writer = tf.summary.FileWriter('/tmp/', sess.graph)
+        summary_writer = tf.summary.FileWriter('/tmp/', self.ss.graph)
 
         for i in range(n_runs):
             step = i + 1
-            sess.run(gather_sp_tx, options=run_options, run_metadata=run_metadata)
+            self.ss.run(gather_sp_tx, options=run_options, run_metadata=run_metadata)
             summary_writer.add_run_metadata(run_metadata, 'step%d' % step)
 
             # Create the Timeline object, and write it to a json
             tl = timeline.Timeline(run_metadata.step_stats)
 
-        summary_writer.add_graph(sess.graph)
+        summary_writer.add_graph(self.ss.graph)
         summary_writer.close()
 
         ctf = tl.generate_chrome_trace_format()

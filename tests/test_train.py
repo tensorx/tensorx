@@ -34,16 +34,22 @@ class ModelRunnerTest(unittest.TestCase):
         self.session = tf.InteractiveSession()
 
     def test_model_session(self):
+
         data = [[1]]
         inputs = Input(1)
+        # feed = {inputs.placeholder: data}
         linear = Linear(inputs, 1)
         model = Model(run_in_layers=inputs, run_out_layers=linear)
         runner = ModelRunner(model)
 
+        # runner.set_session()
+
         # creates a new session or uses the default session
         self.assertIsNone(runner.session)
         self.assertFalse(runner.vars_inited())
+
         runner.run(data)
+
         self.assertIsNotNone(runner.session)
         self.assertTrue(runner.vars_inited())
 
@@ -66,6 +72,7 @@ class ModelRunnerTest(unittest.TestCase):
 
             # different sessions init the variables again
             result2 = runner.run(data)
+            print(result2)
             self.assertFalse(np.array_equal(result1, result2))
 
             runner.set_session()

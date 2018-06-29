@@ -211,6 +211,9 @@ def layers_to_list(output_layers, input_layers=[]):
         in a breadth-first fashion.
 
     """
+    output_layers = _as_list(output_layers)
+    input_layers = _as_list(input_layers)
+
     graph, terminals = _get_subgraph(input_layers, output_layers)
 
     visited = set()
@@ -222,11 +225,12 @@ def layers_to_list(output_layers, input_layers=[]):
         if layer not in visited:
             visited.add(layer)
             flat_layers.append(layer)
-            out_layers = graph.edges_in[layer]
-            if len(out_layers) > 1:
-                pass
-                out_layers = out_layers[::-1]
-            stack.extend(out_layers)
+            if layer in graph.edges_in:
+                out_layers = graph.edges_in[layer]
+                if len(out_layers) > 1:
+                    pass
+                    out_layers = out_layers[::-1]
+                stack.extend(out_layers)
 
     flat_layers.reverse()
     return flat_layers
