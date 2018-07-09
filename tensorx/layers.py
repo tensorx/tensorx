@@ -1061,30 +1061,56 @@ class GRUCell(Layer):
 
             if self.share_state_with is None:
                 self.w_h = Linear(layer, self.n_units, bias=True, init=self.init, name="w_h")
+
                 self.u_h = Linear(previous_state, self.n_units, bias=False, init=self.recurrent_init,
                                   name="u_h")
-                # recurrent gate
-                self.w_z = Linear(layer, self.n_units, bias=True)
-                self.u_z = Linear(previous_state, self.n_units, bias=False)
+                # reset gate
+                self.w_r = Linear(layer, self.n_units, bias=True)
+                self.u_r = Linear(previous_state, self.n_units, bias=False)
 
                 # update gate
-                self.w_s = Linear(layer, self.n_units, bias=True)
-                self.u_s = Linear(previous_state, self.n_units, bias=False)
+                self.w_z = Linear(layer, self.n_units, bias=True)
+                self.u_z = Linear(previous_state, self.n_units, bias=False)
 
             else:
                 self.w_h = self.share_state_with.w_h.reuse_with(layer)
                 self.u_h = self.share_state_with.u_h.reuse_with(previous_state)
 
                 # recurrent gate
+                self.w_r = self.share_state_with.w_r.reuse_with(layer)
+                self.u_r = self.share_state_with.u_r.reuse_with(previous_state)
+
+                # update gate
                 self.w_z = self.share_state_with.w_z.reuse_with(layer)
                 self.u_z = self.share_state_with.u_z.reuse_with(previous_state)
 
-                # update gate
-                self.w_s = self.share_state_with.w_s.reuse_with(layer)
-                self.u_s = self.share_state_with.u_s.reuse_with(previous_state)
+            # gate_r = Add(self.w_r, self.u_r)
+            # gated_r = Gate(self.previous_state())
 
-            self.gate_z = Activation(Add(self.w_z, self.u_z), fn=sigmoid)
-            self.state = Activation(Add(self.w_h, self.u_h), self.activation)
+            # self.state = Activation(Add(self.w_h, self.u_h), self.activation)
+
+            # gate_z = Add(self.w_z, self.u_z)
+
+            # gated_previous = Gate(self.previous_state, gate_z)
+            #
+
+            # self.gate_z = Activation(Add(self.w_z, self.u_z), fn=sigmoid)
+            #
+
+            # build gates
+            # gate_f = Add(self.w_f, self.u_f)
+            # gate_i = Add(self.w_i, self.u_i)
+            # gate_o = Add(self.w_o, self.u_o)
+
+            # memory_state = Gate(self.memory_state, gate_f)
+
+            # candidate = Activation(Add(self.w_c, self.u_c), fn=self.candidate_activation)
+            # candidate = Gate(candidate, gate_i)
+
+            # self.memory_state = Add(memory_state, candidate)
+
+            # output = Activation(memory_state, fn=self.output_activation)
+            # self.state = Gate(output, gate_o)
 
             return self.state.tensor
 
@@ -1115,7 +1141,7 @@ class LSTMCell(Layer):
     """
 
     @staticmethod
-    def zero_memory_state(input_layer, n_units):
+    def zero_state(input_layer, n_units):
         input_batch = array_ops.shape(input_layer.tensor)[0]
         zero_state = array_ops.zeros([input_batch, n_units])
         return TensorLayer(zero_state, n_units)
@@ -1142,9 +1168,7 @@ class LSTMCell(Layer):
                 raise ValueError(
                     "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
         else:
-            input_batch = array_ops.shape(layer.tensor)[0]
-            zero_state = array_ops.zeros([input_batch, n_units])
-            previous_state = TensorLayer(zero_state, n_units)
+            memory_state = LSTMCell.zero_state(layer, n_units)
 
         if memory_state is not None:
             if memory_state.n_units != n_units:
@@ -1152,7 +1176,7 @@ class LSTMCell(Layer):
                     "previous memory_state n_units ({}) != current n_units ({})".format(memory_state.n_units,
                                                                                         self.n_units))
         else:
-            memory_state = LSTMCell.zero_memory_state(layer, n_units)
+            memory_state = LSTMCell.zero_state(layer, n_units)
 
         self.previous_state = previous_state
         self.memory_state = memory_state
@@ -1470,6 +1494,20 @@ class Lookup(Layer):
                       as_sequence=as_sequence)
 
 
+def _apply_gate(layer: Layer, gate: Layer):
+    n_gates = gate.n_units
+    feature_dim = layer.n_units // n_gates
+    if layer.is_sparse():
+
+        tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, n_gates, feature_dim])
+        gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate.tensor, -1))
+    else:
+        tensor_in = array_ops.reshape(layer.tensor, [-1, n_gates, feature_dim])
+        gated = tensor_in * array_ops.expand_dims(gate.tensor, -1)
+
+    return array_ops.reshape(gated, array_ops.shape(layer.tensor))
+
+
 class Gate(Layer):
     """ Creates a Gate Layer that filters a given input layer using
     learned features from that layer.
@@ -1489,6 +1527,9 @@ class Gate(Layer):
             gate_fn: function for gate
     """
 
+    # TODO fix gate, it does not work as intended I was forgetting to apply the gate activation
+    # GATE FN is not applied
+    # needs testing
     def __init__(self, layer, gate_input, gate_fn=sigmoid, name="gate"):
         if layer.n_units % gate_input.n_units != 0:
             raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
@@ -1498,19 +1539,9 @@ class Gate(Layer):
 
         self.gate_fn = gate_fn
         self.gate_input = gate_input
-
         with layer_scope(self):
-            n_gates = self.gate_input.n_units
-            feature_dim = self.n_units // n_gates
-            if layer.is_sparse():
-
-                tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, n_gates, feature_dim])
-                gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate_input.tensor, -1))
-            else:
-                tensor_in = array_ops.reshape(layer.tensor, [-1, n_gates, feature_dim])
-                gated = tensor_in * array_ops.expand_dims(gate_input.tensor, -1)
-
-            self.tensor = array_ops.reshape(gated, array_ops.shape(layer.tensor))
+            self.gate = Activation(self.gate_input, gate_input)
+            self.tensor = _apply_gate(layer, self.gate)
 
     def reuse_with(self, layer, gate_input=None, name=None):
         if gate_input is None:
@@ -1520,6 +1551,63 @@ class Gate(Layer):
             name = self.name
 
         return Gate(layer=layer,
+                    gate_input=gate_input,
+                    gate_fn=self.gate_fn,
+                    name=name)
+
+
+class Modulator(Layer):
+    """ Creates a Gate Layer that modulates between two layers using a gate:
+
+    output = (r) * layer1 + (1-r) * layer2 where (r) is the gate output [0,1]
+
+    Warning:
+        layer.n_units must be a multiple of n_units because if n_units < layer.n_units, we perform
+        the gating by reshaping the input layer and using broadcasting.
+
+        Example: if input layer has 6 units and gate has 2, it will apply the gating mechanism to a
+        [-1,2,3] meaning the batch dimension will be the same but each gating unit will modulate 3
+        input units at a time.
+
+
+    Args:
+            layer1: first Layer
+            layer2: second Layer
+            gate_input: a layer to be used as the gate input (usually the linear part)
+            gate_fn: function for gate
+    """
+
+    def __init__(self, layer1, layer2, gate_input, gate_fn=sigmoid, name="modulator"):
+        if layer1.shape != layer2.shape:
+            raise ValueError("layers must have the same shape: {}!={}".format(layer1.shape, layer2.shape))
+
+        if layer1.n_units % gate_input.n_units != 0:
+            raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
+                layer1.n_units, gate_input.n_units))
+
+        super().__init__([layer1, layer2, gate_input], layer1.n_units, layer1.shape, dtype=dtypes.float32, name=name)
+
+        self.gate_fn = gate_fn
+        self.gate_input = gate_input
+
+        with layer_scope(self):
+            self.gate1 = Activation(self.gate_input, gate_input)
+            self.gate2 = WrapLayer(self.gate2, self.gate1.n_units, lambda x: 1 - x)
+
+            output1 = _apply_gate(layer1, self.gate1)
+            output2 = _apply_gate(layer2, self.gate2)
+            output = math_ops.add(output1, output2)
+            self.tensor = output
+
+    def reuse_with(self, layer1, layer2, gate_input=None, name=None):
+        if gate_input is None:
+            gate_input = self.gate_input
+
+        if name is None:
+            name = self.name
+
+        return Gate(layer1=layer1,
+                    layer2=layer2,
                     gate_input=gate_input,
                     gate_fn=self.gate_fn,
                     name=name)

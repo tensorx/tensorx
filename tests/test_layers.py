@@ -744,7 +744,7 @@ class TestLayers(unittest.TestCase):
         # if we don't wipe the memory it reuses it
         rnn_3 = rnn_1.reuse_with(inputs,
                                  previous_state=None,
-                                 memory_state=LSTMCell.zero_memory_state(inputs, rnn_1.n_units))
+                                 memory_state=LSTMCell.zero_state(inputs, rnn_1.n_units))
 
         tf.global_variables_initializer().run()
 
