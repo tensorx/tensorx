@@ -1527,10 +1527,6 @@ class Gate(Layer):
             gate_input: a layer to be used as the gate input
             gate_fn: function for gate
     """
-
-    # TODO fix gate, it does not work as intended I was forgetting to apply the gate activation
-    # GATE FN is not applied
-    # needs testing
     def __init__(self, layer, gate_input, gate_fn=sigmoid, name="gate"):
         if layer.n_units % gate_input.n_units != 0:
             raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
@@ -1557,7 +1553,7 @@ class Gate(Layer):
                     name=name)
 
 
-class Modulator(Layer):
+class CoupledGate(Layer):
     """ Creates a Gate Layer that modulates between two layers using a gate:
 
     output = (r) * layer1 + (1-r) * layer2 where (r) is the gate output [0,1]
@@ -1607,11 +1603,11 @@ class Modulator(Layer):
         if name is None:
             name = self.name
 
-        return Modulator(layer1=layer1,
-                         layer2=layer2,
-                         gate_input=gate_input,
-                         gate_fn=self.gate_fn,
-                         name=name)
+        return CoupledGate(layer1=layer1,
+                           layer2=layer2,
+                           gate_input=gate_input,
+                           gate_fn=self.gate_fn,
+                           name=name)
 
 
 class ToSparse(Layer):
@@ -2062,7 +2058,7 @@ __all__ = ["Input",
            "RNNCell",
            "LSTMCell",
            "Gate",
-           "Modulator",
+           "CoupledGate",
            "Compose",
            "TensorLayer",
            "SparseInput",

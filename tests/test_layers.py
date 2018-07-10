@@ -700,7 +700,7 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(np.array_equal(r1, r2))
 
-    def test_modulator_gate(self):
+    def test_coupled_gate(self):
         self.reset()
 
         vocab_size = 4
@@ -716,23 +716,19 @@ class TestLayers(unittest.TestCase):
         sp_features1 = ToSparse(features1)
 
         gate_w = Linear(features1, seq_size)
-        modulator = Modulator(features1, features2, gate_w)
+        coupled_gate = CoupledGate(features1, features2, gate_w)
 
-        modulator2 = modulator.reuse_with(sp_features1, features2)
+        coupled_gate2 = coupled_gate.reuse_with(sp_features1, features2)
 
         init = tf.global_variables_initializer()
         init.run()
 
         feed = {inputs.placeholder: input_data}
 
-        r1 = modulator.tensor.eval(feed)
-        r2 = modulator2.tensor.eval(feed)
+        r1 = coupled_gate.tensor.eval(feed)
+        r2 = coupled_gate2.tensor.eval(feed)
 
         self.assertTrue(np.array_equal(r1, r2))
-
-        m = Model(inputs, modulator)
-        r = ModelRunner(m)
-        r.log_graph("/tmp")
 
     def test_rnn_cell(self):
         self.reset()
