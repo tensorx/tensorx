@@ -1168,7 +1168,7 @@ class LSTMCell(Layer):
                 raise ValueError(
                     "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
         else:
-            memory_state = LSTMCell.zero_state(layer, n_units)
+            previous_state = LSTMCell.zero_state(layer, n_units)
 
         if memory_state is not None:
             if memory_state.n_units != n_units:
@@ -1451,11 +1451,11 @@ class Lookup(Layer):
                 padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
                 flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 
-        tensor = array_ops.reshape(flat_lookup, [-1, n_features])
-        if self.as_sequence:
-            seqs = array_ops.split(tensor, self.seq_size, -1)
-            tensor = array_ops.concat(seqs, 0)
-            tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
+            tensor = array_ops.reshape(flat_lookup, [-1, n_features])
+            if self.as_sequence:
+                seqs = array_ops.split(tensor, self.seq_size, -1)
+                tensor = array_ops.concat(seqs, 0)
+                tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
 
         return tensor
 
@@ -1495,17 +1495,18 @@ class Lookup(Layer):
 
 
 def _apply_gate(layer: Layer, gate: Layer):
-    n_gates = gate.n_units
-    feature_dim = layer.n_units // n_gates
-    if layer.is_sparse():
+    with ops.name_scope("apply_gate", values=[layer.tensor, gate.tensor]):
+        n_gates = gate.n_units
+        feature_dim = layer.n_units // n_gates
+        if layer.is_sparse():
 
-        tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, n_gates, feature_dim])
-        gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate.tensor, -1))
-    else:
-        tensor_in = array_ops.reshape(layer.tensor, [-1, n_gates, feature_dim])
-        gated = tensor_in * array_ops.expand_dims(gate.tensor, -1)
+            tensor_in = sparse_ops.sparse_reshape(layer.tensor, [-1, n_gates, feature_dim])
+            gated = mathx.sparse_multiply_dense(tensor_in, array_ops.expand_dims(gate.tensor, -1))
+        else:
+            tensor_in = array_ops.reshape(layer.tensor, [-1, n_gates, feature_dim])
+            gated = tensor_in * array_ops.expand_dims(gate.tensor, -1)
 
-    return array_ops.reshape(gated, array_ops.shape(layer.tensor))
+        return array_ops.reshape(gated, array_ops.shape(layer.tensor))
 
 
 class Gate(Layer):
@@ -1540,7 +1541,7 @@ class Gate(Layer):
         self.gate_fn = gate_fn
         self.gate_input = gate_input
         with layer_scope(self):
-            self.gate = Activation(self.gate_input, gate_input)
+            self.gate = Activation(self.gate_input, self.gate_fn)
             self.tensor = _apply_gate(layer, self.gate)
 
     def reuse_with(self, layer, gate_input=None, name=None):
@@ -1591,8 +1592,8 @@ class Modulator(Layer):
         self.gate_input = gate_input
 
         with layer_scope(self):
-            self.gate1 = Activation(self.gate_input, gate_input)
-            self.gate2 = WrapLayer(self.gate2, self.gate1.n_units, lambda x: 1 - x)
+            self.gate1 = Activation(self.gate_input, self.gate_fn)
+            self.gate2 = WrapLayer(self.gate1, self.gate1.n_units, lambda x: 1 - x)
 
             output1 = _apply_gate(layer1, self.gate1)
             output2 = _apply_gate(layer2, self.gate2)
@@ -1606,11 +1607,11 @@ class Modulator(Layer):
         if name is None:
             name = self.name
 
-        return Gate(layer1=layer1,
-                    layer2=layer2,
-                    gate_input=gate_input,
-                    gate_fn=self.gate_fn,
-                    name=name)
+        return Modulator(layer1=layer1,
+                         layer2=layer2,
+                         gate_input=gate_input,
+                         gate_fn=self.gate_fn,
+                         name=name)
 
 
 class ToSparse(Layer):
@@ -2061,6 +2062,7 @@ __all__ = ["Input",
            "RNNCell",
            "LSTMCell",
            "Gate",
+           "Modulator",
            "Compose",
            "TensorLayer",
            "SparseInput",
