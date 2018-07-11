@@ -185,8 +185,30 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
         return sp_tensor
 
 
+def random_bernoulli(shape, prob=0.5, seed=None):
+    """ Random bernoulli tensor.
+
+    A bernoulli tensor sampled from a random uniform distribution.
+
+    Note: contrary to the sparse_random_mask each element is masked according to the given probability
+
+    Args:
+        shape: shape for the mask
+        prob: probability of each element being 1
+        seed: random number generator seed
+
+    Returns:
+        a Tensor with the given shape
+
+    """
+    p = array_ops.fill(shape, value=prob)
+    r = random_ops.random_uniform(shape, dtype=dtypes.float32, seed=seed)
+    ones = math_ops.cast(math_ops.less(r, p), dtypes.float32)
+    return ones
+
+
 def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32, seed=None):
-    """Uses values to create a sparse random mask according to a given density
+    """Uses values to create a sparse random mask according to a given density (number of non-zero entries)
     a density of 0 returns an empty sparse tensor
 
     Note:

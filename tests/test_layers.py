@@ -563,6 +563,7 @@ class TestLayers(unittest.TestCase):
         vocab_size = 4
         n_features = 3
         seq_size = 2
+        batch_size = 3
 
         inputs = Input(seq_size, dtype=tf.int32)
         input_data = np.array([[2, 0], [1, 2], [0, 2]])
@@ -576,11 +577,8 @@ class TestLayers(unittest.TestCase):
             v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
             v2 = sess.run(lookup_flat.tensor, {inputs.placeholder: input_data})
 
-            # print(v1)
-            # print(v2)
-
-            self.assertEqual(np.shape(v1), (seq_size, 3, n_features))
-            self.assertEqual(np.shape(v2), (3, seq_size * n_features))
+            self.assertEqual(np.shape(v1), (seq_size, batch_size, n_features))
+            self.assertEqual(np.shape(v2), (batch_size, seq_size * n_features))
 
     def test_lookup_sequence_bias(self):
         vocab_size = 4
@@ -871,8 +869,6 @@ class TestLayers(unittest.TestCase):
         model = Model(m2.input_layers, m2)
         runner = ModelRunner(model)
         runner.log_graph("/tmp/")
-
-
 
 
 if __name__ == '__main__':

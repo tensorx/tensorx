@@ -1818,7 +1818,7 @@ class SaltPepperNoise(Layer):
                 noise_shape = [batch_size, noise_shape[1]]
                 noise = salt_pepper_noise(noise_shape, density, salt_value, pepper_value, seed)
 
-                if layer.is_sparse(layer):
+                if layer.is_sparse():
                     tensor = transform.sparse_put(layer.tensor, noise)
                 else:
                     tensor = transform.dense_put(layer.tensor, noise)
@@ -2042,6 +2042,26 @@ class Concat(Layer):
         if name is None:
             name = self.name
         return Concat(*layers, name)
+
+
+# TODO implement zonout layer
+# TODO add Dropout layer with possibility for rescalling to be turned off
+class Zoneout(Layer):
+    """ ZoneOut Layer.
+
+     Zoneout is intended as a regularisation mechanism for recurrent neural networks to be applied between each
+     unrolled step. The idea is to set the value of the current state of the neural network to its previous state
+     if a unit is zoned-out.
+
+    Reference:
+        (Krueger et. al 2017) ZONEOUT: REGULARIZING RNNs BY RANDOMLY PRESERVING HIDDEN ACTIVATIONS
+        https://arxiv.org/pdf/1606.01305.pdf
+    """
+    def __init__(self,current_layer, previous_layer):
+
+        pass
+
+
 
 
 __all__ = ["Input",
