@@ -637,7 +637,6 @@ class TestLayers(unittest.TestCase):
 
         res3 = lookup_sparse2.tensor.eval({sp_inputs2.placeholder: [[0], [2]]})
 
-        print(res3)
         self.assertTrue(np.array_equal(res1, res2))
         self.assertTrue(np.array_equal(res2, res3))
 
@@ -713,6 +712,7 @@ class TestLayers(unittest.TestCase):
 
         features1 = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features])
         features2 = Lookup(inputs, seq_size, feature_shape=[vocab_size, n_features])
+
         sp_features1 = ToSparse(features1)
 
         gate_w = Linear(features1, seq_size)
@@ -792,6 +792,38 @@ class TestLayers(unittest.TestCase):
         # r = ModelRunner(m)
         # r.log_graph("/tmp")
 
+    def test_gru_cell(self):
+        self.reset()
+
+        n_inputs = 4
+        n_hidden = 2
+        batch_size = 2
+
+        inputs = Input(n_inputs)
+        rnn_1 = GRUCell(inputs, n_hidden)
+        rnn_2 = rnn_1.reuse_with(inputs,
+                                 previous_state=rnn_1)
+
+        # if we don't wipe the memory it reuses it
+        rnn_3 = rnn_1.reuse_with(inputs,
+                                 previous_state=GRUCell.zero_state(inputs, rnn_1.n_units))
+
+        tf.global_variables_initializer().run()
+
+        data = np.ones([batch_size, 4])
+
+        res1 = rnn_1.tensor.eval({inputs.placeholder: data})
+        res2 = rnn_2.tensor.eval({inputs.placeholder: data})
+        res3 = rnn_3.tensor.eval({inputs.placeholder: data})
+
+        self.assertEqual((batch_size, n_hidden), np.shape(res1))
+        self.assertTrue(np.array_equal(res1, res3))
+        self.assertFalse(np.array_equal(res1, res2))
+
+        m = Model(inputs, rnn_2)
+        r = ModelRunner(m)
+        r.log_graph("/tmp")
+
     def test_module(self):
         l1 = Input(1, name="in1")
         l2 = Input(1, name="in2")
@@ -814,12 +846,10 @@ class TestLayers(unittest.TestCase):
         feed = {l1.placeholder: [[1]], l2.placeholder: [[1]]}
         res1 = m.tensor.eval(feed)
         res2 = m2.tensor.eval()
-        print(res1)
-        print(res2)
 
-        model = Model(m2.input_layers, m2)
-        runner = ModelRunner(model)
-        runner.log_graph("/tmp")
+        # model = Model(m2.input_layers, m2)
+        # runner = ModelRunner(model)
+        # runner.log_graph("/tmp")
 
     def test_module_gate(self):
         l1 = Input(4, name="in1")
@@ -835,8 +865,6 @@ class TestLayers(unittest.TestCase):
         t1 = TensorLayer([[1, 1, 1, 1]], n_units=4, dtype=tf.float32)
         t2 = TensorLayer([[1, 1]], n_units=2, dtype=tf.float32)
 
-        # TODO gate has the same problem as LSTM and RNN with the reuse and Module / Merge, etc
-
         with tf.name_scope("module_reuse"):
             m2 = gate_module.reuse_with(t1, t2)
 
@@ -844,17 +872,7 @@ class TestLayers(unittest.TestCase):
         runner = ModelRunner(model)
         runner.log_graph("/tmp/")
 
-        # tf.global_variables_initializer().run()
 
-        # feed = {l1.placeholder: [[1, 1, 1, 1]], l2.placeholder: [[1, 1]]}
-        # res1 = m.tensor.eval(feed)
-        # res2 = m2.tensor.eval()
-        # print(res1)
-        # print(res2)
-
-        # model = Model(m2.input_layers, m2)
-        # runner = ModelRunner(model)
-        # runner.log_graph("/tmp")
 
 
 if __name__ == '__main__':

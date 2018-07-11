@@ -1022,6 +1022,12 @@ class GRUCell(Layer):
         The second
     """
 
+    @staticmethod
+    def zero_state(input_layer, n_units):
+        input_batch = array_ops.shape(input_layer.tensor)[0]
+        zero_state = array_ops.zeros([input_batch, n_units])
+        return TensorLayer(zero_state, n_units)
+
     def __init__(self, layer, n_units,
                  previous_state=None,
                  activation=tanh,
@@ -1042,9 +1048,7 @@ class GRUCell(Layer):
                 raise ValueError(
                     "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
         else:
-            input_batch = array_ops.shape(layer.tensor)[0]
-            zero_state = array_ops.zeros([input_batch, n_units])
-            previous_state = TensorLayer(zero_state, n_units)
+            previous_state = GRUCell.zero_state(layer, n_units)
 
         self.previous_state = previous_state
 
@@ -1060,57 +1064,47 @@ class GRUCell(Layer):
         with layer_scope(self):
 
             if self.share_state_with is None:
-                self.w_h = Linear(layer, self.n_units, bias=True, init=self.init, name="w_h")
-
-                self.u_h = Linear(previous_state, self.n_units, bias=False, init=self.recurrent_init,
-                                  name="u_h")
                 # reset gate
-                self.w_r = Linear(layer, self.n_units, bias=True)
-                self.u_r = Linear(previous_state, self.n_units, bias=False)
+                self.w_r = Linear(layer, self.n_units, bias=True, name="w_r")
+                self.u_r = Linear(previous_state, self.n_units, bias=False, name="u_r")
 
-                # update gate
-                self.w_z = Linear(layer, self.n_units, bias=True)
-                self.u_z = Linear(previous_state, self.n_units, bias=False)
+                # candidate
+                gate_r = Add(self.w_r, self.u_r, name="linear_r")
+                gated_previous = Gate(previous_state, gate_r, name="gated_previous")
 
+                self.w_h = Linear(layer, self.n_units, bias=True, init=self.init, name="w_h")
+                self.u_h = Linear(gated_previous, self.n_units, bias=False, init=self.recurrent_init, name="u_h")
+
+                linear_h = Add(self.w_h, self.u_h, name="linear_h")
+                candidate_state = Activation(linear_h, self.activation, name="candidate")
+
+                # coupled update gate
+                self.w_z = Linear(layer, self.n_units, bias=True, name="w_z")
+                self.u_z = Linear(previous_state, self.n_units, bias=False, name="u_z")
+                update_gate = Add(self.w_z, self.u_z, name="linear_z")
+
+                self.state = CoupledGate(candidate_state, previous_state, update_gate)
             else:
-                self.w_h = self.share_state_with.w_h.reuse_with(layer)
-                self.u_h = self.share_state_with.u_h.reuse_with(previous_state)
-
-                # recurrent gate
+                # reset gate
                 self.w_r = self.share_state_with.w_r.reuse_with(layer)
                 self.u_r = self.share_state_with.u_r.reuse_with(previous_state)
+
+                # candidate
+                gate_r = Add(self.w_r, self.u_r)
+                gated_previous = Gate(previous_state, gate_r)
+
+                self.w_h = self.share_state_with.w_h.reuse_with(layer)
+                self.u_h = self.share_state_with.u_h.reuse_with(gated_previous)
+
+                candidate_state = Activation(Add(self.w_h, self.u_h), self.activation)
 
                 # update gate
                 self.w_z = self.share_state_with.w_z.reuse_with(layer)
                 self.u_z = self.share_state_with.u_z.reuse_with(previous_state)
 
-            # gate_r = Add(self.w_r, self.u_r)
-            # gated_r = Gate(self.previous_state())
+                update_gate = Add(self.w_z, self.u_z)
 
-            # self.state = Activation(Add(self.w_h, self.u_h), self.activation)
-
-            # gate_z = Add(self.w_z, self.u_z)
-
-            # gated_previous = Gate(self.previous_state, gate_z)
-            #
-
-            # self.gate_z = Activation(Add(self.w_z, self.u_z), fn=sigmoid)
-            #
-
-            # build gates
-            # gate_f = Add(self.w_f, self.u_f)
-            # gate_i = Add(self.w_i, self.u_i)
-            # gate_o = Add(self.w_o, self.u_o)
-
-            # memory_state = Gate(self.memory_state, gate_f)
-
-            # candidate = Activation(Add(self.w_c, self.u_c), fn=self.candidate_activation)
-            # candidate = Gate(candidate, gate_i)
-
-            # self.memory_state = Add(memory_state, candidate)
-
-            # output = Activation(memory_state, fn=self.output_activation)
-            # self.state = Gate(output, gate_o)
+                self.state = CoupledGate(candidate_state, previous_state, update_gate)
 
             return self.state.tensor
 
@@ -1121,7 +1115,7 @@ class GRUCell(Layer):
         if name is None:
             name = self.name
 
-        return RNNCell(
+        return GRUCell(
             layer=input_layer,
             n_units=self.n_units,
             previous_state=previous_state,
@@ -1437,11 +1431,6 @@ class Lookup(Layer):
                                                    ids=layer.tensor)
 
                     lookup_bias = array_ops.expand_dims(lookup_bias, -1)
-
-                    # print(layer.tensor)
-                    # print()
-                    # print(lookup_bias)
-                    # print(lookup_weights)
                     lookup_weights += lookup_bias
 
                 flat_lookup = array_ops.reshape(lookup_weights, [-1])
@@ -1527,6 +1516,7 @@ class Gate(Layer):
             gate_input: a layer to be used as the gate input
             gate_fn: function for gate
     """
+
     def __init__(self, layer, gate_input, gate_fn=sigmoid, name="gate"):
         if layer.n_units % gate_input.n_units != 0:
             raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
@@ -1574,8 +1564,9 @@ class CoupledGate(Layer):
             gate_fn: function for gate
     """
 
-    def __init__(self, layer1, layer2, gate_input, gate_fn=sigmoid, name="modulator"):
-        if layer1.shape != layer2.shape:
+    def __init__(self, layer1, layer2, gate_input, gate_fn=sigmoid, name="coupled_gate"):
+
+        if not layer1.tensor.get_shape().is_compatible_with(layer2.tensor.get_shape()):
             raise ValueError("layers must have the same shape: {}!={}".format(layer1.shape, layer2.shape))
 
         if layer1.n_units % gate_input.n_units != 0:
@@ -2056,6 +2047,7 @@ class Concat(Layer):
 __all__ = ["Input",
            "Fn",
            "RNNCell",
+           "GRUCell",
            "LSTMCell",
            "Gate",
            "CoupledGate",
