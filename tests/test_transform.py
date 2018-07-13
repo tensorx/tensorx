@@ -34,6 +34,22 @@ class TestTransform(unittest.TestCase):
 
         self.assertEqual(shape[-1], np.shape(x)[-1] * n)
 
+    def test_dropout(self):
+        n = 10000
+        b = 10
+        x = np.ones([b,n])
+        keep_prob = 0.5
+
+        drop_x = transform.dropout(x, keep_prob=keep_prob, scale=True)
+        expected_avg = np.mean(x)
+
+        self.assertTrue(np.allclose(np.mean(drop_x.eval()),expected_avg,atol=1e-2))
+
+        drop_x = transform.dropout(x, keep_prob=keep_prob, scale=False)
+        expected_avg = np.mean(x) * keep_prob
+
+        self.assertTrue(np.allclose(np.mean(drop_x.eval()), expected_avg, atol=1e-2))
+
     def test_empty_sparse_tensor(self):
         dense_shape = [2, 2]
         empty = transform.empty_sparse_tensor(dense_shape)
@@ -241,7 +257,7 @@ class TestTransform(unittest.TestCase):
     def test_gather_sparse(self):
         tf.reset_default_graph()
         self.setUp()
-        #sess = tf.Session()
+        # sess = tf.Session()
 
         # with tf.name_scope("test_setup"):
         n_runs = 10
@@ -305,8 +321,6 @@ class TestTransform(unittest.TestCase):
 
         log_writer.add_graph(sess.graph)
         log_writer.close()
-
-
 
 
 if __name__ == '__main__':

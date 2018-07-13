@@ -27,7 +27,7 @@ from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_va
 from tensorflow.python.ops import variable_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, dropout, embedding_lookup
+from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform, zero_init, xavier_init
@@ -1669,24 +1669,31 @@ class Dropout(Layer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.1, seed=None, name="dropout"):
+    def __init__(self, layer, keep_prob=0.1, scale=True, seed=None, name="dropout"):
         self.seed = seed
         self.keep_prob = keep_prob
+        self.scale = scale
 
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name)
 
         with layer_scope(self):
             if layer.is_sparse():
-                tensor = transform.sparse_dropout(layer.tensor, self.keep_prob, seed)
+                tensor = transform.sparse_dropout(sp_tensor=layer.tensor,
+                                                  keep_prob=self.keep_prob,
+                                                  scale=scale,
+                                                  seed=seed)
             else:
-                tensor = dropout(layer.tensor, self.keep_prob, seed=seed)
+                tensor = transform.dropout(tensor=layer.tensor,
+                                           keep_prob=self.keep_prob,
+                                           scale=scale,
+                                           seed=seed)
 
         self.tensor = tensor
 
     def reuse_with(self, layer, name=None):
         if name is None:
             name = self.name
-        return Dropout(layer, keep_prob=self.keep_prob, seed=self.seed, name=name)
+        return Dropout(layer, keep_prob=self.keep_prob, scale=self.scale, seed=self.seed, name=name)
 
 
 class GaussianNoise(Layer):
@@ -2057,11 +2064,9 @@ class Zoneout(Layer):
         (Krueger et. al 2017) ZONEOUT: REGULARIZING RNNs BY RANDOMLY PRESERVING HIDDEN ACTIVATIONS
         https://arxiv.org/pdf/1606.01305.pdf
     """
-    def __init__(self,current_layer, previous_layer):
 
+    def __init__(self, current_layer, previous_layer):
         pass
-
-
 
 
 __all__ = ["Input",
