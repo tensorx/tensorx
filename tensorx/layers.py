@@ -31,7 +31,7 @@ from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embeddin
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform, zero_init, xavier_init
-from tensorx.random import salt_pepper_noise, sparse_random_normal
+from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx import transform
 from tensorx import utils as txutils
 from tensorx.metrics import batch_cosine_distance
@@ -1696,6 +1696,49 @@ class Dropout(Layer):
         return Dropout(layer, keep_prob=self.keep_prob, scale=self.scale, seed=self.seed, name=name)
 
 
+class ZoneOut(Layer):
+    """ ZoneOut Layer.
+
+    Zoneout is intended as a regularisation mechanism for recurrent neural networks to be applied between each
+    unrolled step. The idea is to set the value of the current state of the neural network to its previous state
+    if a unit is zoned-out.
+
+    Reference:
+       (Krueger et. al 2017) ZONEOUT: REGULARIZING RNNs BY RANDOMLY PRESERVING HIDDEN ACTIVATIONS
+       https://arxiv.org/pdf/1606.01305.pdf
+
+    Args:
+        layer: an input layer :class:`Layer` to which ZoneOut will be applied to
+        previous_layer: a layer to which ZoneOut will revert for each dropped unit in the input layer
+        keep_prob: a scalar float with the probability that each element is kept.
+    """
+
+    def __init__(self, current_layer, previous_layer, keep_prob=0.1, seed=None, name="zoneout"):
+        self.seed = seed
+        self.keep_prob = keep_prob
+        self.current_layer = current_layer
+        self.previous_layer = previous_layer
+
+        super().__init__([current_layer, previous_layer], current_layer.n_units, current_layer.shape,
+                         current_layer.dtype, name)
+
+        with layer_scope(self):
+            mask = random_bernoulli(self.shape, prob=self.keep_prob, seed=seed)
+            mask = TensorLayer(mask, n_units=self.n_units, dtype=current_layer.dtype)
+
+            gate = CoupledGate(layer1=current_layer,
+                               layer2=previous_layer,
+                               gate_input=mask,
+                               gate_fn=identity,
+                               name="zoneout_gate")
+        self.tensor = gate.tensor
+
+    def reuse_with(self, current_layer, previous_layer, name=None):
+        if name is None:
+            name = self.name
+        return ZoneOut(current_layer, previous_layer, keep_prob=self.keep_prob, seed=self.seed, name=name)
+
+
 class GaussianNoise(Layer):
     """ Gaussian Noise Layer.
 
@@ -2051,24 +2094,6 @@ class Concat(Layer):
         return Concat(*layers, name)
 
 
-# TODO implement zonout layer
-# TODO add Dropout layer with possibility for rescalling to be turned off
-class Zoneout(Layer):
-    """ ZoneOut Layer.
-
-     Zoneout is intended as a regularisation mechanism for recurrent neural networks to be applied between each
-     unrolled step. The idea is to set the value of the current state of the neural network to its previous state
-     if a unit is zoned-out.
-
-    Reference:
-        (Krueger et. al 2017) ZONEOUT: REGULARIZING RNNs BY RANDOMLY PRESERVING HIDDEN ACTIVATIONS
-        https://arxiv.org/pdf/1606.01305.pdf
-    """
-
-    def __init__(self, current_layer, previous_layer):
-        pass
-
-
 __all__ = ["Input",
            "Fn",
            "RNNCell",
@@ -2094,5 +2119,6 @@ __all__ = ["Input",
            "Lookup",
            "layers_to_list",
            "WrapLayer",
-           "Module"
+           "Module",
+           "ZoneOut"
            ]

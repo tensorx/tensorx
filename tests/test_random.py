@@ -100,6 +100,16 @@ class TestRandom(unittest.TestCase):
         self.assertEqual(len(result.indices), int(density * dim) * batch_size)
         self.assertAlmostEqual(np.mean(result.values), 0, places=1)
 
+    def test_random_bernoulli(self):
+        n = 20
+        batch_size = 1000
+        prob = 0.5
+
+        binary = random.random_bernoulli(shape=[batch_size, n], prob=prob)
+
+        mean_val = np.mean(np.mean(binary.eval(), axis=-1))
+        self.assertAlmostEqual(mean_val, prob, 1)
+
     def test_sparse_random_mask(self):
         batch_size = 2
         dim = 10
@@ -112,7 +122,7 @@ class TestRandom(unittest.TestCase):
         self.assertNotEqual(np.sum(dense_result), 0)
 
         density = 0.5
-        mask_values = [1, -1, 2,-2]
+        mask_values = [1, -1, 2, -2]
         sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values, symmetrical=False)
         dense_mask = tf.sparse_tensor_to_dense(sp_mask)
         dense_result = dense_mask.eval()
@@ -134,7 +144,7 @@ class TestRandom(unittest.TestCase):
         sample = random.sample_sigmoid_from_logits(v, n_samples)
         print("sample: \n", sample.eval())
 
-        shape = [2,4]
+        shape = [2, 4]
         n_samples = 2
         v = np.random.uniform(size=shape)
         v = tf.nn.sigmoid(v)

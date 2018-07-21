@@ -402,6 +402,66 @@ class TestLayers(unittest.TestCase):
         np.testing.assert_array_equal(before_dropout.indices, after_dropout.indices)
         np.testing.assert_array_equal(before_dropout.values, after_dropout.values)
 
+    def test_zoneout_layer(self):
+        dim = 100
+        batch_size = 1000
+        keep_prob = 0.5
+
+        current_data = np.full([batch_size, dim], fill_value=1.)
+        previous_data = np.full([batch_size, dim], fill_value=-1.)
+
+        current_layer = TensorLayer(tensor=current_data, n_units=dim)
+        previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
+
+        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+
+        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
+        self.assertAlmostEqual(mean_sum, 0., delta=1.0)
+
+        # test keep_prob = 1
+        keep_prob = 1.0
+
+        current_data = np.full([batch_size, dim], fill_value=1.)
+        previous_data = np.full([batch_size, dim], fill_value=-1.)
+
+        current_layer = TensorLayer(tensor=current_data, n_units=dim)
+        previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
+
+        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+
+        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
+        self.assertEqual(mean_sum, dim)
+
+        # test keep_prob = 0
+        keep_prob = 0.0
+
+        current_data = np.full([batch_size, dim], fill_value=1.)
+        previous_data = np.full([batch_size, dim], fill_value=-1.)
+
+        current_layer = TensorLayer(tensor=current_data, n_units=dim)
+        previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
+
+        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+
+        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
+        self.assertEqual(mean_sum, -dim)
+
+        # test keep_prob = 0
+        keep_prob = np.random.rand()
+
+        current_data = np.full([batch_size, dim], fill_value=1.)
+        previous_data = np.full([batch_size, dim], fill_value=-1.)
+
+        current_layer = TensorLayer(tensor=current_data, n_units=dim)
+        previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
+
+        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+
+        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
+        expected = (2 * dim * keep_prob) - dim
+
+        self.assertAlmostEqual(mean_sum, expected, delta=1.0)
+
     def test_gaussian_noise(self):
         dim = 1000
         # for sparse inputs

@@ -437,7 +437,7 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
     """
     with ops.name_scope(name, "dropout", [tensor]) as name:
         tensor = ops.convert_to_tensor(tensor, name="x")
-        if not tensor.dtype.is_floating:
+        if not tensor.dtype.is_floating and scale:
             raise ValueError("x has to be a floating point tensor since it's going to"
                              " be scaled. Got a %s tensor instead." % tensor.dtype)
         if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
@@ -472,6 +472,52 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
             ret = math_ops.div(tensor, keep_prob) * binary_tensor
         else:
             ret = tensor * binary_tensor
+        if not context.executing_eagerly():
+            ret.set_shape(tensor.get_shape())
+        return ret
+
+
+def zoneout(tensor, zoneout_tensor, noise_shape=None, keep_prob=0.1, seed=None, name="dropout"):
+    """
+    """
+    with ops.name_scope(name, "dropout", [tensor]):
+        tensor = ops.convert_to_tensor(tensor, name="x")
+        if not tensor.dtype.is_floating:
+            raise ValueError("x has to be a floating point tensor since it's going to"
+                             " be scaled. Got a %s tensor instead." % tensor.dtype)
+        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
+            raise ValueError("keep_prob must be a scalar tensor or a float in the "
+                             "range (0, 1], got %g" % keep_prob)
+
+        # Early return if nothing needs to be dropped.
+        if isinstance(keep_prob, float) and keep_prob == 1:
+            return tensor
+        if context.executing_eagerly():
+            if isinstance(keep_prob, ops.EagerTensor):
+                if keep_prob.numpy() == 1:
+                    return tensor
+        else:
+            keep_prob = ops.convert_to_tensor(
+                keep_prob, dtype=tensor.dtype, name="keep_prob")
+            keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
+
+            # Do nothing if we know keep_prob == 1
+            if tensor_util.constant_value(keep_prob) == 1:
+                return tensor
+
+        noise_shape = _get_noise_shape(tensor, noise_shape)
+
+        # uniform [keep_prob, 1.0 + keep_prob)
+        random_tensor = keep_prob
+        random_tensor += random_ops.random_uniform(
+            noise_shape, seed=seed, dtype=tensor.dtype)
+        # 0. if [keep_prob, 1.0) and 1. if [1.0, 1.0 + keep_prob)
+        binary_tensor = math_ops.floor(random_tensor)
+
+        keep = tensor * binary_tensor
+        zoned = zoneout_tensor * (1 - binary_tensor)
+        ret = keep + zoned
+
         if not context.executing_eagerly():
             ret.set_shape(tensor.get_shape())
         return ret

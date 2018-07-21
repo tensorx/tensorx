@@ -185,7 +185,7 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
         return sp_tensor
 
 
-def random_bernoulli(shape, prob=0.5, seed=None):
+def random_bernoulli(shape, prob=0.5, seed=None, dtype=dtypes.float32):
     """ Random bernoulli tensor.
 
     A bernoulli tensor sampled from a random uniform distribution.
@@ -201,10 +201,11 @@ def random_bernoulli(shape, prob=0.5, seed=None):
         a Tensor with the given shape
 
     """
-    p = array_ops.fill(shape, value=prob)
-    r = random_ops.random_uniform(shape, dtype=dtypes.float32, seed=seed)
-    ones = math_ops.cast(math_ops.less(r, p), dtypes.float32)
-    return ones
+    # uniform [prob, 1.0 + prob)
+    random_tensor = prob
+    random_tensor += random_ops.random_uniform(
+        shape, seed=seed, dtype=dtype)
+    return math_ops.floor(random_tensor)
 
 
 def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32, seed=None):
@@ -380,4 +381,5 @@ __all__ = ["sample",
            "sparse_random_mask",
            "salt_pepper_noise",
            "sample_categorical_dist",
-           "sample_sigmoid_from_logits"]
+           "sample_sigmoid_from_logits",
+           "random_bernoulli"]
