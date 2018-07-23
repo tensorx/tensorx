@@ -142,7 +142,6 @@ class TestRandom(unittest.TestCase):
         v = tf.nn.sigmoid(v)
 
         sample = random.sample_sigmoid_from_logits(v, n_samples)
-        print("sample: \n", sample.eval())
 
         shape = [2, 4]
         n_samples = 2
@@ -151,10 +150,7 @@ class TestRandom(unittest.TestCase):
 
         sample = random.sample_sigmoid_from_logits(v, n_samples)
         sample_val = sample.eval()
-        print("sample: \n", sample_val)
 
-        # I used val because I want to make sure we are working on the sample op and not calling the same op
-        # again
         sp_sample = transform.to_sparse(sample_val)
         dense_sample = tf.sparse_tensor_to_dense(sp_sample)
         self.assertTrue(np.array_equal(sample_val, dense_sample.eval()))
