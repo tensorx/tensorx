@@ -12,6 +12,7 @@ Types of layers:
 """
 from functools import partial
 import itertools
+from enum import Enum
 
 from collections import deque
 
@@ -34,9 +35,7 @@ from tensorx.init import random_uniform, zero_init, xavier_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx import transform
 from tensorx import utils as txutils
-from tensorx.metrics import batch_cosine_distance
-from tensorx.activation import sigmoid, elu, tanh, identity
-from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
+from tensorx.activation import sigmoid, tanh, identity
 
 from tensorx import math as mathx
 
@@ -928,6 +927,32 @@ class Fn(Layer):
                   self.activation.dtype,
                   name,
                   self.linear.share_vars_with)
+
+
+class Conv1D(Layer):
+    """
+
+    Args:
+        layer: the input layer to the Convolution Layer
+        n_units: number of output units for this layer (number of filters)
+        kernel_size: convolution kernel size
+        padding: None, Conv1D.Padding.SAME, or Conv1D.Padding.CAUSAL
+
+    """
+    class Padding(Enum):
+        SAME = 1
+        CAUSAL = 2
+
+    def __init__(self, layer, n_units, kernel_size, stride=1, padding=None):
+        if padding is not None and not isinstance(padding, Conv1D.Padding):
+            raise TypeError("invalid padding type, use None, Convolution.Paddding.SAME or .CAUSAL")
+        self.padding = padding
+        self.stride = stride
+        self.kernel_size = kernel_size
+
+        kernel_shape = [self.kernel_size] + (layer.n_units, self.n_units)
+
+        super().__init__([layer], n_units, [layer.n_units, n_units], dtypes.float32, name)
 
 
 class RNNCell(Layer):

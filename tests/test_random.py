@@ -141,7 +141,7 @@ class TestRandom(unittest.TestCase):
         v = np.random.uniform(size=shape)
         v = tf.nn.sigmoid(v)
 
-        sample = random.sample_sigmoid_from_logits(v, n_samples)
+        # sample = random.sample_sigmoid_from_logits(v, n_samples)
 
         shape = [2, 4]
         n_samples = 2
