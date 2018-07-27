@@ -681,7 +681,12 @@ def sparse_indices(sp_values, name="sparse_indices"):
         ``SparseTensor``: a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor`` .
     """
     with ops.name_scope(name, values=[sp_values]):
-        _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
+        shape = sp_values.get_shape()
+        # 1D tensors are interpreted as a single lookup
+        if len(shape.dims) == 1:
+            [flat_indices] = array_ops.unstack(sp_values.indices, num=1, axis=-1)
+        else:
+            _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
         return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
 

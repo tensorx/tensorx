@@ -28,7 +28,7 @@ from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_va
 from tensorflow.python.ops import variable_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup
+from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, conv1d
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform, zero_init, xavier_init
@@ -936,23 +936,88 @@ class Conv1D(Layer):
         layer: the input layer to the Convolution Layer
         n_units: number of output units for this layer (number of filters)
         kernel_size: convolution kernel size
-        padding: None, Conv1D.Padding.SAME, or Conv1D.Padding.CAUSAL
 
     """
-    class Padding(Enum):
-        SAME = 1
-        CAUSAL = 2
 
-    def __init__(self, layer, n_units, kernel_size, stride=1, padding=None):
-        if padding is not None and not isinstance(padding, Conv1D.Padding):
-            raise TypeError("invalid padding type, use None, Convolution.Paddding.SAME or .CAUSAL")
-        self.padding = padding
+    def __init__(self, layer,
+                 n_units,
+                 kernel_size,
+                 stride=1,
+                 dilation_rate=1,
+                 same_padding=True,
+                 bias=True,
+                 name="conv1D",
+                 shape_vars_with=None):
+
+        self.same_padding = same_padding
+        self.dilation = dilation_rate
         self.stride = stride
         self.kernel_size = kernel_size
+        self.bias = bias
+        self.kernel_shape = [self.kernel_size, layer.n_units, self.n_units]
 
-        kernel_shape = [self.kernel_size] + (layer.n_units, self.n_units)
+        if self.share_vars_with is not None:
+            if not isinstance(self.share_vars_with, Conv1D):
+                raise TypeError("Layer can only share variables with other layer of the same type")
 
-        super().__init__([layer], n_units, [layer.n_units, n_units], dtypes.float32, name)
+            if self.shape != self.share_vars_with.shape:
+                raise ValueError("Can only share variables with layers with the same shape: "
+                                 "share_vars_with is provided but \n"
+                                 "self shape: {s0} different from "
+                                 "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
+
+        shape = [layer.shape[0], layer.n_units, n_units]
+
+        super().__init__([layer], n_units, shape, dtypes.float32, name)
+
+        self.tensor = self._build_graph(layer)
+
+    def _build_graph(self, layer):
+        var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
+        var_reuse = self.share_vars_with is not None
+
+        with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
+            # with name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
+            # init weights
+
+            if self.shared_weights is None:
+                self.kernels = variable_scope.get_variable("filters",
+                                                           shape=self.kernel_shape,
+                                                           dtype=self.dtype,
+                                                           initializer=self.init)
+            else:
+                self.kernels = self.shared_weights
+
+            # store variables for easy access
+            self._add_variable(self.kernels)
+            # y = conv1D(x,w)
+            if layer.is_sparse():
+                input_tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
+
+            #
+            if not isinstance(layer, SeqLayer):
+                seq_size = 1
+            else:
+                seq_size = layer.seq_size
+
+            input_tensor = array_ops.reshape(input_tensor, [-1, seq_size, layer.n_units])
+            padding = "SAME" if self.same_padding else "VALID"
+            tensor = conv1d(input_tensor,
+                            self.kernels,
+                            stride=self.stride,
+                            padding=padding,
+                            use_cudnn_on_gpu=True,
+                            data_format="NWC")
+
+            # y = xW + [b]
+            if self.bias:
+                self.bias = variable_scope.get_variable("b",
+                                                        shape=[self.n_units],
+                                                        dtype=self.dtype,
+                                                        initializer=zero_init())
+                self._add_variable(self.bias)
+                tensor = bias_add(tensor, self.bias, name="add_b")
+        return tensor
 
 
 class RNNCell(Layer):
@@ -1283,6 +1348,33 @@ class LSTMCell(Layer):
         )
 
 
+class SeqLayer(Layer):
+    def __init__(self, input_layers, n_units, seq_size, shape=None, dtype=dtypes.float32, name="seq_layer"):
+        super().__init__(input_layers, n_units, shape, dtype, name)
+        self.seq_size = seq_size
+
+        # dynamic batch size
+        if self.batch_size is None:
+            batch_size = math_ops.ceil(array_ops.shape(self.tensor)[0] / self.seq_size)
+        else:
+            batch_size = self.batch_size
+
+    def as_flat(self):
+        flat_seq = array_ops.reshape(self.tensor, [-1])
+        filled = array_ops.shape(flat_seq)[0]
+
+        padding_shape = [math_ops.maximum(self.n_units * self.batch_size - filled, 0)]
+        padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
+        padded_flat_seq = array_ops.concat([flat_seq, padding], axis=-1)
+
+        tensor = array_ops.reshape(padded_flat_seq, [-1, self.n_units])
+
+    def as_seq(self):
+        seqs = array_ops.split(self.tensor, self.seq_size, -1)
+        tensor = array_ops.concat(seqs, 0)
+        tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
+
+
 class Lookup(Layer):
     """
     Note:
@@ -1321,22 +1413,23 @@ class Lookup(Layer):
                  dtype=dtypes.float32,
                  name="seq_lookup",
                  share_vars_with=None,
-                 as_sequence=False):
+                 seq_padding=True,
+                 batch_padding=True
+                 ):
 
         self.weight_init = weight_init
-        self.as_sequence = as_sequence
         self.feature_shape = feature_shape
         self.seq_size = seq_size
+        self.seq_padding = seq_padding
+        self.batch_padding = batch_padding
 
         self.bias = bias
         self.shared_bias = shared_bias
 
         n_units = feature_shape[-1]
-        if not as_sequence:
-            n_units = seq_size * n_units
 
         self.batch_size = batch_size
-        shape = [batch_size, n_units]
+        shape = [batch_size, seq_size, n_units]
         self.share_vars_with = share_vars_with
         self.shared_weights = shared_weights
 
@@ -1398,17 +1491,26 @@ class Lookup(Layer):
             # total number of features that should be looked up
             # used to compute padding if necessary
             n_features = self.n_units
-            if self.as_sequence:
-                n_features = self.n_units * self.seq_size
+            # if self.as_sequence:
+            #    n_features = self.n_units * self.seq_size
 
             # batch size is dynamic and should be computed here because we need it
             # y = xW
             if layer.is_sparse():
-                # dynamic batch size
+                # dynamic batch size with sparse tensors
                 if self.batch_size is None:
-                    batch_size = math_ops.ceil(array_ops.shape(layer.tensor)[0] / self.seq_size)
+                    shape = layer.tensor.get_shape()
+                    # 1D tensors are interpreted as a single lookup
+                    if len(shape.dims) == 1:
+                        batch_size = 1
+                    else:
+                        batch_size = math_ops.ceil(array_ops.shape(layer.tensor)[0] / self.seq_size)
                 else:
                     batch_size = self.batch_size
+
+                print(batch_size)
+                batch_size = math_ops.cast(batch_size, dtypes.int32)
+
 
                 sp_values = layer.tensor
                 sp_indices = transform.sparse_indices(sp_values)
@@ -1430,23 +1532,32 @@ class Lookup(Layer):
 
                     lookup_weights += lookup_bias
 
-                flat_lookup = array_ops.reshape(lookup_weights, [-1])
-                filled = array_ops.shape(flat_lookup)[0]
+                lookup_shape = array_ops.stack([batch_size, -1, self.n_units])
+                flat_lookup = array_ops.reshape(lookup_weights, lookup_shape)
+
+                # flat_lookup = array_ops.reshape(lookup_weights, [-1])
+                # filled = array_ops.shape(flat_lookup)[0]
 
                 # for sparse tensors this is int64
-                batch_size = math_ops.cast(batch_size, dtypes.int32)
+                # batch_size = math_ops.cast(batch_size, dtypes.int32)
 
-                fill_diff = (n_features * batch_size) - filled
-                padding_shape = [math_ops.maximum(fill_diff, 0)]
-                padding = array_ops.zeros(padding_shape)
-                flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
+                # fill_diff = (n_features * batch_size) - filled
+                # padding_shape = [math_ops.maximum(fill_diff, 0)]
+                # padding = array_ops.zeros(padding_shape)
+                # flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 
             else:
-                # if dense batch size is known
                 if self.batch_size is None:
-                    batch_size = array_ops.shape(layer.tensor)[0]
+                    shape = layer.tensor.get_shape()
+                    # 1D tensors are interpreted as a single lookup
+                    if len(shape.dims) == 1:
+                        batch_size = 1
+                    else:
+                        batch_size = array_ops.shape(layer.tensor)[0]
                 else:
                     batch_size = self.batch_size
+
+                print(layer.tensor)
 
                 lookup_weights = embedding_lookup(params=self.weights,
                                                   ids=layer.tensor)
@@ -1458,18 +1569,46 @@ class Lookup(Layer):
                     lookup_bias = array_ops.expand_dims(lookup_bias, -1)
                     lookup_weights += lookup_bias
 
-                flat_lookup = array_ops.reshape(lookup_weights, [-1])
-                filled = array_ops.shape(flat_lookup)[0]
+                lookup_shape = array_ops.stack([batch_size, -1, self.n_units])
+                flat_lookup = array_ops.reshape(lookup_weights, lookup_shape)
 
-                padding_shape = [math_ops.maximum(n_features * batch_size - filled, 0)]
-                padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
-                flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
+                # flat_lookup = array_ops.reshape(lookup_weights, [-1])
+                # filled = array_ops.shape(flat_lookup)[0]
 
-            tensor = array_ops.reshape(flat_lookup, [-1, n_features])
-            if self.as_sequence:
-                seqs = array_ops.split(tensor, self.seq_size, -1)
-                tensor = array_ops.concat(seqs, 0)
-                tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
+                # padding_shape = [math_ops.maximum(n_features * batch_size - filled, 0)]
+                # padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
+                # flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
+
+            # tensor = array_ops.reshape(flat_lookup, [-1, n_features])
+            tensor = flat_lookup
+            # tensor = array_ops.reshape(flat_lookup, [-1, layer.n_units, n_features])
+
+            """
+            if self.batch_padding or self.seq_padding:
+                padding = []
+                if self.batch_padding and self.batch_size is not None:
+                    batch_padding = self.batch_size - array_ops.shape(tensor)[0]
+                    padding.append([0, batch_padding])
+                else:
+                    padding.append([0, 0])
+
+                if self.seq_padding:
+                    seq_padding = self.seq_size - array_ops.shape(tensor)[1]
+                    padding.append([0, seq_padding])
+                else:
+                    padding.append([0, 0])
+
+                padding.append([0, 0])
+                padding = array_ops.stack(padding)
+                tensor = array_ops.pad(tensor, padding)
+            """
+
+            # padd sequences
+
+            # if self.as_sequence:
+            #    seqs = array_ops.split(tensor, self.seq_size, -1)
+            #    tensor = array_ops.concat(seqs, 0)
+            #    tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
 
         return tensor
 
@@ -1493,8 +1632,8 @@ class Lookup(Layer):
 
         if name is None:
             name = self.name
-        if as_sequence is None:
-            as_sequence = self.as_sequence
+        # if as_sequence is None:
+        #    as_sequence = self.as_sequence
 
         return Lookup(input_layer,
                       seq_size=self.seq_size,
@@ -1504,8 +1643,7 @@ class Lookup(Layer):
                       weight_init=None,
                       dtype=self.dtype,
                       name=name,
-                      share_vars_with=share_vars_with,
-                      as_sequence=as_sequence)
+                      share_vars_with=share_vars_with)
 
 
 def _apply_gate(layer: Layer, gate: Layer):
