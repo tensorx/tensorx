@@ -277,7 +277,9 @@ class Layer:
             self.shape = [None, n_units]
         else:
             if shape[-1] != n_units:
-                raise ValueError("Shape mismatch: shape[-1] != n_units")
+                raise ValueError("Shape mismatch: shape[-1] ({}) != n_units ({})".format(
+                    shape[-1], n_units
+                ))
             self.shape = shape
 
         # stores the variables if this layer has any
@@ -384,7 +386,7 @@ class WrapLayer(Layer):
 
     """
 
-    def __init__(self, layer, n_units, tf_fn, shape=None, name="wrap"):
+    def __init__(self, layer, n_units, tf_fn, name="wrap"):
         if name == "wrap":
             name = "wrap_{}".format(layer.name)
 
@@ -396,21 +398,16 @@ class WrapLayer(Layer):
         self.variable_names = layer.variable_names
         self.variables = layer.variables
 
-        if shape is None:
-            shape = [layer.shape[0], n_units]
-        super().__init__(layer, n_units, shape, dtype=layer.tensor.dtype, name=name)
-        self.tensor = self._build_graph(layer)
-
-    def _build_graph(self, layer):
-        with layer_scope(self):
+        with layer_scope(self, name=name):
             tensor = self.tf_fn(layer.tensor)
             output_shape = tensor.get_shape()
-            if not output_shape.is_compatible_with(self.shape):
-                raise ValueError("shape from tf_fn {s1} incompatible with {s2}".format(s1=output_shape, s2=self.shape))
 
-            if layer.dtype != tensor.dtype:
-                self.dtype = tensor.dtype
-        return tensor
+            dtype = tensor.dtype
+            shape = output_shape
+
+        super().__init__(layer, n_units, shape, dtype, name=name)
+
+        self.tensor = tensor
 
     def reuse_with(self, layer):
         """ Reuse this WrapLayer with another layer
@@ -1348,33 +1345,6 @@ class LSTMCell(Layer):
         )
 
 
-class SeqLayer(Layer):
-    def __init__(self, input_layers, n_units, seq_size, shape=None, dtype=dtypes.float32, name="seq_layer"):
-        super().__init__(input_layers, n_units, shape, dtype, name)
-        self.seq_size = seq_size
-
-        # dynamic batch size
-        if self.batch_size is None:
-            batch_size = math_ops.ceil(array_ops.shape(self.tensor)[0] / self.seq_size)
-        else:
-            batch_size = self.batch_size
-
-    def as_flat(self):
-        flat_seq = array_ops.reshape(self.tensor, [-1])
-        filled = array_ops.shape(flat_seq)[0]
-
-        padding_shape = [math_ops.maximum(self.n_units * self.batch_size - filled, 0)]
-        padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
-        padded_flat_seq = array_ops.concat([flat_seq, padding], axis=-1)
-
-        tensor = array_ops.reshape(padded_flat_seq, [-1, self.n_units])
-
-    def as_seq(self):
-        seqs = array_ops.split(self.tensor, self.seq_size, -1)
-        tensor = array_ops.concat(seqs, 0)
-        tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
-
-
 class Lookup(Layer):
     """
     Note:
@@ -1600,6 +1570,13 @@ class Lookup(Layer):
             self.shape = [tensor.get_shape().as_list()[0], self.seq_size, self.n_units]
 
         return tensor
+
+    def as_concat(self):
+        n_units = self.n_units * self.seq_size
+        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]))
+
+    def as_seq(self):
+        return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]))
 
     def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
