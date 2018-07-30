@@ -630,7 +630,7 @@ class TestLayers(unittest.TestCase):
         inputs = Input(2, dtype=tf.int64)
         input_data = np.array([[2, 0], [1, 2]])
 
-        tensor_input = TensorLayer(tf.constant([[2], [1]]), 1)
+        tensor_input = TensorLayer(tf.constant([2]), 1)
 
         lookup = Lookup(inputs, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
                         batch_padding=True)
@@ -646,6 +646,38 @@ class TestLayers(unittest.TestCase):
 
             self.assertEqual(np.shape(v1), (batch_size, seq_size, embed_dim))
             self.assertEqual(np.shape(v2), (batch_size, seq_size, embed_dim))
+
+    def test_lookup_sequence_sparse(self):
+        input_dim = 10
+        embed_dim = 3
+        seq_size = 2
+        batch_size = 3
+
+        sparse_input = tf.SparseTensor([[0, 2], [1, 0], [2, 1]], [1, 1, 1], [3, input_dim])
+        sparse_input_1d = tf.SparseTensor([[2], [0], [1]], [1, 1, 1], [input_dim])
+        tensor_input = TensorLayer(sparse_input, input_dim)
+        tensor_input_1d = TensorLayer(sparse_input_1d, input_dim)
+
+        lookup = Lookup(tensor_input, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
+                        batch_padding=False)
+
+        lookup_padding = Lookup(tensor_input, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
+                                batch_padding=True)
+
+        lookup_1d = Lookup(tensor_input_1d, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
+                           batch_padding=True)
+
+        var_init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(var_init)
+
+            result = sess.run(lookup.tensor)
+            result_padding = sess.run(lookup_padding.tensor)
+            result_1d = sess.run(lookup_1d.tensor)
+
+            self.assertEqual(np.shape(result), (2, seq_size, embed_dim))
+            self.assertEqual(np.shape(result_padding), (batch_size, seq_size, embed_dim))
+            self.assertEqual(np.shape(result_1d), (batch_size, seq_size, embed_dim))
 
     def test_lookup_sequence_bias(self):
         vocab_size = 4

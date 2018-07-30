@@ -1500,27 +1500,22 @@ class Lookup(Layer):
             if self.bias is not None:
                 self._add_variable(self.bias)
 
-            # total number of features that should be looked up
-            # used to compute padding if necessary
-            n_features = self.n_units
-            # if self.as_sequence:
-            #    n_features = self.n_units * self.seq_size
-
-            # batch size is dynamic and should be computed here because we need it
+            # batch size is unknown for sparse lookups
             # y = xW
             if layer.is_sparse():
-                self.debug = []
 
-                # dynamic batch size with sparse tensors
-                if self.batch_size is None:
-                    batch_size = math_ops.ceil(array_ops.shape(layer.tensor)[0] / self.seq_size)
-                    batch_size = math_ops.cast(batch_size, dtypes.int32)
-                else:
-                    batch_size = self.batch_size
+                input_tensor = layer.tensor
+                sp_batch_size = array_ops.shape(input_tensor.values)[0]
+                sp_dim = math_ops.cast(input_tensor.dense_shape[-1], dtypes.int32)
 
-                self.debug.insert(0, batch_size)
+                # transform 1D sparse lookups into 2D sparse lookup with 3 lookups
+                # similar to the semantics of 1D dense tensor lookups
+                if len(input_tensor.get_shape().as_list()) == 1:
+                    sp_indices = transform.column_indices_to_matrix_indices(input_tensor.indices).eval()
+                    sp_batch_dim = math_ops.cast(array_ops.stack([sp_batch_size, sp_dim]), dtypes.int64)
+                    input_tensor = SparseTensor(sp_indices, input_tensor.values, sp_batch_dim)
 
-                sp_values = layer.tensor
+                sp_values = input_tensor
                 sp_indices = transform.sparse_indices(sp_values)
 
                 # sums the lookups for the same row
@@ -1540,37 +1535,48 @@ class Lookup(Layer):
 
                     lookup_weights += lookup_bias
 
-                self.debug.insert(1, lookup_weights)
+                tensor = lookup_weights
 
-                lookup_shape = array_ops.stack([batch_size, -1, self.n_units])
-                flat_lookup = array_ops.reshape(lookup_weights, lookup_shape)
+                # pad lookup if layer.tensor.dense_shape[0] is not a multiple of self.seq_size
+                batch_padding = sp_batch_size % self.seq_size
+                batch_padding = array_ops.stack([[0, batch_padding], [0, 0]])
+                tensor = array_ops.pad(tensor, batch_padding)
 
-                # flat_lookup = array_ops.reshape(lookup_weights, [-1])
-                # filled = array_ops.shape(flat_lookup)[0]
+                # dynamic batch size with sparse tensors
+                batch_size = math_ops.cast(math_ops.ceil(sp_batch_size / self.seq_size), dtypes.int32)
+                tensor = array_ops.reshape(tensor, array_ops.stack([batch_size, self.seq_size, self.n_units]))
 
-                # for sparse tensors this is int64
-                # batch_size = math_ops.cast(batch_size, dtypes.int32)
+                # padding
+                padding = []
+                if self.batch_padding and self.batch_size is not None:
+                    batch_padding = math_ops.maximum(self.batch_size - array_ops.shape(tensor)[0], 0)
+                    padding.append([0, batch_padding])
+                else:
+                    padding.append([0, 0])
 
-                # fill_diff = (n_features * batch_size) - filled
-                # padding_shape = [math_ops.maximum(fill_diff, 0)]
-                # padding = array_ops.zeros(padding_shape)
-                # flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
+                padding.append([0, 0])
+                padding.append([0, 0])
 
+                padding = array_ops.stack(padding)
+                tensor = array_ops.pad(tensor, padding)
             else:
+
+                input_tensor = array_ops.reshape(layer.tensor, array_ops.stack([-1, layer.n_units]))
                 lookup_weights = embedding_lookup(params=self.weights,
-                                                  ids=layer.tensor)
+                                                  ids=input_tensor)
 
                 if self.bias is not None:
                     lookup_bias = embedding_lookup(params=self.bias,
-                                                   ids=layer.tensor)
+                                                   ids=input_tensor)
 
                     lookup_bias = array_ops.expand_dims(lookup_bias, -1)
                     lookup_weights += lookup_bias
 
-                batch_size = array_ops.shape(layer.tensor)[0]
+                batch_size = array_ops.shape(input_tensor)[0]
                 lookup_shape = array_ops.stack([batch_size, -1, self.n_units])
                 tensor = array_ops.reshape(lookup_weights, lookup_shape)
 
+                # padding
                 padding = []
                 if self.batch_padding and self.batch_size is not None:
                     batch_padding = math_ops.maximum(self.batch_size - array_ops.shape(tensor)[0], 0)
