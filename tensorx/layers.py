@@ -12,7 +12,6 @@ Types of layers:
 """
 from functools import partial
 import itertools
-from enum import Enum
 
 from collections import deque
 
@@ -20,7 +19,7 @@ from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
 
 from tensorflow.python.framework.ops import Tensor, name_scope
-from tensorflow.python.ops import array_ops, check_ops
+from tensorflow.python.ops import array_ops, check_ops, control_flow_ops
 
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variables
@@ -325,6 +324,11 @@ class Layer:
 
         """
         return isinstance(self.tensor, SparseTensor)
+
+    def is_dense(self):
+        """ Checks if the current layer is dense
+        """
+        return not self.is_sparse()
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -651,22 +655,18 @@ class TensorLayer(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, tensor, n_units, batch_size=None, var_list=None, dtype=None, name="tensor_input"):
+    def __init__(self, tensor, n_units, shape=None, var_list=None, dtype=None, name="tensor_input"):
         tensor = txutils.to_tensor_cast(tensor, dtype)
         dtype = tensor.dtype
 
-        if batch_size is not None:
-            shape = [batch_size, n_units]
-        else:
-            shape = tensor.get_shape()
-            shape = shape.as_list()
+        if shape is None:
+            shape = tensor.get_shape().as_list()
 
-            if shape[-1] != n_units or (batch_size is not None and shape[0] != batch_size):
-                raise ValueError("tensor shape does not match expected batch size and n_units")
-
-            # if dynamic shape can't be determined, use the supplied values
             if all(dim is None for dim in shape):
-                shape = [batch_size, n_units]
+                raise ValueError("dynamic shape couldn't be determined: provided shape can't be none")
+
+        if shape[-1] != n_units:
+            raise ValueError("tensor shape [...,n_units={}] does not match n_units={}".format(shape[-1], n_units))
 
         if var_list is not None:
             for var in var_list:
@@ -1404,7 +1404,7 @@ class Lookup(Layer):
     def __init__(self,
                  layer,
                  seq_size,
-                 feature_shape,
+                 lookup_shape,
                  weight_init=random_uniform(),
                  batch_size=None,
                  bias=False,
@@ -1413,39 +1413,51 @@ class Lookup(Layer):
                  dtype=dtypes.float32,
                  name="seq_lookup",
                  share_vars_with=None,
-                 seq_padding=True,
                  batch_padding=True
                  ):
 
         self.weight_init = weight_init
-        self.feature_shape = feature_shape
+        self.feature_shape = lookup_shape
         self.seq_size = seq_size
-        self.seq_padding = seq_padding
         self.batch_padding = batch_padding
 
         self.bias = bias
         self.shared_bias = shared_bias
 
-        n_units = feature_shape[-1]
+        n_units = lookup_shape[-1]
 
         self.batch_size = batch_size
-        shape = [batch_size, seq_size, n_units]
+
+        shape = [None, seq_size, n_units]
         self.share_vars_with = share_vars_with
         self.shared_weights = shared_weights
 
-        super().__init__(layer, n_units, shape, dtype, name)
+        if layer.is_dense() and layer.dtype not in (dtypes.int32, dtypes.int64):
+            raise TypeError("invalid input layer dtype {}: should be {} or {}".format(
+                layer.dtype,
+                dtypes.int32,
+                dtypes.int64
+            ))
+
+        if len(layer.shape) > 2:
+            raise ValueError("expected 1D/2D input layer")
+        elif layer.is_dense() and layer.n_units > seq_size:
+            raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
+                             "if n_units < seq_size the lookup will be padded".format(layer.n_units, seq_size))
+
+        super().__init__(layer, n_units=n_units, shape=shape, dtype=dtype, name=name)
 
         if self.shared_weights is not None:
             weight_shape = shared_weights.get_shape().as_list()
-            if feature_shape != weight_shape:
+            if lookup_shape != weight_shape:
                 raise ValueError(
-                    "shared weight shape {} and feature shape {} mismatch".format(weight_shape, feature_shape))
+                    "shared weight shape {} and feature shape {} mismatch".format(weight_shape, lookup_shape))
 
         if self.shared_bias is not None:
             num_bias = shared_bias.get_shape().as_list()[-1]
-            if feature_shape[0] != num_bias:
+            if lookup_shape[0] != num_bias:
                 raise ValueError(
-                    "number of bias {} and number of feature rows {} mismatch".format(num_bias, feature_shape[0]))
+                    "number of bias {} and number of feature rows {} mismatch".format(num_bias, lookup_shape[0]))
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Lookup):
@@ -1497,20 +1509,16 @@ class Lookup(Layer):
             # batch size is dynamic and should be computed here because we need it
             # y = xW
             if layer.is_sparse():
+                self.debug = []
+
                 # dynamic batch size with sparse tensors
                 if self.batch_size is None:
-                    shape = layer.tensor.get_shape()
-                    # 1D tensors are interpreted as a single lookup
-                    if len(shape.dims) == 1:
-                        batch_size = 1
-                    else:
-                        batch_size = math_ops.ceil(array_ops.shape(layer.tensor)[0] / self.seq_size)
+                    batch_size = math_ops.ceil(array_ops.shape(layer.tensor)[0] / self.seq_size)
+                    batch_size = math_ops.cast(batch_size, dtypes.int32)
                 else:
                     batch_size = self.batch_size
 
-                print(batch_size)
-                batch_size = math_ops.cast(batch_size, dtypes.int32)
-
+                self.debug.insert(0, batch_size)
 
                 sp_values = layer.tensor
                 sp_indices = transform.sparse_indices(sp_values)
@@ -1532,6 +1540,8 @@ class Lookup(Layer):
 
                     lookup_weights += lookup_bias
 
+                self.debug.insert(1, lookup_weights)
+
                 lookup_shape = array_ops.stack([batch_size, -1, self.n_units])
                 flat_lookup = array_ops.reshape(lookup_weights, lookup_shape)
 
@@ -1547,18 +1557,6 @@ class Lookup(Layer):
                 # flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
 
             else:
-                if self.batch_size is None:
-                    shape = layer.tensor.get_shape()
-                    # 1D tensors are interpreted as a single lookup
-                    if len(shape.dims) == 1:
-                        batch_size = 1
-                    else:
-                        batch_size = array_ops.shape(layer.tensor)[0]
-                else:
-                    batch_size = self.batch_size
-
-                print(layer.tensor)
-
                 lookup_weights = embedding_lookup(params=self.weights,
                                                   ids=layer.tensor)
 
@@ -1569,31 +1567,19 @@ class Lookup(Layer):
                     lookup_bias = array_ops.expand_dims(lookup_bias, -1)
                     lookup_weights += lookup_bias
 
+                batch_size = array_ops.shape(layer.tensor)[0]
                 lookup_shape = array_ops.stack([batch_size, -1, self.n_units])
-                flat_lookup = array_ops.reshape(lookup_weights, lookup_shape)
+                tensor = array_ops.reshape(lookup_weights, lookup_shape)
 
-                # flat_lookup = array_ops.reshape(lookup_weights, [-1])
-                # filled = array_ops.shape(flat_lookup)[0]
-
-                # padding_shape = [math_ops.maximum(n_features * batch_size - filled, 0)]
-                # padding = array_ops.zeros(padding_shape, dtype=self.weights.dtype)
-                # flat_lookup = array_ops.concat([flat_lookup, padding], axis=-1)
-
-            # tensor = array_ops.reshape(flat_lookup, [-1, n_features])
-            tensor = flat_lookup
-            # tensor = array_ops.reshape(flat_lookup, [-1, layer.n_units, n_features])
-
-            """
-            if self.batch_padding or self.seq_padding:
                 padding = []
                 if self.batch_padding and self.batch_size is not None:
-                    batch_padding = self.batch_size - array_ops.shape(tensor)[0]
+                    batch_padding = math_ops.maximum(self.batch_size - array_ops.shape(tensor)[0], 0)
                     padding.append([0, batch_padding])
                 else:
                     padding.append([0, 0])
 
-                if self.seq_padding:
-                    seq_padding = self.seq_size - array_ops.shape(tensor)[1]
+                if layer.n_units < self.seq_size:
+                    seq_padding = self.seq_size - layer.n_units
                     padding.append([0, seq_padding])
                 else:
                     padding.append([0, 0])
@@ -1601,18 +1587,15 @@ class Lookup(Layer):
                 padding.append([0, 0])
                 padding = array_ops.stack(padding)
                 tensor = array_ops.pad(tensor, padding)
-            """
 
-            # padd sequences
-
-            # if self.as_sequence:
-            #    seqs = array_ops.split(tensor, self.seq_size, -1)
-            #    tensor = array_ops.concat(seqs, 0)
-            #    tensor = array_ops.reshape(tensor, [self.seq_size, -1, self.n_units])
+        if self.batch_size is not None:
+            # we might need to update batch size if this can be determined
+            # otherwise the user might introduce the wrong batch_size
+            self.shape = [tensor.get_shape().as_list()[0], self.seq_size, self.n_units]
 
         return tensor
 
-    def reuse_with(self, input_layer, as_sequence=None, name=None):
+    def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -1632,18 +1615,17 @@ class Lookup(Layer):
 
         if name is None:
             name = self.name
-        # if as_sequence is None:
-        #    as_sequence = self.as_sequence
 
         return Lookup(input_layer,
                       seq_size=self.seq_size,
-                      feature_shape=self.feature_shape,
+                      lookup_shape=self.feature_shape,
                       batch_size=self.batch_size,
                       shared_weights=self.shared_weights,
                       weight_init=None,
                       dtype=self.dtype,
                       name=name,
-                      share_vars_with=share_vars_with)
+                      share_vars_with=share_vars_with,
+                      batch_padding=self.batch_padding)
 
 
 def _apply_gate(layer: Layer, gate: Layer):
