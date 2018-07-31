@@ -27,7 +27,7 @@ from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_va
 from tensorflow.python.ops import variable_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, conv1d
+from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, conv1d, convolution
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
 from tensorx.init import random_uniform, zero_init, xavier_init
@@ -931,32 +931,77 @@ class Fn(Layer):
                   self.linear.share_vars_with)
 
 
+def _conv_output_length(input_length, kernel_size, padding, stride, dilation=1):
+    if input_length is None:
+        return None
+    assert padding in {'SAME', 'VALID', 'CAUSAL'}
+    dilated_filter_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    if padding == 'SAME':
+        output_length = input_length
+    elif padding == 'VALID':
+        output_length = input_length - dilated_filter_size + 1
+    elif padding == 'CAUSAL':
+        output_length = input_length
+    return (output_length + stride - 1) // stride
+
+
+def _conv_out_shape(input_shape, filter_shape, padding, stride, dilation_rate):
+    space = input_shape[1:-1]
+    new_space = []
+    for i in range(len(space)):
+        new_dim = _conv_output_length(
+            space[i],
+            filter_shape[i],
+            padding=padding,
+            stride=stride,
+            dilation=dilation_rate)
+        new_space.append(new_dim)
+    return (input_shape[0],) + tuple(new_space) + (filter_shape[-1],)
+
+
 class Conv1D(Layer):
     """
+
+    assumes the input to have a shape [b,s,n]
+    produces an output of shape [b,s,m]
 
     Args:
         layer: the input layer to the Convolution Layer
         n_units: number of output units for this layer (number of filters)
         kernel_size: convolution kernel size
-
+        block_size: block to which the same convolution will be applied, in case of a sequence, this
+        will be the sequence size
     """
 
     def __init__(self, layer,
                  n_units,
-                 kernel_size,
+                 filter_size,
                  stride=1,
                  dilation_rate=1,
                  same_padding=True,
+                 init=random_uniform(),
                  bias=True,
                  name="conv1D",
-                 shape_vars_with=None):
+                 share_vars_with=None,
+                 shared_filters=None):
 
         self.same_padding = same_padding
-        self.dilation = dilation_rate
+        # TODO dilation is not implemented
+        self.dilation_rate = dilation_rate
         self.stride = stride
-        self.kernel_size = kernel_size
+        self.filter_size = filter_size
+        self.init = init
         self.bias = bias
-        self.kernel_shape = [self.kernel_size, layer.n_units, self.n_units]
+        self.filter_shape = [self.filter_size, layer.n_units, n_units]
+        self.share_vars_with = share_vars_with
+        self.shared_filters = shared_filters
+
+        if self.shared_filters is not None:
+            if not self.shared_filters.get_shape().is_compatible_with(TensorShape(self.filter_shape)):
+                raise ValueError(
+                    "invalid shared kernel weight shape: {} != expected :{}".format(
+                        self.shared_filters.get_shape().as_list(),
+                        self.filter_shape))
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Conv1D):
@@ -968,9 +1013,16 @@ class Conv1D(Layer):
                                  "self shape: {s0} different from "
                                  "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
 
-        shape = [layer.shape[0], layer.n_units, n_units]
+            if self.filter_shape != self.share_vars_with.filter_shape:
+                raise ValueError("Can only share variables between layers with the same kernel shape: \n"
+                                 "Current layer: {}\n"
+                                 "Shared Weights from: {}".format(self.filter_shape,
+                                                                  self.share_vars_with.filter_shape)
+                                 )
 
-        super().__init__([layer], n_units, shape, dtypes.float32, name)
+        self.padding = "SAME" if same_padding else "VALID"
+        shape = _conv_out_shape(layer.shape, self.filter_shape, self.padding, stride, dilation_rate)
+        super().__init__(layer, n_units, shape, dtypes.float32, name)
 
         self.tensor = self._build_graph(layer)
 
@@ -982,34 +1034,31 @@ class Conv1D(Layer):
             # with name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
             # init weights
 
-            if self.shared_weights is None:
-                self.kernels = variable_scope.get_variable("filters",
-                                                           shape=self.kernel_shape,
+            if self.shared_filters is None:
+                self.filters = variable_scope.get_variable("filters",
+                                                           shape=self.filter_shape,
                                                            dtype=self.dtype,
                                                            initializer=self.init)
             else:
-                self.kernels = self.shared_weights
+                self.filters = self.shared_filters
 
             # store variables for easy access
-            self._add_variable(self.kernels)
+            self._add_variable(self.filters)
             # y = conv1D(x,w)
             if layer.is_sparse():
                 input_tensor = sparse_ops.sparse_tensor_to_dense(layer.tensor)
-
-            #
-            if not isinstance(layer, SeqLayer):
-                seq_size = 1
             else:
-                seq_size = layer.seq_size
+                input_tensor = layer.tensor
 
-            input_tensor = array_ops.reshape(input_tensor, [-1, seq_size, layer.n_units])
-            padding = "SAME" if self.same_padding else "VALID"
-            tensor = conv1d(input_tensor,
-                            self.kernels,
-                            stride=self.stride,
-                            padding=padding,
-                            use_cudnn_on_gpu=True,
-                            data_format="NWC")
+            if input_tensor.dtype == dtypes.float64:
+                input_tensor = math_ops.cast(input_tensor, dtypes.float32)
+
+            tensor = convolution(input=input_tensor,
+                                 filter=self.filters,
+                                 padding=self.padding,
+                                 strides=(self.stride,),
+                                 dilation_rate=(self.dilation_rate,),
+                                 data_format="NWC")
 
             # y = xW + [b]
             if self.bias:
@@ -1020,6 +1069,62 @@ class Conv1D(Layer):
                 self._add_variable(self.bias)
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
+
+    def reuse_with(self, layer, name=None):
+        share_vars_with = self.share_vars_with
+        if share_vars_with is None:
+            share_vars_with = self
+        if name is None:
+            name = self.name
+
+        return Conv1D(layer,
+                      self.n_units,
+                      self.filter_size,
+                      self.stride,
+                      self.dilation,
+                      self.same_padding,
+                      self.bias,
+                      name,
+                      share_vars_with)
+
+
+def temporal_padding(x, padding=(1, 1)):
+    """Pads the seq dimension of a 3D tensor
+    """
+    assert len(padding) == 2
+    pattern = [[0, 0], [padding[0], padding[1]], [0, 0]]
+    return array_ops.pad(x, pattern)
+
+
+class CausalConv(Conv1D):
+    def __init__(self, layer,
+                 n_units,
+                 filter_size,
+                 stride=1,
+                 dilation_rate=1,
+                 init=random_uniform(),
+                 bias=True,
+                 name="CausalConv",
+                 share_vars_with=None,
+                 shared_filters=None):
+        def causal_padding(x):
+            left_pad = dilation_rate * (filter_size - 1)
+            padding = [[0, 0], [left_pad, 0], [0, 0]]
+            return array_ops.pad(x, padding)
+
+        layer = WrapLayer(layer, layer.n_units, causal_padding, name="causal_padding")
+
+        super().__init__(layer=layer,
+                         n_units=n_units,
+                         filter_size=filter_size,
+                         stride=stride,
+                         dilation_rate=dilation_rate,
+                         same_padding=False,
+                         init=init,
+                         bias=bias,
+                         name=name,
+                         share_vars_with=share_vars_with,
+                         shared_filters=shared_filters)
 
 
 class RNNCell(Layer):
@@ -2255,5 +2360,7 @@ __all__ = ["Input",
            "layers_to_list",
            "WrapLayer",
            "Module",
-           "ZoneOut"
+           "ZoneOut",
+           "Conv1D",
+           "CausalConv"
            ]
