@@ -386,7 +386,7 @@ class WrapLayer(Layer):
 
     """
 
-    def __init__(self, layer, n_units, tf_fn, name="wrap"):
+    def __init__(self, layer, n_units, tf_fn, attr_fwd=[], name="wrap"):
         if name == "wrap":
             name = "wrap_{}".format(layer.name)
 
@@ -394,6 +394,11 @@ class WrapLayer(Layer):
 
         if hasattr(layer, "placeholder"):
             self.placeholder = layer.placeholder
+
+        for attr in attr_fwd:
+            if hasattr(layer, attr):
+                setattr(self, attr, getattr(layer, attr))
+                print(attr)
 
         self.variable_names = layer.variable_names
         self.variables = layer.variables
@@ -1573,10 +1578,12 @@ class Lookup(Layer):
 
     def as_concat(self):
         n_units = self.n_units * self.seq_size
-        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]))
+        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+                         attr_fwd=["weights", "bias", "seq_size"])
 
     def as_seq(self):
-        return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]))
+        return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]),
+                         attr_fwd=["weights", "bias", "seq_size"])
 
     def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
