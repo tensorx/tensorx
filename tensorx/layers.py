@@ -1084,6 +1084,15 @@ class Conv1D(Layer):
                       name,
                       share_vars_with)
 
+    def as_concat(self):
+        n_units = self.n_units * self.shape[1]
+        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+                         attr_fwd=["weights", "bias", "seq_size"])
+
+    def as_seq(self):
+        return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]),
+                         attr_fwd=["weights", "bias", "seq_size"])
+
 
 class CausalConv(Conv1D):
     def __init__(self, layer,
@@ -1101,9 +1110,9 @@ class CausalConv(Conv1D):
             padding = [[0, 0], [left_pad, 0], [0, 0]]
             return array_ops.pad(x, padding)
 
-        layer = WrapLayer(layer, layer.n_units, causal_padding, name="causal_padding")
+        padded_layer = WrapLayer(layer, layer.n_units, causal_padding, name="causal_padding")
 
-        super().__init__(layer=layer,
+        super().__init__(layer=padded_layer,
                          n_units=n_units,
                          filter_size=filter_size,
                          stride=stride,
