@@ -97,6 +97,64 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(np.array_equal(res1, res2))
 
+    def test_conv1d(self):
+        num_filters = 2
+        input_dim = 4
+        seq_size = 3
+        batch_size = 2
+        filter_size = 2
+
+        filter_shape = [filter_size, input_dim, num_filters]
+
+        x = tf.ones([batch_size, seq_size, input_dim])
+        x_layer = TensorLayer(x, input_dim)
+
+        filters = tf.ones(filter_shape)
+        conv_layer = Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
+        conv = tf.nn.conv1d(x, filters, stride=1, padding="SAME", use_cudnn_on_gpu=True, data_format="NWC")
+
+        tf.global_variables_initializer().run()
+
+        self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
+        self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
+        self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
+
+    def test_causal_conv(self):
+        num_filters = 1
+        input_dim = 1
+        seq_size = 6
+        batch_size = 2
+        filter_size = 3
+        dilation_rate = 2
+
+        filter_shape = [filter_size, input_dim, num_filters]
+
+        x = tf.ones([batch_size, seq_size, input_dim])
+
+        x_layer = TensorLayer(x, input_dim)
+
+        filter = tf.ones(filter_shape)
+        conv_layer = CausalConv(x_layer, num_filters, filter_size,
+                                shared_filters=filter,
+                                dilation_rate=dilation_rate)
+
+        left_pad = dilation_rate * (filter_size - 1)
+        padding = [[0, 0], [left_pad, 0], [0, 0]]
+        x = tf.pad(x, padding)
+
+        conv = tf.nn.convolution(input=x,
+                                 filter=filter,
+                                 dilation_rate=(dilation_rate,),
+                                 strides=(1,),
+                                 padding="VALID",
+                                 data_format="NWC")
+
+        tf.global_variables_initializer().run()
+
+        self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
+        self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
+        self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
+
     def test_bias_reuse(self):
         in1 = TensorLayer([[1.]], 1)
         in2 = TensorLayer([[1.]], 1)

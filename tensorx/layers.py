@@ -398,7 +398,6 @@ class WrapLayer(Layer):
         for attr in attr_fwd:
             if hasattr(layer, attr):
                 setattr(self, attr, getattr(layer, attr))
-                print(attr)
 
         self.variable_names = layer.variable_names
         self.variables = layer.variables
@@ -960,17 +959,16 @@ def _conv_out_shape(input_shape, filter_shape, padding, stride, dilation_rate):
 
 
 class Conv1D(Layer):
-    """
+    """1D Convolution
 
-    assumes the input to have a shape [b,s,n]
-    produces an output of shape [b,s,m]
+    Assumes the input to have a shape [b,s,n]
+    produces an output of shape [b,s,m] where m is the number of filters
 
     Args:
         layer: the input layer to the Convolution Layer
         n_units: number of output units for this layer (number of filters)
-        kernel_size: convolution kernel size
-        block_size: block to which the same convolution will be applied, in case of a sequence, this
-        will be the sequence size
+        filter_size: convolution filter size
+
     """
 
     def __init__(self, layer,
@@ -986,7 +984,6 @@ class Conv1D(Layer):
                  shared_filters=None):
 
         self.same_padding = same_padding
-        # TODO dilation is not implemented
         self.dilation_rate = dilation_rate
         self.stride = stride
         self.filter_size = filter_size
@@ -1086,14 +1083,6 @@ class Conv1D(Layer):
                       self.bias,
                       name,
                       share_vars_with)
-
-
-def temporal_padding(x, padding=(1, 1)):
-    """Pads the seq dimension of a 3D tensor
-    """
-    assert len(padding) == 2
-    pattern = [[0, 0], [padding[0], padding[1]], [0, 0]]
-    return array_ops.pad(x, pattern)
 
 
 class CausalConv(Conv1D):
@@ -1480,7 +1469,6 @@ class Lookup(Layer):
         as_sequence: if True returns a [seq_size, batch_size, feature_shape[-1]] tensor
     """
 
-    # TODO adaptive feature shape based on input if input has n_active
     def __init__(self,
                  layer,
                  seq_size,
