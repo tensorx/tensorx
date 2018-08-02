@@ -992,6 +992,8 @@ class Conv1D(Layer):
         self.filter_shape = [self.filter_size, layer.n_units, n_units]
         self.share_vars_with = share_vars_with
         self.shared_filters = shared_filters
+        self.padding = "SAME" if same_padding else "VALID"
+        shape = _conv_out_shape(layer.shape, self.filter_shape, self.padding, stride, dilation_rate)
 
         if self.shared_filters is not None:
             if not self.shared_filters.get_shape().is_compatible_with(TensorShape(self.filter_shape)):
@@ -1004,7 +1006,7 @@ class Conv1D(Layer):
             if not isinstance(self.share_vars_with, Conv1D):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
-            if self.shape != self.share_vars_with.shape:
+            if shape != self.share_vars_with.shape:
                 raise ValueError("Can only share variables with layers with the same shape: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
@@ -1017,8 +1019,6 @@ class Conv1D(Layer):
                                                                   self.share_vars_with.filter_shape)
                                  )
 
-        self.padding = "SAME" if same_padding else "VALID"
-        shape = _conv_out_shape(layer.shape, self.filter_shape, self.padding, stride, dilation_rate)
         super().__init__(layer, n_units, shape, dtypes.float32, name)
 
         self.tensor = self._build_graph(layer)
@@ -1124,6 +1124,145 @@ class CausalConv(Conv1D):
                          share_vars_with=share_vars_with,
                          shared_filters=shared_filters)
 
+    def reuse_with(self, layer, name=None):
+        share_vars_with = self.share_vars_with
+        if share_vars_with is None:
+            share_vars_with = self
+        if name is None:
+            name = self.name
+
+        return CausalConv(layer,
+                          n_units=self.n_units,
+                          filter_size=self.filter_size,
+                          stride=self.stride,
+                          dilation_rate=self.dilation_rate,
+                          init=self.init,
+                          bias=self.bias,
+                          name=name,
+                          share_vars_with=share_vars_with,
+                          shared_filters=self.shared_filters)
+
+
+class QRNN(Layer):
+    def __init__(self,
+                 layer,
+                 n_units,
+                 activation=tanh,
+                 filter_size=2,
+                 stride=1,
+                 dilation_rate=1,
+                 init_candidate=random_uniform(),
+                 init_forget_gate=random_uniform(),
+                 init_output_gate=random_uniform(),
+                 bias=True,
+                 share_vars_with=None,
+                 name="qrnn"):
+        # this is computed in the conv layers as well
+        filter_shape = [filter_size, layer.n_units, n_units]
+        shape = _conv_out_shape(layer.shape, filter_shape, "CAUSAL", stride, dilation_rate)
+
+        self.stride = stride
+        self.dilation_rate = dilation_rate
+        self.activation = activation
+        self.filter_size = filter_size
+        self.init_candidate = init_candidate
+        self.init_forget_gate = init_forget_gate
+        self.init_output_gate = init_output_gate
+        self.bias = bias
+
+        if share_vars_with is not None and not isinstance(share_vars_with, QRNN):
+            raise TypeError("shared qrnn must be of type {} got {} instead".format(QRNN, type(share_vars_with)))
+        self.share_vars_with = share_vars_with
+
+        super().__init__(layer, n_units, shape, dtype=dtypes.float32, name=name)
+
+        self.tensor = self._build_graph(layer)
+
+    def _build_graph(self, layer):
+        with layer_scope(self):
+            if self.share_vars_with is None:
+                # candidate convolution
+                self.w_z = CausalConv(layer=layer,
+                                      n_units=self.n_units,
+                                      filter_size=self.filter_size,
+                                      stride=self.stride,
+                                      dilation_rate=self.dilation_rate,
+                                      init=self.init_candidate, bias=True,
+                                      name="candidate_conv")
+
+                # forget gate weights
+                self.w_f = CausalConv(layer=layer,
+                                      n_units=self.n_units,
+                                      filter_size=self.filter_size,
+                                      stride=self.stride,
+                                      dilation_rate=self.dilation_rate,
+                                      init=self.init_forget_gate, bias=True,
+                                      name="forget_conv")
+
+                self.w_o = CausalConv(layer=layer,
+                                      n_units=self.n_units,
+                                      filter_size=self.filter_size,
+                                      stride=self.stride,
+                                      dilation_rate=self.dilation_rate,
+                                      init=self.init_output_gate, bias=True,
+                                      name="output_conv")
+            else:
+                self.w_z = self.share_vars_with.w_z.reuse_with(layer)
+                self.w_f = self.share_vars_with.w_f.reuse_with(layer)
+                self.w_o = self.share_vars_with.w_o.reuse_with(layer)
+
+            with name_scope("pool"):
+                input_batch = array_ops.shape(layer.tensor)[0]
+                prev_candidate = array_ops.zeros([input_batch, self.n_units])
+                prev_candidate = TensorLayer(prev_candidate, self.n_units)
+
+                # as sequence views
+                wz_seq = self.w_z.as_seq()
+                wf_seq = self.w_f.as_seq()
+                wo_seq = self.w_o.as_seq()
+
+                states = []
+
+                for i in range(self.shape[1]):
+                    wz_i = Activation(wz_seq[i], fn=self.activation, name="z_{}".format(i + 1))
+                    cur_candidate = CoupledGate(prev_candidate, wz_i, gate_input=wf_seq[i])
+                    prev_candidate = cur_candidate
+                    states.insert(i, Gate(cur_candidate, gate_input=wo_seq[i]))
+
+                tensor = array_ops.stack([state.tensor for state in states])
+                tensor = array_ops.transpose(tensor, [1, 0, 2])
+
+        return tensor
+
+    def reuse_with(self, layer, name=None):
+        share_vars_with = self.share_vars_with
+        if share_vars_with is None:
+            share_vars_with = self
+        if name is None:
+            name = self.name
+
+        return QRNN(layer,
+                    self.n_units,
+                    self.activation,
+                    self.filter_size,
+                    self.stride,
+                    self.dilation_rate,
+                    self.init_candidate,
+                    self.init_forget_gate,
+                    self.init_output_gate,
+                    self.bias,
+                    share_vars_with=share_vars_with,
+                    name=name)
+
+    def as_concat(self):
+        n_units = self.n_units * self.shape[1]
+        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+                         attr_fwd=["w_z", "w_f", "w_o"])
+
+    def as_seq(self):
+        return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]),
+                         attr_fwd=["w_z", "w_f", "w_o"])
+
 
 class RNNCell(Layer):
     """ Recurrent Cell
@@ -1168,7 +1307,8 @@ class RNNCell(Layer):
         self.previous_state = previous_state
 
         if share_state_with is not None and not isinstance(share_state_with, RNNCell):
-            raise TypeError("shared_gate must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+            raise TypeError(
+                "share_state_with must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
         super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
@@ -1248,7 +1388,8 @@ class GRUCell(Layer):
         self.previous_state = previous_state
 
         if share_state_with is not None and not isinstance(share_state_with, GRUCell):
-            raise TypeError("shared_gate must be of type {} got {} instead".format(GRUCell, type(share_state_with)))
+            raise TypeError(
+                "share_state_with must be of type {} got {} instead".format(GRUCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
         super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
@@ -1371,7 +1512,8 @@ class LSTMCell(Layer):
         self.memory_state = memory_state
 
         if share_state_with is not None and not isinstance(share_state_with, LSTMCell):
-            raise TypeError("shared_gate must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+            raise TypeError(
+                "share_state_with must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
         super().__init__([layer, previous_state, memory_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
@@ -2359,5 +2501,6 @@ __all__ = ["Input",
            "Module",
            "ZoneOut",
            "Conv1D",
-           "CausalConv"
+           "CausalConv",
+           "QRNN"
            ]

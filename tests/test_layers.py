@@ -155,6 +155,36 @@ class TestLayers(unittest.TestCase):
         self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
         self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
 
+    def test_qrnn(self):
+        num_filters = 2
+        input_dim = 1000
+        seq_size = 2
+        batch_size = 2
+        filter_size = 2
+        dilation_rate = 1
+
+        x = tf.ones([batch_size, seq_size, input_dim])
+        x_layer = TensorLayer(x, input_dim)
+        qrnn = QRNN(layer=x_layer,
+                    n_units=num_filters,
+                    filter_size=filter_size,
+                    dilation_rate=dilation_rate)
+
+        qrnn2 = qrnn.reuse_with(x_layer)
+
+        tf.global_variables_initializer().run()
+
+        res1 = qrnn.tensor.eval()
+        res2 = qrnn2.tensor.eval()
+
+        self.assertSequenceEqual(np.shape(res1), (batch_size, seq_size, num_filters))
+        self.assertTrue(np.array_equal(res1,res2))
+
+
+        m = Model(x_layer, qrnn)
+        r = ModelRunner(m)
+        r.log_graph("/tmp")
+
     def test_bias_reuse(self):
         in1 = TensorLayer([[1.]], 1)
         in2 = TensorLayer([[1.]], 1)
