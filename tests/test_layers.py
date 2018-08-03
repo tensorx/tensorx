@@ -168,7 +168,8 @@ class TestLayers(unittest.TestCase):
         qrnn = QRNN(layer=x_layer,
                     n_units=num_filters,
                     filter_size=filter_size,
-                    dilation_rate=dilation_rate)
+                    dilation_rate=dilation_rate,
+                    input_gate=True)
 
         qrnn2 = qrnn.reuse_with(x_layer)
         qrnn_zoneout = qrnn.reuse_with(x_layer, zoneout=True)

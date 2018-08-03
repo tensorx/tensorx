@@ -1220,7 +1220,7 @@ class QRNN(Layer):
                                           stride=self.stride,
                                           dilation_rate=self.dilation_rate,
                                           init=self.init_input_gate, bias=True,
-                                          name="forget_conv")
+                                          name="input_conv")
 
                 if self.output_gate:
                     self.w_o = CausalConv(layer=layer,
@@ -1235,6 +1235,9 @@ class QRNN(Layer):
                 self.w_f = self.share_vars_with.w_f.reuse_with(layer)
                 if self.output_gate:
                     self.w_o = self.share_vars_with.w_o.reuse_with(layer)
+
+                if self.input_gate:
+                    self.w_i = self.share_vars_with.w_i.reuse_with(layer)
 
             with name_scope("pool"):
                 input_batch = array_ops.shape(layer.tensor)[0]
@@ -1264,8 +1267,10 @@ class QRNN(Layer):
                         # independent input and forget gates
                         gated_prev = Gate(prev_candidate,
                                           gate_input=wf_seq[i],
-                                          gate_fn=forget_fn)
-                        gated_input = Gate(wz_i, gate_input=wi_seq[i])
+                                          gate_fn=forget_fn,
+                                          name="forget_gate_{}".format(i + 1))
+                        gated_input = Gate(wz_i, gate_input=wi_seq[i],
+                                           name="input_gate_{}".format(i + 1))
 
                         cur_candidate = Add(gated_prev, gated_input)
                     else:
@@ -1273,10 +1278,16 @@ class QRNN(Layer):
                         cur_candidate = CoupledGate(prev_candidate,
                                                     wz_i,
                                                     gate_input=wf_seq[i],
-                                                    gate_fn=forget_fn)
+                                                    gate_fn=forget_fn,
+                                                    name="forget_coupled_gate_{}".format(i + 1))
                     prev_candidate = cur_candidate
-                    states.insert(i, Gate(cur_candidate, gate_input=wo_seq[i]))
 
+                    if self.output_gate:
+                        states.insert(i, Gate(cur_candidate,
+                                              gate_input=wo_seq[i],
+                                              name="output_gate_{}".format(i + 1)))
+                    else:
+                        states.insert(i, cur_candidate)
                 tensor = array_ops.stack([state.tensor for state in states])
                 tensor = array_ops.transpose(tensor, [1, 0, 2])
 
