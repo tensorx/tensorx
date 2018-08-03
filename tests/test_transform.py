@@ -256,7 +256,6 @@ class TestTransform(unittest.TestCase):
 
     def test_gather_sparse(self):
         tf.reset_default_graph()
-        self.setUp()
         # sess = tf.Session()
 
         # with tf.name_scope("test_setup"):
@@ -269,21 +268,24 @@ class TestTransform(unittest.TestCase):
 
         gather_sp_tx = transform.gather_sparse(sp, indices)
 
-        # debug gather sparse with timeline
-        # https://www.tensorflow.org/programmers_guide/graph_viz
-        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-        run_metadata = tf.RunMetadata()
-        summary_writer = tf.summary.FileWriter('/tmp/', self.ss.graph)
 
-        for i in range(n_runs):
-            step = i + 1
-            self.ss.run(gather_sp_tx, options=run_options, run_metadata=run_metadata)
-            summary_writer.add_run_metadata(run_metadata, 'step%d' % step)
 
-            # Create the Timeline object, and write it to a json
-            tl = timeline.Timeline(run_metadata.step_stats)
+        with tf.Session() as ss:
+            # debug gather sparse with timeline
+            # https://www.tensorflow.org/programmers_guide/graph_viz
+            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            run_metadata = tf.RunMetadata()
+            summary_writer = tf.summary.FileWriter('/tmp/', ss.graph)
 
-        summary_writer.add_graph(self.ss.graph)
+            for i in range(n_runs):
+                step = i + 1
+                ss.run(gather_sp_tx, options=run_options, run_metadata=run_metadata)
+                summary_writer.add_run_metadata(run_metadata, 'step%d' % step)
+
+                # Create the Timeline object, and write it to a json
+                tl = timeline.Timeline(run_metadata.step_stats)
+
+        summary_writer.add_graph(ss.graph)
         summary_writer.close()
 
         ctf = tl.generate_chrome_trace_format()

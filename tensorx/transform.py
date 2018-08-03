@@ -405,6 +405,7 @@ def _get_noise_shape(x, noise_shape):
             else:
                 new_dims.append(noise_shape_.dims[i].value)
         return tensor_shape.TensorShape(new_dims)
+
     return noise_shape
 
 
@@ -456,7 +457,7 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
                     return tensor
         else:
             keep_prob = ops.convert_to_tensor(
-                keep_prob, dtype=dtypes.float32, name="keep_prob")
+                keep_prob, dtype=tensor.dtype, name="keep_prob")
             keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
             # Do nothing if we know keep_prob == 1
