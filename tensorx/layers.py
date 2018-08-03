@@ -362,7 +362,10 @@ class Layer:
         return full_str + "\n"
 
     def __getitem__(self, item):
-        return WrapLayer(self, self.n_units, tf_fn=lambda tensor: tensor[item])
+        return WrapLayer(layer=self,
+                         n_units=self.n_units,
+                         tf_fn=lambda tensor: tensor[item],
+                         name="{}_{}".format(self.name, item))
 
 
 class WrapLayer(Layer):
@@ -1086,12 +1089,15 @@ class Conv1D(Layer):
 
     def as_concat(self):
         n_units = self.n_units * self.shape[1]
-        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
-                         attr_fwd=["weights", "bias", "seq_size"])
+        return WrapLayer(self, n_units,
+                         tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+                         attr_fwd=["weights", "bias", "seq_size"],
+                         name="flat_{}".format(self.name))
 
     def as_seq(self):
         return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]),
-                         attr_fwd=["weights", "bias", "seq_size"])
+                         attr_fwd=["weights", "bias", "seq_size"],
+                         name="seq_{}".format(self.name))
 
 
 class CausalConv(Conv1D):
@@ -1153,9 +1159,13 @@ class QRNN(Layer):
                  dilation_rate=1,
                  init_candidate=random_uniform(),
                  init_forget_gate=random_uniform(),
+                 output_gate=True,
                  init_output_gate=random_uniform(),
                  bias=True,
+                 input_gate=False,
+                 init_input_gate=random_uniform(),
                  share_vars_with=None,
+                 zoneout=False,
                  name="qrnn"):
         # this is computed in the conv layers as well
         filter_shape = [filter_size, layer.n_units, n_units]
@@ -1169,6 +1179,10 @@ class QRNN(Layer):
         self.init_forget_gate = init_forget_gate
         self.init_output_gate = init_output_gate
         self.bias = bias
+        self.input_gate = input_gate
+        self.output_gate = output_gate
+        self.init_input_gate = init_input_gate
+        self.zoneout = zoneout
 
         if share_vars_with is not None and not isinstance(share_vars_with, QRNN):
             raise TypeError("shared qrnn must be of type {} got {} instead".format(QRNN, type(share_vars_with)))
@@ -1199,17 +1213,28 @@ class QRNN(Layer):
                                       init=self.init_forget_gate, bias=True,
                                       name="forget_conv")
 
-                self.w_o = CausalConv(layer=layer,
-                                      n_units=self.n_units,
-                                      filter_size=self.filter_size,
-                                      stride=self.stride,
-                                      dilation_rate=self.dilation_rate,
-                                      init=self.init_output_gate, bias=True,
-                                      name="output_conv")
+                if self.input_gate:
+                    self.w_i = CausalConv(layer=layer,
+                                          n_units=self.n_units,
+                                          filter_size=self.filter_size,
+                                          stride=self.stride,
+                                          dilation_rate=self.dilation_rate,
+                                          init=self.init_input_gate, bias=True,
+                                          name="forget_conv")
+
+                if self.output_gate:
+                    self.w_o = CausalConv(layer=layer,
+                                          n_units=self.n_units,
+                                          filter_size=self.filter_size,
+                                          stride=self.stride,
+                                          dilation_rate=self.dilation_rate,
+                                          init=self.init_output_gate, bias=True,
+                                          name="output_conv")
             else:
                 self.w_z = self.share_vars_with.w_z.reuse_with(layer)
                 self.w_f = self.share_vars_with.w_f.reuse_with(layer)
-                self.w_o = self.share_vars_with.w_o.reuse_with(layer)
+                if self.output_gate:
+                    self.w_o = self.share_vars_with.w_o.reuse_with(layer)
 
             with name_scope("pool"):
                 input_batch = array_ops.shape(layer.tensor)[0]
@@ -1221,11 +1246,34 @@ class QRNN(Layer):
                 wf_seq = self.w_f.as_seq()
                 wo_seq = self.w_o.as_seq()
 
+                def forget_fn(x):
+                    if self.zoneout:
+                        return 1 - transform.dropout(1 - sigmoid(x), scale=False)
+                    else:
+                        return sigmoid(x)
+
+                if self.input_gate:
+                    wi_seq = self.w_i.as_seq()
+
                 states = []
 
                 for i in range(self.shape[1]):
                     wz_i = Activation(wz_seq[i], fn=self.activation, name="z_{}".format(i + 1))
-                    cur_candidate = CoupledGate(prev_candidate, wz_i, gate_input=wf_seq[i])
+
+                    if self.input_gate:
+                        # independent input and forget gates
+                        gated_prev = Gate(prev_candidate,
+                                          gate_input=wf_seq[i],
+                                          gate_fn=forget_fn)
+                        gated_input = Gate(wz_i, gate_input=wi_seq[i])
+
+                        cur_candidate = Add(gated_prev, gated_input)
+                    else:
+                        # coupled input and forget gates
+                        cur_candidate = CoupledGate(prev_candidate,
+                                                    wz_i,
+                                                    gate_input=wf_seq[i],
+                                                    gate_fn=forget_fn)
                     prev_candidate = cur_candidate
                     states.insert(i, Gate(cur_candidate, gate_input=wo_seq[i]))
 
@@ -1234,24 +1282,28 @@ class QRNN(Layer):
 
         return tensor
 
-    def reuse_with(self, layer, name=None):
+    def reuse_with(self, layer, zoneout=False, name=None):
         share_vars_with = self.share_vars_with
         if share_vars_with is None:
             share_vars_with = self
         if name is None:
             name = self.name
 
-        return QRNN(layer,
-                    self.n_units,
-                    self.activation,
-                    self.filter_size,
-                    self.stride,
-                    self.dilation_rate,
-                    self.init_candidate,
-                    self.init_forget_gate,
-                    self.init_output_gate,
-                    self.bias,
+        return QRNN(layer=layer,
+                    n_units=self.n_units,
+                    activation=self.activation,
+                    filter_size=self.filter_size,
+                    stride=self.stride,
+                    dilation_rate=self.dilation_rate,
+                    init_candidate=self.init_candidate,
+                    init_forget_gate=self.init_forget_gate,
+                    init_output_gate=self.init_output_gate,
+                    output_gate=self.output_gate,
+                    input_gate=self.input_gate,
+                    init_input_gate=self.init_input_gate,
+                    bias=self.bias,
                     share_vars_with=share_vars_with,
+                    zoneout=zoneout,
                     name=name)
 
     def as_concat(self):

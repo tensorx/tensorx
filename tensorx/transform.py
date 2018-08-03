@@ -435,11 +435,14 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
     Raises:
         ValueError: If `keep_prob` is not in `(0, 1]` or if `x` is not a floating point tensor.
     """
-    with ops.name_scope(name, "dropout", [tensor]) as name:
+    with ops.name_scope(name, "dropout", [tensor]):
         tensor = ops.convert_to_tensor(tensor, name="x")
-        if not tensor.dtype.is_floating and scale:
-            raise ValueError("x has to be a floating point tensor since it's going to"
-                             " be scaled. Got a %s tensor instead." % tensor.dtype)
+        if not tensor.dtype.is_floating:
+            try:
+                tensor = math_ops.cast(tensor, dtypes.float32)
+            except Exception as e:
+                raise ValueError("x has to be a floating point tensor since it might be scaled"
+                                 "Got a %s tensor instead. and could not cast it" % tensor.dtype)
         if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
             raise ValueError("keep_prob must be a scalar tensor or a float in the "
                              "range (0, 1], got %g" % keep_prob)
@@ -453,7 +456,7 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
                     return tensor
         else:
             keep_prob = ops.convert_to_tensor(
-                keep_prob, dtype=tensor.dtype, name="keep_prob")
+                keep_prob, dtype=dtypes.float32, name="keep_prob")
             keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
             # Do nothing if we know keep_prob == 1

@@ -171,15 +171,19 @@ class TestLayers(unittest.TestCase):
                     dilation_rate=dilation_rate)
 
         qrnn2 = qrnn.reuse_with(x_layer)
+        qrnn_zoneout = qrnn.reuse_with(x_layer, zoneout=True)
 
         tf.global_variables_initializer().run()
 
         res1 = qrnn.tensor.eval()
         res2 = qrnn2.tensor.eval()
+        res3 = qrnn_zoneout.tensor.eval()
 
         self.assertSequenceEqual(np.shape(res1), (batch_size, seq_size, num_filters))
-        self.assertTrue(np.array_equal(res1,res2))
+        self.assertSequenceEqual(np.shape(res3), (batch_size, seq_size, num_filters))
 
+        self.assertTrue(np.array_equal(res1, res2))
+        self.assertFalse(np.array_equal(res1, res3))
 
         m = Model(x_layer, qrnn)
         r = ModelRunner(m)
