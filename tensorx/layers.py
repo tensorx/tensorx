@@ -2688,6 +2688,53 @@ class Residual(Layer):
                         name=name)
 
 
+class Reshape(Layer):
+    def __init__(self, layer, shape, name="reshape"):
+        super().__init__(layer, n_units=shape[-1], shape=None, dtype=layer.dtype, name=name)
+
+        with layer_scope(self):
+            if layer.is_dense():
+                output = array_ops.reshape(layer.tensor, shape)
+            else:
+                output = sparse_ops.sparse_reshape(layer.tensor, shape)
+
+            self.shape = output.get_shape().as_list()
+            self.tensor = output
+
+    def reuse_with(self, layer, name=None):
+        if name is None:
+            name = self.name
+        return Reshape(layer, self.shape, name)
+
+
+class Flatten(Layer):
+    """ Flatten.
+
+    Flattens the input layer without changing the batch-size
+
+    """
+
+    def __init__(self, layer, name="flatten"):
+        n_units = sum(layer.shape[1:])
+        super().__init__(layer, n_units, shape=None, dtype=layer.dtype, name=name)
+
+        with layer_scope(self):
+            input_shape = array_ops.shape(layer.tensor)
+
+            output = layer.tensor
+            if layer.is_dense():
+                output = array_ops.reshape(output, array_ops.stack([-1, math_ops.reduce_prod(input_shape[1:])]))
+            else:
+                output = sparse_ops.sparse_reshape(output, array_ops.stack([-1, math_ops.reduce_prod(input_shape[1:])]))
+
+        self.tensor = output
+
+    def reuse_with(self, layer, name=None):
+        if name is None:
+            name = self.name
+        return Flatten(layer, name)
+
+
 __all__ = ["Input",
            "Fn",
            "RNNCell",
@@ -2719,5 +2766,7 @@ __all__ = ["Input",
            "CausalConv",
            "QRNN",
            "Highway",
-           "Residual"
+           "Residual",
+           "Flatten",
+           "Reshape"
            ]
