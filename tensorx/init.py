@@ -19,6 +19,20 @@ def ones_init(dtype=dt.float32):
     return init_ops.ones_initializer(dtype=dtype)
 
 
+def const_init(value, dtype=dt.float32):
+    """ returns an initializer that can be called with a shape to return a tensor value
+
+    Args:
+        value: the value to be used in the initializer
+        dtype: the initialization value dtype
+
+    Returns:
+        an initialization function that takes a shape and returns a tensor filled with the given value
+
+    """
+    return init_ops.constant_initializer(value, dtype)
+
+
 def random_normal(mean=0.0, stddev=1.0, seed=None, dtype=dt.float32):
     return init_ops.random_normal_initializer(mean, stddev, seed, dtype)
 

@@ -30,7 +30,7 @@ from tensorflow.python.ops import random_ops, sparse_ops
 from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, conv1d, convolution
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.init import random_uniform, zero_init, xavier_init
+from tensorx.init import random_uniform, zero_init, xavier_init, const_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx import transform
 from tensorx import utils as txutils
@@ -169,9 +169,9 @@ def _get_subgraph(input_layers, output_layers):
 
     paths_found = [_update_graph(out_layer) for out_layer in output_layers]
     if not all(paths_found):
-        failed = [output_layers[i] for i, path_found in enumerate(paths_found) if not path_found]
+        failed = [str(output_layers[i]) for i, path_found in enumerate(paths_found) if not path_found]
         failed_layers = "\n".join(failed)
-        raise ValueError("no path found between inputs and layers: \n {}".format(failed_layers))
+        raise ValueError("no path found between input and output layers: \n {}".format(failed_layers))
 
     return graph, endpoints
 
@@ -203,6 +203,8 @@ def layers_to_list(output_layers, input_layers=[]):
 
     Args:
         output_layers: the layer from which we wish to build the list of layers involved in the computation
+        input_layers: a set of layers which serve as input entry points for the given output_layers, useful if we want
+        to list layers in a subgraph that ends in the given output_layers
 
     Returns:
         :obj:`list` of :class:`Layer`: a list of unique layers involved in the computation ordered from input to output
@@ -240,9 +242,9 @@ class Layer:
     Attributes:
         input_layers: a list of Layers that serve as input to the current layer
         n_units: the number of units for the current layer
-        tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
-        dtype: the tensorflow dtype for the output tensor
-        name: a name used to build a tensorflow named_scope for the layer
+        _tensor: a ``Tensor`` or ``SparseTensor`` if the layer is dense or sparse respectively
+        dtype: the dtype for the output tensor
+        name: a name used to build a named_scope for the layer
         scoped_name: layer name with its full scope (if created inside another scope)
         variable_names: a list of `tf.Variable` fully qualified name `layer_name/var_name'
         variables: a list of `tf.Variable` instances
@@ -752,18 +754,20 @@ class Linear(Layer):
     def __init__(self,
                  layer,
                  n_units,
-                 init=random_uniform(),
+                 weight_init=random_uniform(),
                  shared_weights=None,
                  transpose_weights=False,
                  bias=True,
+                 bias_init=zero_init(),
                  dtype=dtypes.float32,
                  name="linear", share_vars_with=None):
 
         self.shared_weights = shared_weights
-        self.init = init
+        self.weight_init = weight_init
         self.bias = bias
         self.share_vars_with = share_vars_with
         self.transpose_weights = transpose_weights
+        self.bias_init = bias_init
 
         shape = [layer.shape[1], n_units]
         super().__init__(layer, n_units, shape, dtype, name)
@@ -808,7 +812,7 @@ class Linear(Layer):
                 self.weights = variable_scope.get_variable("w",
                                                            shape=self.shape,
                                                            dtype=self.dtype,
-                                                           initializer=self.init)
+                                                           initializer=self.weight_init)
             else:
                 self.weights = self.shared_weights
 
@@ -843,7 +847,7 @@ class Linear(Layer):
                 self.bias = variable_scope.get_variable("b",
                                                         shape=[self.n_units],
                                                         dtype=self.dtype,
-                                                        initializer=zero_init())
+                                                        initializer=self.bias_init)
                 self._add_variable(self.bias)
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
@@ -862,9 +866,7 @@ class Linear(Layer):
 
         """
         # if current layer is sharing variables, forward the sharing
-        share_vars_with = self.share_vars_with
-        if share_vars_with is None:
-            share_vars_with = self
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
 
         if name is None:
             name = self.name
@@ -874,7 +876,7 @@ class Linear(Layer):
 
         return Linear(layer=input_layer,
                       n_units=self.n_units,
-                      init=self.init,
+                      weight_init=self.weight_init,
                       shared_weights=self.shared_weights,
                       transpose_weights=transpose_weights,
                       bias=self.bias,
@@ -887,23 +889,26 @@ class Fn(Layer):
                  layer,
                  n_units,
                  fn=identity,
-                 init=random_uniform(),
+                 weight_init=random_uniform(),
                  shared_weights=None,
                  transpose_weights=False,
                  bias=True,
+                 bias_init=zero_init(),
                  dtype=dtypes.float32,
                  name="fn",
                  share_vars_with=None):
+
         with layer_scope(self, name=name):
-            self.linear = Linear(layer,
-                                 n_units,
-                                 init,
-                                 shared_weights,
-                                 transpose_weights,
-                                 bias,
-                                 dtype,
-                                 "{}_linear".format(name),
-                                 share_vars_with)
+            self.linear = Linear(layer=layer,
+                                 n_units=n_units,
+                                 weight_init=weight_init,
+                                 shared_weights=shared_weights,
+                                 transpose_weights=transpose_weights,
+                                 bias=bias,
+                                 bias_init=bias_init,
+                                 dtype=dtype,
+                                 name="{}_linear".format(name),
+                                 share_vars_with=share_vars_with)
 
             self.activation = Activation(self.linear, fn=fn, name="{}_activation".format(name))
 
@@ -921,16 +926,17 @@ class Fn(Layer):
         if name is None:
             name = self.name
 
-        return Fn(layer,
-                  self.n_units,
-                  self.activation.fn,
-                  self.linear.init,
-                  self.linear.shared_weights,
-                  self.linear.transpose_weights,
-                  self.linear.bias,
-                  self.activation.dtype,
-                  name,
-                  self.linear.share_vars_with)
+        return Fn(layer=layer,
+                  n_units=self.n_units,
+                  fn=self.activation.fn,
+                  weight_init=self.linear.weight_init,
+                  shared_weights=self.linear.shared_weights,
+                  transpose_weights=self.linear.transpose_weights,
+                  bias=self.linear.bias,
+                  bias_init=self.linear.bias_init,
+                  dtype=self.activation.dtype,
+                  name=name,
+                  share_vars_with=self.linear.share_vars_with)
 
 
 def _conv_output_length(input_length, kernel_size, padding, stride, dilation=1):
@@ -1071,9 +1077,7 @@ class Conv1D(Layer):
         return tensor
 
     def reuse_with(self, layer, name=None):
-        share_vars_with = self.share_vars_with
-        if share_vars_with is None:
-            share_vars_with = self
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
         if name is None:
             name = self.name
 
@@ -1131,9 +1135,7 @@ class CausalConv(Conv1D):
                          shared_filters=shared_filters)
 
     def reuse_with(self, layer, name=None):
-        share_vars_with = self.share_vars_with
-        if share_vars_with is None:
-            share_vars_with = self
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
         if name is None:
             name = self.name
 
@@ -1230,6 +1232,7 @@ class QRNN(Layer):
                                           dilation_rate=self.dilation_rate,
                                           init=self.init_output_gate, bias=True,
                                           name="output_conv")
+
             else:
                 self.w_z = self.share_vars_with.w_z.reuse_with(layer)
                 self.w_f = self.share_vars_with.w_f.reuse_with(layer)
@@ -1238,6 +1241,18 @@ class QRNN(Layer):
 
                 if self.input_gate:
                     self.w_i = self.share_vars_with.w_i.reuse_with(layer)
+
+            # add refs to vars that this layer uses
+            layer_vars = []
+            layer_vars.extend(self.w_z.variables)
+            layer_vars.extend(self.w_f.variables)
+            if self.input_gate:
+                layer_vars.extend(self.w_i.variables)
+            if self.output_gate:
+                layer_vars.extend(self.w_o.variables)
+
+            for var in layer_vars:
+                self._add_variable(var)
 
             with name_scope("pool"):
                 input_batch = array_ops.shape(layer.tensor)[0]
@@ -1294,9 +1309,7 @@ class QRNN(Layer):
         return tensor
 
     def reuse_with(self, layer, zoneout=False, name=None):
-        share_vars_with = self.share_vars_with
-        if share_vars_with is None:
-            share_vars_with = self
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
         if name is None:
             name = self.name
 
@@ -1382,8 +1395,9 @@ class RNNCell(Layer):
         with layer_scope(self):
 
             if self.share_state_with is None:
-                self.weights = Linear(layer, self.n_units, bias=True, init=self.init, name="w")
-                self.recurrent_weights = Linear(previous_state, self.n_units, bias=False, init=self.recurrent_init,
+                self.weights = Linear(layer, self.n_units, bias=True, weight_init=self.init, name="w")
+                self.recurrent_weights = Linear(previous_state, self.n_units, bias=False,
+                                                weight_init=self.recurrent_init,
                                                 name="r_w")
             else:
                 self.weights = self.share_state_with.weights.reuse_with(layer)
@@ -1395,6 +1409,8 @@ class RNNCell(Layer):
             return self.state.tensor
 
     def reuse_with(self, input_layer, previous_state=None, name=None):
+        share_state_with = self if self.share_state_with is None else self.share_state_with
+
         if previous_state is None:
             previous_state = self.previous_state
 
@@ -1407,7 +1423,7 @@ class RNNCell(Layer):
             previous_state=previous_state,
             activation=self.activation,
             use_bias=self.use_bias,
-            share_state_with=self,
+            share_state_with=share_state_with,
             name=name
         )
 
@@ -1471,8 +1487,8 @@ class GRUCell(Layer):
                 gate_r = Add(self.w_r, self.u_r, name="linear_r")
                 gated_previous = Gate(previous_state, gate_r, name="gated_previous")
 
-                self.w_h = Linear(layer, self.n_units, bias=True, init=self.init, name="w_h")
-                self.u_h = Linear(gated_previous, self.n_units, bias=False, init=self.recurrent_init, name="u_h")
+                self.w_h = Linear(layer, self.n_units, bias=True, weight_init=self.init, name="w_h")
+                self.u_h = Linear(gated_previous, self.n_units, bias=False, weight_init=self.recurrent_init, name="u_h")
 
                 linear_h = Add(self.w_h, self.u_h, name="linear_h")
                 candidate_state = Activation(linear_h, self.activation, name="candidate")
@@ -1508,6 +1524,8 @@ class GRUCell(Layer):
             return self.state.tensor
 
     def reuse_with(self, input_layer, previous_state=None, name=None):
+        share_state_with = self if self.share_state_with is None else self.share_state_with
+
         if previous_state is None:
             previous_state = self.previous_state
 
@@ -1520,7 +1538,7 @@ class GRUCell(Layer):
             previous_state=previous_state,
             activation=self.activation,
             use_bias=self.use_bias,
-            share_state_with=self,
+            share_state_with=share_state_with,
             name=name
         )
 
@@ -1638,6 +1656,8 @@ class LSTMCell(Layer):
             return self.state.tensor
 
     def reuse_with(self, input_layer, previous_state=None, memory_state=None, name=None):
+        share_state_with = self if self.share_state_with is None else self.share_state_with
+
         if previous_state is None:
             previous_state = self.previous_state
 
@@ -1654,6 +1674,7 @@ class LSTMCell(Layer):
             memory_state=memory_state,
             candidate_activation=self.candidate_activation,
             output_activation=self.output_activation,
+            share_state_with=share_state_with,
             name=name
         )
 
@@ -1906,9 +1927,7 @@ class Lookup(Layer):
 
         """
         # if current layer is sharing variables, forward the sharing
-        share_vars_with = self.share_vars_with
-        if share_vars_with is None:
-            share_vars_with = self
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
 
         if name is None:
             name = self.name
@@ -2360,7 +2379,7 @@ class Activation(Layer):
     def __init__(self, layer, fn=array_ops.identity, name="activation", **keywords):
         self.fn = partial(fn, **keywords)
         self.kw = keywords
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name)
+        super().__init__(input_layers=layer, n_units=layer.n_units, shape=None, dtype=layer.dtype, name=name)
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -2368,6 +2387,8 @@ class Activation(Layer):
             else:
                 tensor = layer.tensor
             tensor = self.fn(tensor)
+
+        self.shape = tensor.get_shape().as_list()
 
         self.tensor = tensor
 
@@ -2536,6 +2557,137 @@ class Concat(Layer):
         return Concat(*layers, name)
 
 
+class Highway(Layer):
+    def __init__(self, x_layer, h_layer,
+                 transform_weight_init=xavier_init(),
+                 transform_bias_init=const_init(-2),
+                 carry_gate=False,
+                 carry_weight_init=xavier_init(),
+                 carry_bias_init=zero_init(),
+                 share_vars_with=None,
+                 name="highway"):
+
+        self.transform_weight_init = transform_weight_init
+        self.transform_bias_init = transform_bias_init
+        self.carry_weight_init = carry_weight_init
+        self.carry_bias_init = carry_bias_init
+        self.carry_gate = carry_gate
+
+        self.share_vars_with = share_vars_with
+
+        # try to create a module from the x_layer -> h_layer
+        # if one is not connected to the other, this fails
+        self.module = Module(x_layer, h_layer)
+
+        if share_vars_with is not None:
+            if not isinstance(share_vars_with, Highway):
+                raise TypeError("can only share vars with a Highway Layer {} found".format(type(share_vars_with)))
+
+        if x_layer.n_units != h_layer.n_units:
+            raise ValueError("The input x_layer should have the same n_units as the h_layer {}!={}".format(
+                x_layer.shape, h_layer.shape
+            ))
+
+        super().__init__(input_layers=[x_layer, h_layer],
+                         n_units=x_layer.n_units,
+                         shape=x_layer.shape,
+                         dtype=x_layer.dtype,
+                         name=name)
+
+        with layer_scope(self):
+            if self.share_vars_with is None:
+                self.t_gate = Linear(x_layer, x_layer.n_units,
+                                     weight_init=self.transform_weight_init,
+                                     bias_init=self.transform_bias_init,
+                                     name="w_t")
+                if self.carry_gate:
+                    self.c_gate = Linear(x_layer, x_layer.n_units,
+                                         weight_init=self.carry_weight_init,
+                                         bias_init=self.carry_bias_init,
+                                         name="w_c")
+            else:
+                self.t_gate = self.share_vars_with.t_gate.reuse_with(x_layer)
+                if self.carry_gate:
+                    self.c_gate = self.share_vars_with.c_gate.reuse_with(x_layer)
+
+            if not self.carry_gate:
+                output = CoupledGate(h_layer, x_layer, gate_input=self.t_gate)
+            else:
+                gated_x = Gate(x_layer, gate_input=self.c_gate)
+                gated_h = Gate(h_layer, gate_input=self.t_gate)
+                output = Add(gated_h, gated_x)
+
+        self.tensor = output.tensor
+
+    def reuse_with(self, x_layer, h_layer, name=None):
+        if name is None:
+            name = self.name
+
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
+
+        return Highway(x_layer=x_layer,
+                       h_layer=h_layer,
+                       transform_weight_init=self.transform_weight_init,
+                       transform_bias_init=self.transform_bias_init,
+                       carry_gate=self.carry_gate,
+                       carry_weight_init=self.carry_weight_init,
+                       carry_bias_init=self.carry_bias_init,
+                       share_vars_with=share_vars_with,
+                       name=name)
+
+
+class Residual(Layer):
+    """ Residual Block
+
+
+
+    """
+
+    def __init__(self, x_layer, h_layer, share_vars_with=None, weight_init=xavier_init(), name="residual"):
+
+        # try to create a module from the x_layer -> h_layer
+        # if one is not connected to the other, this fails
+        self.module = Module(x_layer, h_layer)
+        self.weight_init = weight_init
+        self.share_vars_with = share_vars_with
+        self.projection = x_layer
+
+        if share_vars_with is not None:
+            if not isinstance(share_vars_with, Residual):
+                raise TypeError("can only share vars with a Highway Layer {} found".format(type(share_vars_with)))
+
+        super().__init__(input_layers=[x_layer, h_layer],
+                         n_units=h_layer.n_units,
+                         shape=h_layer.shape,
+                         dtype=h_layer.dtype,
+                         name=name)
+
+        with layer_scope(self):
+            # we need to perform a linear projection so that the dimensions match
+            if x_layer.n_units != h_layer.n_units:
+                if self.share_vars_with is None:
+                    self.projection = Linear(x_layer, h_layer.n_units, weight_init=weight_init, bias=False)
+                else:
+                    self.projection = share_vars_with.projection.reuse_with(x_layer)
+
+                self._add_variable(self.projection.weights)
+
+            output = Add(h_layer, self.projection)
+
+        self.tensor = output.tensor
+
+    def reuse_with(self, x_layer, h_layer, name=None):
+        if name is None:
+            name = self.name
+
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
+
+        return Residual(x_layer=x_layer,
+                        h_layer=h_layer,
+                        share_vars_with=share_vars_with,
+                        name=name)
+
+
 __all__ = ["Input",
            "Fn",
            "RNNCell",
@@ -2565,5 +2717,7 @@ __all__ = ["Input",
            "ZoneOut",
            "Conv1D",
            "CausalConv",
-           "QRNN"
+           "QRNN",
+           "Highway",
+           "Residual"
            ]

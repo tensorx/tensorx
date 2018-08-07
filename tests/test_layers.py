@@ -97,6 +97,49 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(np.array_equal(res1, res2))
 
+    def test_highway(self):
+        x = TensorLayer([[1., 1., 1., 1.]], 4)
+        x2 = TensorLayer([[1., 1., 1., 1.]], 4)
+
+        h = Fn(x, 4, fn=sigmoid)
+
+        highway = Highway(x, h)
+
+        with self.assertRaises(ValueError):
+            Highway(x2, h)
+
+        tf.global_variables_initializer().run()
+
+        self.assertSequenceEqual(x.shape, highway.shape)
+
+    def test_residual(self):
+        x = TensorLayer([[1., 1., 1., 1.]], 4)
+        x2 = TensorLayer([[1., 1., 1., 1.]], 4)
+
+        h = Fn(x, 4, fn=sigmoid)
+        h2 = Fn(x, 2, fn=sigmoid)
+
+        residual = Residual(x, h)
+        residual_2 = Residual(x, h2)
+
+        with self.assertRaises(ValueError):
+            Residual(x2, h)
+
+        tf.global_variables_initializer().run()
+
+        self.assertSequenceEqual(h.shape, residual.shape)
+        self.assertTrue(residual.projection == residual.input_layers[0])
+        self.assertIsInstance(residual.projection, TensorLayer)
+        self.assertEqual(len(residual.variables), 0)
+
+        self.assertTrue(residual_2.projection != residual.input_layers[0])
+        self.assertIsInstance(residual_2.projection, Linear)
+        self.assertEqual(len(residual_2.variables), 1)
+
+        m = Model(x, residual_2)
+        r = ModelRunner(m)
+        r.log_graph("/tmp")
+
     def test_conv1d(self):
         num_filters = 2
         input_dim = 4
@@ -355,9 +398,9 @@ class TestLayers(unittest.TestCase):
         in1 = TensorLayer([[-1.]], 1)
         in2 = TensorLayer([[2.]], 1)
 
-        l1 = Linear(in1, 1, init=ones_init())
+        l1 = Linear(in1, 1, weight_init=ones_init())
         l2 = l1.reuse_with(in2, name="shared")
-        l3 = Linear(in1, 1, init=ones_init(), shared_weights=l1.weights, bias=True)
+        l3 = Linear(in1, 1, weight_init=ones_init(), shared_weights=l1.weights, bias=True)
         l4 = l3.reuse_with(in2)
 
         self.ss.run(tf.global_variables_initializer())

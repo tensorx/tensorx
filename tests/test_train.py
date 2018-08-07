@@ -230,7 +230,7 @@ class ModelRunnerTest(unittest.TestCase):
     def test_model_io(self):
 
         inputs = Input(1)
-        layer = Linear(inputs, n_units=1, init=init.ones_init())
+        layer = Linear(inputs, n_units=1, weight_init=init.ones_init())
 
         model = Model(inputs, layer)
 

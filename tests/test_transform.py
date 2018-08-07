@@ -1,5 +1,6 @@
 """Tests for tensor transformations module"""
 import unittest
+import os
 
 import tensorflow as tf
 import numpy as np
@@ -9,6 +10,7 @@ from tensorflow.python.client import timeline
 
 import tensorx.transform as transform
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class TestTransform(unittest.TestCase):
     # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
