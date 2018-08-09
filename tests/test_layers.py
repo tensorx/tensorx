@@ -1111,5 +1111,42 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(np.array_equal(outputs.eval(), bn_simple.eval()))
 
-        if __name__ == '__main__':
-            unittest.main()
+    def test_batch_norm_sparse(self):
+        v = np.array([[1, 1, 1, 1], [2, 2, 2, 2], [-1, 1, -1, -1]])
+        x = TensorLayer(v, n_units=4, dtype=tf.float32)
+        xs = ToSparse(x)
+
+        bn = BatchNorm(x, training=False)
+        bns = bn.reuse_with(xs)
+
+        # print(bn.moving_mean.op.name)
+        # print(bns.moving_mean.op.name)
+
+        tf.global_variables_initializer().run()
+
+        res1 = bn.eval()
+        res2 = bns.eval()
+
+        # moving average and variance are updated so they can't be the same
+        self.assertTrue(np.array_equal(res1, res2))
+
+        bn = bn.reuse_with(x, training=True)
+        bns = bn.reuse_with(xs)
+
+        res1 = bn.eval()
+        res2 = bns.eval()
+
+        # moving average and variance are updated so they can't be the same
+        self.assertFalse(np.array_equal(res1, res2))
+
+        bn = bn.reuse_with(x, training=False)
+        bns = bn.reuse_with(xs)
+
+        res1 = bn.eval()
+        res2 = bns.eval()
+
+        # moving average and variance are updated so they can't be the same
+        self.assertTrue(np.array_equal(res1, res2))
+
+    if __name__ == '__main__':
+        unittest.main()

@@ -19,7 +19,7 @@ from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
 
 from tensorflow.python.framework.ops import Tensor, name_scope
-from tensorflow.python.ops import array_ops, check_ops, control_flow_ops
+from tensorflow.python.ops import array_ops, check_ops, control_flow_ops, state_ops
 
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variables
@@ -2849,14 +2849,23 @@ class BatchNorm(Layer):
 
         self.tensor = self._build_graph(layer)
 
+    def reset_estimates(self):
+        reset_mean = state_ops.assign(self.moving_mean, array_ops.zeros_like(self.moving_mean))
+        reset_variance = state_ops.assign(self.moving_variance, array_ops.zeros_like(self.moving_variance))
+
+        return control_flow_ops.group(reset_mean, reset_variance)
+
     def _build_graph(self, layer):
         var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
         var_reuse = self.share_vars_with is not None
 
-        axis = list(range(len(layer.shape) - 1))
-        param_shape = layer.shape[-1:]
-
         with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
+            if layer.is_sparse():
+                layer = ToDense(layer)
+
+            axis = list(range(len(layer.shape) - 1))
+            param_shape = layer.shape[-1:]
+
             if self.scale:
                 if self.gamma is None:
                     self.gamma = variable_scope.get_variable("gamma",
@@ -2897,12 +2906,20 @@ class BatchNorm(Layer):
 
             self._add_variable(self.moving_variance)
 
-            if self.training:
-                # Calculate the moments based on the individual batch.
-                batch_mean, batch_variance = moments(layer.tensor, axis, shift=self.moving_mean)
+            # Calculate the moments based on the individual batch.
+            batch_mean, batch_variance = moments(layer.tensor, axis, shift=self.moving_mean)
 
-                update_mv_avg = assign_moving_average(self.moving_mean, batch_mean, self.decay)
-                update_mv_var = assign_moving_average(self.moving_variance, batch_variance, self.decay)
+            self.moments = batch_mean
+
+            # I have to create this graph regardless of weather I'm training or not because
+            # of variable sharing, inside this op, there's an attempt to create a variable
+            # with a name based on the self.moving_mean_op name BatchNorm/moving_mean
+            # if we are sharing variables this is already scoped, the new variable will
+            # repeat the scope BatchNorm/BatchNorm/moving_mean/biased
+            update_mv_avg = assign_moving_average(self.moving_mean, batch_mean, self.decay)
+            update_mv_var = assign_moving_average(self.moving_variance, batch_variance, self.decay)
+
+            if self.training:
 
                 with ops.control_dependencies([update_mv_avg, update_mv_var]):
                     tensor = batch_normalization(x=layer.tensor,
@@ -2919,7 +2936,7 @@ class BatchNorm(Layer):
                                              scale=self.gamma,
                                              variance_epsilon=self.epsilon)
 
-                tensor.set_shape(layer.tensor.get_shape())
+                # tensor.set_shape(layer.tensor.get_shape())
 
         return tensor
 
