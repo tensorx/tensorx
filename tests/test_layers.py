@@ -1004,6 +1004,112 @@ class TestLayers(unittest.TestCase):
         runner = ModelRunner(model)
         runner.log_graph("/tmp/")
 
+    def test_reshape(self):
+        v = np.array([[[1], [2]], [[3], [4]]])
+        x = TensorLayer(v, n_units=1)
 
-if __name__ == '__main__':
-    unittest.main()
+        fl = Flatten(x)
+        fl2 = fl.reuse_with(x)
+
+        self.assertTrue(np.array_equal(fl.eval(), fl2.eval()))
+
+    def test_batch_norm(self):
+        v = np.array([[1, 1, 1, 1], [2, 2, 2, 2], [-1, 1, -1, -1]])
+        x = TensorLayer(v, n_units=4, dtype=tf.float32)
+        xs = ToSparse(x)
+
+        inputs_shape = x.shape
+        axis = list(range(len(inputs_shape) - 1))
+        params_shape = inputs_shape[-1:]
+
+        # during training
+        decay = 0.999
+        epsilon = 0.001
+
+        # this can be params of the layer
+        beta = tf.get_variable('beta',
+                               shape=params_shape,
+                               dtype=x.dtype,
+                               initializer=tf.zeros_initializer,
+                               trainable=True)
+
+        gamma = tf.get_variable('gamma',
+                                shape=params_shape,
+                                dtype=x.dtype,
+                                initializer=tf.ones_initializer,
+                                trainable=True)
+
+        # these are not trainable but updated each time we compute mean and variance
+        moving_mean = tf.get_variable("moving_mean",
+                                      shape=params_shape,
+                                      initializer=tf.zeros_initializer(),
+                                      trainable=False)
+        moving_var = tf.get_variable("moving_var",
+                                     shape=params_shape,
+                                     initializer=tf.zeros_initializer(),
+                                     trainable=False)
+
+        # Calculate the moments based on the individual batch.
+        mean, variance = tf.nn.moments(x.tensor, axis, shift=moving_mean)
+
+        """Some training algorithms, such as GradientDescent and Momentum often benefit 
+            from maintaining a moving average of variables during optimization. 
+            Using the moving averages for evaluations often improve results significantly.
+        """
+        from tensorflow.python.training.moving_averages import assign_moving_average
+
+        """  The moving average of 'variable' updated with 'value' is:
+            variable * decay + value * (1 - decay)
+        """
+
+        update_mv_avg = assign_moving_average(moving_mean, mean, decay)
+        update_mv_var = assign_moving_average(moving_var, variance, decay)
+
+        with tf.control_dependencies([update_mv_avg, update_mv_var]):
+            outputs = tf.nn.batch_normalization(
+                x.tensor, mean, variance, beta, gamma, epsilon)
+
+        # if not training instead of using mean and variance we use an estimate
+        # for the pop ulation mean and variance computed for example from the
+        # exponential moving averages
+
+        # outputs = nn.batch_normalization(
+        #    inputs, moving_mean, moving_variance, beta, gamma, epsilon)
+        # outputs.set_shape(inputs.get_shape())
+
+        bn = BatchNorm(x, beta=beta, gamma=gamma, center=True, scale=True)
+        bn2 = BatchNorm(x, gamma=gamma, center=True, scale=True, beta_init=random_uniform(0, 1))
+        bn3 = BatchNorm(x, beta=beta, gamma=gamma, center=True, scale=True, beta_init=random_uniform(0, 1))
+
+        bn_simple = BatchNorm(x, scale=False, center=False)
+
+        bn_inference = bn.reuse_with(x, training=False)
+
+        tf.global_variables_initializer().run()
+
+        # test updated moving avg
+        before = bn.moving_mean.eval()
+        bn.eval()
+        after = bn.moving_mean.eval()
+        self.assertFalse(np.array_equal(before, after))
+        before = bn.moving_mean.eval()
+        bn.eval()
+        after = bn.moving_mean.eval()
+        self.assertFalse(np.array_equal(before, after))
+
+        self.assertEqual(bn.moving_mean, bn_inference.moving_mean)
+        before = bn_inference.moving_mean.eval()
+        bn_inference.eval()
+        after = bn_inference.moving_mean.eval()
+        self.assertTrue(np.array_equal(before, after))
+
+        self.assertTrue(np.array_equal(outputs.eval(), bn.eval()))
+        self.assertFalse(np.array_equal(outputs.eval(), bn_inference.eval()))
+        # ignores init because we pass beta and gamma
+        self.assertTrue(np.array_equal(outputs.eval(), bn3.eval()))
+        self.assertFalse(np.array_equal(outputs.eval(), bn2.eval()))
+
+        self.assertTrue(np.array_equal(outputs.eval(), bn_simple.eval()))
+
+        if __name__ == '__main__':
+            unittest.main()

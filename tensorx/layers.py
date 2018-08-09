@@ -27,10 +27,12 @@ from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_va
 from tensorflow.python.ops import variable_scope
 
 from tensorflow.python.ops import random_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, conv1d, convolution
+from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, moments, convolution, \
+    batch_normalization
 from tensorflow.python.framework.sparse_tensor import SparseTensor
+from tensorflow.python.training.moving_averages import assign_moving_average
 
-from tensorx.init import random_uniform, zero_init, xavier_init, const_init
+from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx import transform
 from tensorx import utils as txutils
@@ -39,6 +41,16 @@ from tensorx.activation import sigmoid, tanh, identity
 from tensorx import math as mathx
 
 from contextlib import ExitStack
+
+
+def _validate_shape(x, shape):
+    if x is not None:
+        tensor_shape = x.get_shape().as_list()
+        if tensor_shape != shape:
+            raise ValueError(
+                "Invalid shape for {name} {tensor_shape}. Expected shape {expected}".format(name=str(x.name),
+                                                                                            tensor_shape=tensor_shape,
+                                                                                            expected=tensor_shape))
 
 
 class LayerScope:
@@ -236,6 +248,8 @@ def layers_to_list(output_layers, input_layers=[]):
     return flat_layers
 
 
+# TODO probably can refactor reuse_with to forward certain properties
+# like layers, share_vars_with, etc
 class Layer:
     """ Layer.
 
@@ -289,6 +303,11 @@ class Layer:
         self.variables = []
 
         self._tensor = None
+
+    def reuse_with(self, *layers, name=None):
+        if name is None:
+            name = self.name
+        return type(self)(*layers, name=name)
 
     @property
     def input_layers(self):
@@ -369,6 +388,9 @@ class Layer:
                          tf_fn=lambda tensor: tensor[item],
                          name="{}_{}".format(self.name, item))
 
+    def eval(self):
+        return self.tensor.eval()
+
 
 class WrapLayer(Layer):
     """ Wraps another layer with tf code
@@ -407,21 +429,20 @@ class WrapLayer(Layer):
         self.variable_names = layer.variable_names
         self.variables = layer.variables
 
-        with layer_scope(self, name=name):
+        super().__init__(layer, n_units, None, None, name=name)
+
+        with layer_scope(self):
             tensor = self.tf_fn(layer.tensor)
-            output_shape = tensor.get_shape()
-
-            dtype = tensor.dtype
-            shape = output_shape
-
-        super().__init__(layer, n_units, shape, dtype, name=name)
 
         self.tensor = tensor
+        self.dtype = tensor.dtype
+        self.shape = tensor.get_shape()
 
     def reuse_with(self, layer):
         """ Reuse this WrapLayer with another layer
 
         # TODO this should be called ApplyLayer or FNLayer or something similar
+        # FN should be called fully connected ?
 
         Reusing this layer is a matter of applying the tf graph building function
         to the new layer
@@ -1698,10 +1719,9 @@ class Lookup(Layer):
     Args:
         layer: an ``Input`` layer or ``SparseInput`` layers.
         seq_size: size of the sequence to be looked-up
-        feature_shape: lookup table feature dimension
+        lookup_shape: lookup table feature dimension
         batch_size: number of sequences to be looked up,
         if not None, will force a padding up to the specified batch_size
-        as_sequence: if True returns a [seq_size, batch_size, feature_shape[-1]] tensor
     """
 
     def __init__(self,
@@ -1776,6 +1796,11 @@ class Lookup(Layer):
         # if weights are passed, check that their shape matches the layer shape
 
         self.tensor = self._build_graph(layer)
+
+        if self.batch_size is not None:
+            # we might need to update batch size if this can be determined
+            # otherwise the user might introduce the wrong batch_size
+            self.shape = [self.tensor.get_shape().as_list()[0], self.seq_size, self.n_units]
 
     def _build_graph(self, layer):
         var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
@@ -1896,11 +1921,6 @@ class Lookup(Layer):
                 padding.append([0, 0])
                 padding = array_ops.stack(padding)
                 tensor = array_ops.pad(tensor, padding)
-
-        if self.batch_size is not None:
-            # we might need to update batch size if this can be determined
-            # otherwise the user might introduce the wrong batch_size
-            self.shape = [tensor.get_shape().as_list()[0], self.seq_size, self.n_units]
 
         return tensor
 
@@ -2729,10 +2749,202 @@ class Flatten(Layer):
 
         self.tensor = output
 
-    def reuse_with(self, layer, name=None):
+
+class BatchNorm(Layer):
+    """ Batch Normalization Layer
+
+    Usage:
+        Typically, what we want to do is setup the inference graph or training graph first with all the BatchNorm
+        layers in place, afterwards we can call reuse_with with a different value on the training flag. This will
+        create the appropriate batch_norm computations for training and inference time while sharing the same variables.
+
+        BatchNorm is better understood as a technique which reduces second-order relationships between parameters of
+        different layers than a method to reduce covariate shift. Thus, the before/after distinction doesn't
+        matter, and differences in performance could simply be because of other particular factors of the model.
+
+
+        Training time:
+            * computes batch normalisation based on mini-batch mean and variance
+            * computes the population estimates based on a exponential moving average with a given decay parameter
+
+        Inference time:
+            * computes batch normalisation based on population estimates for mean and variance (learned during training)
+
+
+        How to use center and scale params:
+            * if you use center=True, your preceeding layer does not require a bias because this bias will be canceled
+            out in the batch_norm process anyway.
+
+            * when the next layer is linear (e.g. a ReLU Activation), scale can be set to False, since the scaling can
+            be done by the next layer if needed.
+
+    Impl Note:
+        if I added the updates to the update collection I would have to do something like
+
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            train_op = optimizer.minimize(loss)
+
+        Don't see the need for now, this seems ugly. Perhaps later I can add this info to any layer (updates
+        that need to take place)
+
+    References:
+
+        Ioffe, Szegedy "Batch Normalization: Accelerating Deep Network Training by Reducing
+        Internal Covariate Shift"
+
+        from http://arxiv.org/abs/1502.03167.
+
+    Args:
+        layer: Layer from which the batch normalisation will be computed
+        training: if True uses the current mini-batch mean and variance to compute the batch-normalised output and
+        updates the population estimates. Else, computes the batch normalisation using the estimates.
+        center: If True, subtract `beta`. If False, `beta` is ignored.
+        scale: If True, multiply by `gamma`. If False, `gamma` is not used.
+
+
+    """
+
+    def __init__(self,
+                 layer,
+                 training=True,
+                 center=True,
+                 scale=False,
+                 trainable=True,
+                 gamma_init=ones_init(),
+                 beta_init=zero_init(),
+                 decay=0.99,
+                 epsilon=0.001,
+                 gamma=None,
+                 beta=None,
+                 moving_mean=None,
+                 moving_variance=None,
+                 share_vars_with=None,
+                 name="BatchNorm"):
+
+        self.decay = decay
+        self.epsilon = epsilon
+        self.training = training
+        self.center = center
+        self.beta = beta
+        self.scale = scale
+        self.gamma = gamma
+        self.trainable = trainable
+        self.share_vars_with = share_vars_with
+        self.gamma_init = gamma_init
+        self.beta_init = beta_init
+        self.moving_mean = moving_mean
+        self.moving_variance = moving_variance
+
+        param_shape = layer.shape[-1:]
+
+        _validate_shape(gamma, param_shape)
+        _validate_shape(beta, param_shape)
+        _validate_shape(moving_mean, param_shape)
+        _validate_shape(moving_variance, param_shape)
+
+        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name=name)
+
+        # validate beta and gamma
+
+        self.tensor = self._build_graph(layer)
+
+    def _build_graph(self, layer):
+        var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
+        var_reuse = self.share_vars_with is not None
+
+        axis = list(range(len(layer.shape) - 1))
+        param_shape = layer.shape[-1:]
+
+        with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
+            if self.scale:
+                if self.gamma is None:
+                    self.gamma = variable_scope.get_variable("gamma",
+                                                             shape=param_shape,
+                                                             dtype=self.dtype,
+                                                             initializer=self.gamma_init,
+                                                             trainable=self.trainable)
+
+                # store variables for easy access
+                self._add_variable(self.gamma)
+            else:
+                self.gamma = None
+            if self.center:
+                if self.beta is None:
+                    self.beta = variable_scope.get_variable("beta",
+                                                            shape=param_shape,
+                                                            dtype=self.dtype,
+                                                            initializer=self.beta_init,
+                                                            trainable=self.trainable)
+
+                # store variables for easy access
+                self._add_variable(self.beta)
+            else:
+                self.beta = None
+
+            if self.moving_mean is None:
+                self.moving_mean = variable_scope.get_variable("moving_mean",
+                                                               shape=param_shape,
+                                                               initializer=zero_init(),
+                                                               trainable=False)
+            self._add_variable(self.moving_mean)
+
+            if self.moving_variance is None:
+                self.moving_variance = variable_scope.get_variable("moving_variance",
+                                                                   shape=param_shape,
+                                                                   initializer=zero_init(),
+                                                                   trainable=False)
+
+            self._add_variable(self.moving_variance)
+
+            if self.training:
+                # Calculate the moments based on the individual batch.
+                batch_mean, batch_variance = moments(layer.tensor, axis, shift=self.moving_mean)
+
+                update_mv_avg = assign_moving_average(self.moving_mean, batch_mean, self.decay)
+                update_mv_var = assign_moving_average(self.moving_variance, batch_variance, self.decay)
+
+                with ops.control_dependencies([update_mv_avg, update_mv_var]):
+                    tensor = batch_normalization(x=layer.tensor,
+                                                 mean=batch_mean,
+                                                 variance=batch_variance,
+                                                 offset=self.beta,
+                                                 scale=self.gamma,
+                                                 variance_epsilon=self.epsilon)
+            else:
+                tensor = batch_normalization(x=layer.tensor,
+                                             mean=self.moving_mean,
+                                             variance=self.moving_variance,
+                                             offset=self.beta,
+                                             scale=self.gamma,
+                                             variance_epsilon=self.epsilon)
+
+                tensor.set_shape(layer.tensor.get_shape())
+
+        return tensor
+
+    def reuse_with(self, layer, training=None, name=None):
+        if training is None:
+            training = self.training
+
         if name is None:
             name = self.name
-        return Flatten(layer, name)
+
+        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
+
+        return BatchNorm(layer=layer,
+                         training=training,
+                         center=self.center,
+                         scale=self.scale,
+                         trainable=self.trainable,
+                         gamma=self.gamma,
+                         beta=self.beta,
+                         gamma_init=self.gamma_init,
+                         beta_init=self.beta_init,
+                         decay=self.decay,
+                         epsilon=self.epsilon,
+                         share_vars_with=share_vars_with,
+                         name=name)
 
 
 __all__ = ["Input",
@@ -2768,5 +2980,6 @@ __all__ = ["Input",
            "Highway",
            "Residual",
            "Flatten",
-           "Reshape"
+           "Reshape",
+           "BatchNorm"
            ]
