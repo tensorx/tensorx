@@ -2909,7 +2909,7 @@ class BatchNorm(Layer):
             # Calculate the moments based on the individual batch.
             batch_mean, batch_variance = moments(layer.tensor, axis, shift=self.moving_mean)
 
-            self.moments = batch_mean
+            # self.moments = batch_mean
 
             # I have to create this graph regardless of weather I'm training or not because
             # of variable sharing, inside this op, there's an attempt to create a variable
@@ -2920,7 +2920,6 @@ class BatchNorm(Layer):
             update_mv_var = assign_moving_average(self.moving_variance, batch_variance, self.decay)
 
             if self.training:
-
                 with ops.control_dependencies([update_mv_avg, update_mv_var]):
                     tensor = batch_normalization(x=layer.tensor,
                                                  mean=batch_mean,

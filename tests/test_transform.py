@@ -12,6 +12,7 @@ import tensorx.transform as transform
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+
 class TestTransform(unittest.TestCase):
     # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
     def setUp(self):
@@ -39,13 +40,13 @@ class TestTransform(unittest.TestCase):
     def test_dropout(self):
         n = 10000
         b = 10
-        x = np.ones([b,n])
+        x = np.ones([b, n])
         keep_prob = 0.5
 
         drop_x = transform.dropout(x, keep_prob=keep_prob, scale=True)
         expected_avg = np.mean(x)
 
-        self.assertTrue(np.allclose(np.mean(drop_x.eval()),expected_avg,atol=1e-2))
+        self.assertTrue(np.allclose(np.mean(drop_x.eval()), expected_avg, atol=1e-2))
 
         drop_x = transform.dropout(x, keep_prob=keep_prob, scale=False)
         expected_avg = np.mean(x) * keep_prob
@@ -257,9 +258,6 @@ class TestTransform(unittest.TestCase):
         self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
 
     def test_gather_sparse(self):
-        tf.reset_default_graph()
-        # sess = tf.Session()
-
         # with tf.name_scope("test_setup"):
         n_runs = 10
 
@@ -270,61 +268,9 @@ class TestTransform(unittest.TestCase):
 
         gather_sp_tx = transform.gather_sparse(sp, indices)
 
-
-
         with tf.Session() as ss:
-            # debug gather sparse with timeline
-            # https://www.tensorflow.org/programmers_guide/graph_viz
-            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-            run_metadata = tf.RunMetadata()
-            summary_writer = tf.summary.FileWriter('/tmp/', ss.graph)
-
             for i in range(n_runs):
-                step = i + 1
-                ss.run(gather_sp_tx, options=run_options, run_metadata=run_metadata)
-                summary_writer.add_run_metadata(run_metadata, 'step%d' % step)
-
-                # Create the Timeline object, and write it to a json
-                tl = timeline.Timeline(run_metadata.step_stats)
-
-        summary_writer.add_graph(ss.graph)
-        summary_writer.close()
-
-        ctf = tl.generate_chrome_trace_format()
-        with open('/tmp/timeline.json', 'w') as f:
-            f.write(ctf)
-
-    def test_gather_sparse_v2(self):
-        sess = tf.Session()
-
-        # dummy data =====================================================================
-        num_cols = 100
-        num_rows = 10000
-
-        num_gather = 400
-
-        v = np.ones([num_rows * num_cols])
-        mask = np.random.choice(int(num_cols * num_rows), int(num_cols * num_rows / 0.8))
-        v[mask] = 0
-        v = np.reshape(v, [num_rows, num_cols])
-        indices = np.random.randint(0, num_rows - 1, [num_gather])
-        # ================================================================================
-
-        sp_tensor = transform.to_sparse(v)
-        gather = transform.gather_sparse(sp_tensor, indices)
-
-        # measure runtime performance
-        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-        run_metadata = tf.RunMetadata()
-        log_writer = tf.summary.FileWriter('/tmp/', sess.graph)
-
-        # for i in range(100):
-        i = 1
-        stv1 = sess.run(gather, options=run_options, run_metadata=run_metadata)
-        log_writer.add_run_metadata(run_metadata, 'test run {}'.format(i))
-
-        log_writer.add_graph(sess.graph)
-        log_writer.close()
+                ss.run(gather_sp_tx)
 
 
 if __name__ == '__main__':
