@@ -1109,6 +1109,8 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(outputs.eval(), bn_simple.eval()))
 
     def test_batch_norm_sparse(self):
+        self.reset()
+
         v = np.array([[1, 1, 1, 1], [2, 2, 2, 2], [-1, 1, -1, -1]])
         x = TensorLayer(v, n_units=4, dtype=tf.float32)
         xs = ToSparse(x)
