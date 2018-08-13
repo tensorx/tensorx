@@ -1011,6 +1011,8 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(fl.eval(), fl2.eval()))
 
     def test_batch_norm(self):
+        self.reset()
+
         v = np.array([[1, 1, 1, 1], [2, 2, 2, 2], [-1, 1, -1, -1]])
         x = TensorLayer(v, n_units=4, dtype=tf.float32)
         xs = ToSparse(x)

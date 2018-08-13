@@ -3,7 +3,7 @@ from distutils.core import setup
 _VERSION = '0.3'
 
 install_requires = [
-    'tensorflow >= 1.6.0'
+    'tensorflow >= 1.10.0'
 ]
 
 setup(

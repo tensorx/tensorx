@@ -1,15 +1,5 @@
-""" Neural Network Layers
+""" Neural Network Layers"""
 
-All layers contain a certain number of units, its shape, name and a tensor member
-which gives us a handle for a TensorFlow tensor that can be evaluated.
-
-Types of layers:
-
-    * **Input**: wrap around TensorFlow placeholders, ``input_layers`` is empty.
-    * **Dense**:  a layer that outputs a tensorflow ``Tensor``.
-    * **Sparse**: a layer that outputs a tensorflow ``SparseTensor``.
-
-"""
 from functools import partial
 import itertools
 
