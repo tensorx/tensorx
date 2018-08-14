@@ -1005,7 +1005,18 @@ class TestLayers(unittest.TestCase):
         v = np.array([[[1], [2]], [[3], [4]]])
         x = TensorLayer(v, n_units=1)
 
+        fl = Reshape(x, [-1, 2])
+        fl2 = fl.reuse_with(x)
+
+        self.assertTrue(np.array_equal(fl.eval(), fl2.eval()))
+
+    def test_flatten(self):
+        v = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+        x = TensorLayer(v, n_units=2)
         fl = Flatten(x)
+        self.assertSequenceEqual(fl.shape, [2, 6])
+        rs = Reshape(fl, x.shape)
+        self.assertTrue(np.array_equal(x.eval(), rs.eval()))
         fl2 = fl.reuse_with(x)
 
         self.assertTrue(np.array_equal(fl.eval(), fl2.eval()))

@@ -1,6 +1,7 @@
 """ Neural Network Layers"""
 
-from functools import partial
+from functools import partial, reduce
+import operator
 import itertools
 
 from collections import deque
@@ -33,14 +34,19 @@ from tensorx import math as mathx
 from contextlib import ExitStack
 
 
-def _validate_shape(x, shape):
+def _validate_shape_type(x, shape, dtype=None):
     if x is not None:
+        x = txutils.to_tensor_cast(x)
         tensor_shape = x.get_shape().as_list()
         if tensor_shape != shape:
             raise ValueError(
                 "Invalid shape for {name} {tensor_shape}. Expected shape {expected}".format(name=str(x.name),
                                                                                             tensor_shape=tensor_shape,
                                                                                             expected=tensor_shape))
+        if dtype is not None and x.dtype != dtype:
+            raise TypeError("Invalid dtype for {name}. Expected {expected}, was {got} instead".format(name=str(x.name),
+                                                                                                      expected=dtype,
+                                                                                                      got=x.dtype))
 
 
 class LayerScope:
@@ -2700,6 +2706,8 @@ class Residual(Layer):
 
 class Reshape(Layer):
     def __init__(self, layer, shape, name="reshape"):
+        shape = [d if d is not None else -1 for d in shape]
+
         super().__init__(layer, n_units=shape[-1], shape=None, dtype=layer.dtype, name=name)
 
         with layer_scope(self):
@@ -2717,6 +2725,25 @@ class Reshape(Layer):
         return Reshape(layer, self.shape, name)
 
 
+class Transpose(Layer):
+    def __init__(self, layer, perm, name="transpose"):
+        super().__init__(layer, n_units=layer.shape[perm[-1]], shape=None, dtype=layer.dtype, name=name)
+
+        with layer_scope(self):
+            if layer.is_dense():
+                output = array_ops.transpose(layer.tensor, perm)
+            else:
+                output = sparse_ops.sparse_transpose(layer.tensor, perm)
+
+            self.shape = output.get_shape().as_list()
+            self.tensor = output
+
+    def reuse_with(self, layer, name=None):
+        if name is None:
+            name = self.name
+        return Transpose(layer, self.perm, name)
+
+
 class Flatten(Layer):
     """ Flatten.
 
@@ -2725,8 +2752,8 @@ class Flatten(Layer):
     """
 
     def __init__(self, layer, name="flatten"):
-        n_units = sum(layer.shape[1:])
-        super().__init__(layer, n_units, shape=None, dtype=layer.dtype, name=name)
+        n_units = reduce(operator.mul, layer.shape[1:])
+        super().__init__(layer, n_units, shape=[layer.shape[0], n_units], dtype=layer.dtype, name=name)
 
         with layer_scope(self):
             input_shape = array_ops.shape(layer.tensor)
@@ -2827,15 +2854,18 @@ class BatchNorm(Layer):
         self.moving_variance = moving_variance
 
         param_shape = layer.shape[-1:]
+        dtype = layer.dtype
 
-        _validate_shape(gamma, param_shape)
-        _validate_shape(beta, param_shape)
-        _validate_shape(moving_mean, param_shape)
-        _validate_shape(moving_variance, param_shape)
+        # validate beta and gamma, and possible shared vars
+        _validate_shape_type(gamma, param_shape)
+        _validate_shape_type(beta, param_shape)
+        _validate_shape_type(moving_mean, param_shape, dtype)
+        _validate_shape_type(moving_variance, param_shape, dtype)
+
+        if layer.dtype not in (dtypes.float32, dtypes.float64, dtypes.float16):
+            raise TypeError("Expected float layer got {} instead".format(layer.dtype))
 
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name=name)
-
-        # validate beta and gamma
 
         self.tensor = self._build_graph(layer)
 
@@ -2885,14 +2915,16 @@ class BatchNorm(Layer):
                 self.moving_mean = variable_scope.get_variable("moving_mean",
                                                                shape=param_shape,
                                                                initializer=zero_init(),
-                                                               trainable=False)
+                                                               trainable=False,
+                                                               dtype=self.dtype)
             self._add_variable(self.moving_mean)
 
             if self.moving_variance is None:
                 self.moving_variance = variable_scope.get_variable("moving_variance",
                                                                    shape=param_shape,
                                                                    initializer=zero_init(),
-                                                                   trainable=False)
+                                                                   trainable=False,
+                                                                   dtype=self.dtype)
 
             self._add_variable(self.moving_variance)
 
@@ -2988,5 +3020,6 @@ __all__ = ["Input",
            "Residual",
            "Flatten",
            "Reshape",
+           "Transpose",
            "BatchNorm"
            ]
