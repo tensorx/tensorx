@@ -1128,7 +1128,7 @@ class TestLayers(unittest.TestCase):
         res1 = bn.eval()
         res2 = bns.eval()
 
-        # moving average and variance are updated so they can't be the same
+        # moving average and variance should be the same
         self.assertTrue(np.array_equal(res1, res2))
 
         bn = bn.reuse_with(x, training=True, name="bn_train")
@@ -1141,15 +1141,7 @@ class TestLayers(unittest.TestCase):
 
         # moving average and variance are updated so they can't be the same
         self.assertFalse(np.array_equal(moving_mean_before, moving_mean_after))
-
-        print(res1)
-        print(res2)
-
-        model = Model(run_in_layers=x, run_out_layers=[bn, bns])
-        runner = ModelRunner(model)
-        runner.log_graph("/tmp/")
-
-        self.assertFalse(np.array_equal(res1, res2))
+        self.assertTrue(np.array_equal(res1, res2))
 
         bn = bn.reuse_with(x, training=False)
         bns = bn.reuse_with(xs)
@@ -1157,52 +1149,56 @@ class TestLayers(unittest.TestCase):
         res1 = bn.eval()
         res2 = bns.eval()
 
-        # moving average and variance are updated so they can't be the same
+        # testing switching between training and inference modes in the batch norm
         self.assertTrue(np.array_equal(res1, res2))
 
-    def test_batch_norm_sparse(self):
-        self.reset()
+    def test_batch_norm_mv_average(self):
+        t1 = np.array([[1, 1], [2, 3], [-1, 6]])
+        t2 = np.array([[5, 5], [1, 2], [-6, -10]])
 
-        v = np.array([[1, 1], [2, 3], [-1, 6]])
-        x = TensorLayer(v, n_units=2, dtype=tf.float32)
+        x = Input(n_units=2, dtype=tf.float32)
         xs = ToSparse(x)
 
-        bn = BatchNorm(x, training=False, name="bn")
-        bns = bn.reuse_with(xs, name="bns", training=True)
-        bns_new = BatchNorm(xs, name="bns_new")
-        bn_new = bns_new.reuse_with(xs, name="bn_new")
+        bn = BatchNorm(x, training=True, name="bn")
+        bns = bn.reuse_with(xs)
+
+        bn_infer = bn.reuse_with(x, training=False, name="bn_infer")
 
         tf.global_variables_initializer().run()
 
-        mv_mean_before = bn.moving_mean.eval()
+        r0_infer = bn_infer.eval({x.placeholder: t1})
 
-        bn.eval()
-        bn.eval()
+        mv0 = bn.moving_mean.eval()
+        r1 = bn.eval({x.placeholder: t1})
+        mv1 = bn.moving_mean.eval()
 
-        mv_mean_after = bn.moving_mean.eval()
-        mv_mean_after_s = bns.moving_mean.eval()
+        r1_infer = bn_infer.eval({x.placeholder: t1})
 
-        self.assertTrue(np.array_equal(mv_mean_after, mv_mean_after_s))
-        self.assertTrue(np.array_equal(mv_mean_before, mv_mean_after))
+        # moving average and variance are updated so they can't be the same
+        self.assertFalse(np.array_equal(mv0, mv1))
 
-        mv_mean_before = bns.moving_mean.eval()
+        # the result with the same data can't be the same because it uses the
+        # estimate for population mean and variance which is updated by the training step
+        self.assertFalse(np.array_equal(r0_infer, r1_infer))
 
-        bns.eval()
-        bns.eval()
-        bns.eval()
+        r2 = bn.eval({x.placeholder: t2})
+        r2_infer = bn_infer.eval({x.placeholder: t1})
 
-        mv_mean_after = bn.moving_mean.eval()
-        mv_mean_after_s = bns.moving_mean.eval()
+        rs1 = bns.eval({x.placeholder: t1})
+        r3_infer = bn_infer.eval({x.placeholder: t1})
+        rs2 = bns.eval({x.placeholder: t2})
 
-        self.assertTrue(np.array_equal(mv_mean_after, mv_mean_after_s))
-        self.assertFalse(np.array_equal(mv_mean_before, mv_mean_after))
+        # the results should be the same because they are computed based on the current
+        # mini-batch mean and variance
+        self.assertTrue(np.array_equal(r1, rs1))
+        self.assertTrue(np.array_equal(r2, rs2))
 
-        model = Model(run_in_layers=x, run_out_layers=[bn, bns])
-        runner = ModelRunner(model)
-        runner.log_graph("/tmp/")
+        # again can't be the same because the moving avg changed
+        self.assertFalse(np.array_equal(r1_infer, r2_infer))
 
-        for var in tf.global_variables():
-            print(var.op.name)
+        # the reused layer should also update the moving average
+        # so the inference step will give a different value again
+        self.assertFalse(np.array_equal(r2_infer, r3_infer))
 
     if __name__ == '__main__':
         unittest.main()

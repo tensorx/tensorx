@@ -378,8 +378,8 @@ class Layer:
                          tf_fn=lambda tensor: tensor[item],
                          name="{}_{}".format(self.name, item))
 
-    def eval(self):
-        return self.tensor.eval()
+    def eval(self, *args, **kwargs):
+        return self.tensor.eval(*args, **kwargs)
 
 
 class WrapLayer(Layer):
