@@ -1113,12 +1113,12 @@ class TestLayers(unittest.TestCase):
     def test_batch_norm_sparse(self):
         self.reset()
 
-        v = np.array([[1, 1, 1, 1], [2, 2, 2, 2], [-1, 1, -1, -1]])
-        x = TensorLayer(v, n_units=4, dtype=tf.float32)
+        v = np.array([[1, 1], [2, 3], [-1, 6]])
+        x = TensorLayer(v, n_units=2, dtype=tf.float32)
         xs = ToSparse(x)
 
-        bn = BatchNorm(x, training=False)
-        bns = bn.reuse_with(xs)
+        bn = BatchNorm(x, training=False, name="bn_infer")
+        bns = bn.reuse_with(xs, name="bns_infer")
 
         # print(bn.moving_mean.op.name)
         # print(bns.moving_mean.op.name)
@@ -1131,13 +1131,24 @@ class TestLayers(unittest.TestCase):
         # moving average and variance are updated so they can't be the same
         self.assertTrue(np.array_equal(res1, res2))
 
-        bn = bn.reuse_with(x, training=True)
-        bns = bn.reuse_with(xs)
+        bn = bn.reuse_with(x, training=True, name="bn_train")
+        bns = bn.reuse_with(xs, name="bns_train")
 
+        moving_mean_before = bn.moving_mean.eval()
         res1 = bn.eval()
         res2 = bns.eval()
+        moving_mean_after = bn.moving_mean.eval()
 
         # moving average and variance are updated so they can't be the same
+        self.assertFalse(np.array_equal(moving_mean_before, moving_mean_after))
+
+        print(res1)
+        print(res2)
+
+        model = Model(run_in_layers=x, run_out_layers=[bn, bns])
+        runner = ModelRunner(model)
+        runner.log_graph("/tmp/")
+
         self.assertFalse(np.array_equal(res1, res2))
 
         bn = bn.reuse_with(x, training=False)
@@ -1148,6 +1159,50 @@ class TestLayers(unittest.TestCase):
 
         # moving average and variance are updated so they can't be the same
         self.assertTrue(np.array_equal(res1, res2))
+
+    def test_batch_norm_sparse(self):
+        self.reset()
+
+        v = np.array([[1, 1], [2, 3], [-1, 6]])
+        x = TensorLayer(v, n_units=2, dtype=tf.float32)
+        xs = ToSparse(x)
+
+        bn = BatchNorm(x, training=False, name="bn")
+        bns = bn.reuse_with(xs, name="bns", training=True)
+        bns_new = BatchNorm(xs, name="bns_new")
+        bn_new = bns_new.reuse_with(xs, name="bn_new")
+
+        tf.global_variables_initializer().run()
+
+        mv_mean_before = bn.moving_mean.eval()
+
+        bn.eval()
+        bn.eval()
+
+        mv_mean_after = bn.moving_mean.eval()
+        mv_mean_after_s = bns.moving_mean.eval()
+
+        self.assertTrue(np.array_equal(mv_mean_after, mv_mean_after_s))
+        self.assertTrue(np.array_equal(mv_mean_before, mv_mean_after))
+
+        mv_mean_before = bns.moving_mean.eval()
+
+        bns.eval()
+        bns.eval()
+        bns.eval()
+
+        mv_mean_after = bn.moving_mean.eval()
+        mv_mean_after_s = bns.moving_mean.eval()
+
+        self.assertTrue(np.array_equal(mv_mean_after, mv_mean_after_s))
+        self.assertFalse(np.array_equal(mv_mean_before, mv_mean_after))
+
+        model = Model(run_in_layers=x, run_out_layers=[bn, bns])
+        runner = ModelRunner(model)
+        runner.log_graph("/tmp/")
+
+        for var in tf.global_variables():
+            print(var.op.name)
 
     if __name__ == '__main__':
         unittest.main()

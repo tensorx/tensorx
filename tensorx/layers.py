@@ -16,11 +16,11 @@ from tensorflow.python.ops import variables
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.ops import variable_scope
 
-from tensorflow.python.ops import random_ops, sparse_ops
+from tensorflow.python.ops import random_ops, sparse_ops, state_ops
 from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, moments, convolution, \
     batch_normalization
 from tensorflow.python.framework.sparse_tensor import SparseTensor
-from tensorflow.python.training.moving_averages import assign_moving_average
+from tensorflow.python.training import moving_averages
 
 from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
@@ -2897,7 +2897,7 @@ class BatchNorm(Layer):
             self._add_variable(self.moving_variance)
 
             # Calculate the moments based on the individual batch.
-            batch_mean, batch_variance = moments(layer.tensor, axis, shift=self.moving_mean)
+            batch_mean, batch_variance = moments(layer.tensor, axis, shift=self.moving_mean, name="moments")
 
             # self.moments = batch_mean
 
@@ -2906,28 +2906,29 @@ class BatchNorm(Layer):
             # with a name based on the self.moving_mean_op name BatchNorm/moving_mean
             # if we are sharing variables this is already scoped, the new variable will
             # repeat the scope BatchNorm/BatchNorm/moving_mean/biased
-            update_mv_avg = assign_moving_average(self.moving_mean, batch_mean, self.decay)
-            update_mv_var = assign_moving_average(self.moving_variance, batch_variance, self.decay)
 
-            if self.training:
-                with ops.control_dependencies([update_mv_avg, update_mv_var]):
-                    tensor = batch_normalization(x=layer.tensor,
-                                                 mean=batch_mean,
-                                                 variance=batch_variance,
-                                                 offset=self.beta,
-                                                 scale=self.gamma,
-                                                 variance_epsilon=self.epsilon)
-            else:
-                tensor = batch_normalization(x=layer.tensor,
-                                             mean=self.moving_mean,
-                                             variance=self.moving_variance,
-                                             offset=self.beta,
-                                             scale=self.gamma,
-                                             variance_epsilon=self.epsilon)
+            # zero de-bias ema update
+            with variable_scope.variable_scope("debias"):
+                update_mv_avg = moving_averages.assign_moving_average(self.moving_mean, batch_mean, self.decay,
+                                                                      zero_debias=True)
+                update_mv_var = moving_averages.assign_moving_average(self.moving_variance, batch_variance, self.decay,
+                                                                      zero_debias=True)
 
-                # tensor.set_shape(layer.tensor.get_shape())
-
-        return tensor
+        if self.training:
+            with ops.control_dependencies([update_mv_avg, update_mv_var]):
+                return batch_normalization(x=layer.tensor,
+                                           mean=batch_mean,
+                                           variance=batch_variance,
+                                           offset=self.beta,
+                                           scale=self.gamma,
+                                           variance_epsilon=self.epsilon)
+        else:
+            return batch_normalization(x=layer.tensor,
+                                       mean=self.moving_mean,
+                                       variance=self.moving_variance,
+                                       offset=self.beta,
+                                       scale=self.gamma,
+                                       variance_epsilon=self.epsilon)
 
     def reuse_with(self, layer, training=None, name=None):
         if training is None:
