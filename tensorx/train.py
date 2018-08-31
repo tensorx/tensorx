@@ -222,7 +222,28 @@ class Param:
 
 
 class InputParam(Param):
-    """ An input parameter
+    """ Input Parameter.
+
+    Dev Notes:
+        Refactoring Needed?
+
+        TODO think about improving/removing the dependency between InputParam and ModelRunner
+        right now it depends on model runner to feed its placeholder with its value, could I make this differently?
+        I'm not seeing how right now since the feed_dict is required when calling run. This was created as a way to
+        tag parameters as something that might change and needs to be fed (with its own param value). Params are also
+        distinct from layers since they are always scalars.
+
+        Dynamic params
+
+        would be params that change according to a given function that might need outside inputs. An example for this
+        would be learning rate schedulers. A scheduler could take the current epoch, or the current validation error as
+        a basis for the update of its internal value. This way I could isolate the update logic and not pollute the
+        running script with this logic. Other than that the input param would work exactly like it has so far.
+
+        dynamic params can have an update function that receives the required parameters as documented and updates the
+        internal value. Something simple as that. Calling update just executes the function on the given params.
+
+
     Use Case - Optimizer Params:
         An ``InputParam`` can be used to feed a parameter to the optimizer (e.g. learning rate). The optimizer
         would take the param.tensor value and use it as the learning rate. The ``ModelRunner`` will look for
@@ -243,7 +264,20 @@ class InputParam(Param):
 
 
 class WrapParam(Param):
-    def __init__(self, param, tensor_op, dtype=dtypes.float32, name=None):
+    """ WrapParam
+
+    Parameter wrapper that augments an existing Param with a function that is always applied to its value.
+
+    Notes:
+        This is not in use yet. The original idea was to do something similar to what I have with WrapLayers where
+        we can augment a given layer forwarding attributes if necessary. This would be different from a dynamic param
+        as it does not contemplate function that might require other external parameters. I guess I should probably
+        remove it and replace it with DynamicParam with the update method.
+
+        TODO remove and replace with dynamic param class
+    """
+
+    def __init__(self, param, param_fn, dtype=dtypes.float32, name=None):
         if not isinstance(param, Param):
             raise TypeError("expected Param got {} instead".format(type(param)))
 
@@ -254,7 +288,7 @@ class WrapParam(Param):
             self.value = param.value
 
         self.param = param,
-        value = tensor_op(param.tensor)
+        value = param_fn(param.tensor)
 
         super().__init__(value, dtype, name=name)
 
