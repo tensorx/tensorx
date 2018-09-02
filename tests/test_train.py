@@ -1,5 +1,5 @@
 import unittest
-from tensorx.train import ModelRunner, Model
+from tensorx.train import ModelRunner, Model, EvalStepDecayParam
 from tensorx.layers import Input, Linear, Activation, Add, TensorLayer
 
 from tensorx.activation import tanh, sigmoid
@@ -11,6 +11,8 @@ import tensorflow as tf
 
 import os
 import glob
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 """TODO 
     - consider how models can be visualised on each layer
@@ -307,6 +309,60 @@ class ModelRunnerTest(unittest.TestCase):
         self.assertFalse(np.array_equal(weights1, weights2))
 
         self.clear_graph()
+
+    def test_eval_step_decay_param(self):
+        v1 = 4
+        decay_rate = 0.5
+        param = EvalStepDecayParam(v1,
+                                   decay_rate=decay_rate,
+                                   improvement_threshold=1.0,
+                                   less_is_better=True)
+        param.update(evaluation=1)
+        v2 = param.value
+        self.assertEqual(v1, v2)
+
+        # eval does not improve
+        param.update(evaluation=10)
+        v3 = param.value
+        self.assertNotEqual(v2, v3)
+        self.assertEqual(v3, v2 * decay_rate)
+        self.assertEqual(param.eval_improvement(), -9)
+
+        # eval improves but not more than threshold
+        v4 = param.value
+        param.update(evaluation=9)
+        self.assertEqual(v4, v3)
+
+        # eval does not improve
+        v5 = param.value
+        param.update(evaluation=10)
+        self.assertEqual(v5, v4 * decay_rate)
+
+        # eval improves but within threshold
+        v6 = param.value
+        param.update(evaluation=8.9)
+        self.assertEqual(v6, v5 * decay_rate)
+
+        # INCREASING EVAL
+        param = EvalStepDecayParam(v1, decay_rate=decay_rate, improvement_threshold=1.0, less_is_better=False)
+        param.update(evaluation=5)
+        v2 = param.value
+        self.assertEqual(v1, v2)
+
+        # eval does not improve
+        param.update(evaluation=4)
+        v3 = param.value
+        self.assertEqual(v3, v2 * decay_rate)
+
+        # improvement within threshold / did not improve
+        param.update(evaluation=5)
+        v4 = param.value
+        self.assertEqual(v4, v3 * decay_rate)
+
+        # improvement more than threshold
+        param.update(evaluation=6.1)
+        v5 = param.value
+        self.assertEqual(v5, v4)
 
 
 if __name__ == '__main__':

@@ -263,6 +263,77 @@ class InputParam(Param):
         self.value = init_value
 
 
+class DynamicParam(InputParam):
+    def __init__(self, init_value=None, dtype=dtypes.float32, update_fn=None, name="param_"):
+        super().__init__(dtype=dtype, init_value=init_value, name=name)
+        self.update_fn = update_fn
+
+    def update(self, *args, **kwargs):
+        if self.update_fn is not None:
+            self.value = self.update_fn(*args, **kwargs)
+
+
+class EvalStepDecayParam(DynamicParam):
+    """
+    Args:
+        init_value: initial value for the dynamic param
+        eval_threshold: float value representing the difference between evaluations necessary for the update to occur
+        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+        less_is_better: if True, evaluation is considered to improve if it decreases, else it is considered to improve
+        if it increases
+
+    Attributes:
+        eval_history: a list with the evaluation values passed through the update function
+        improvement_threshold: float value representing the difference between evaluations necessary for the update to occur
+        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+    """
+
+    def __init__(self, init_value,
+                 improvement_threshold=1.0,
+                 less_is_better=True,
+                 decay_rate=1.0,
+                 decay_threshold=1e-6,
+                 dtype=dtypes.float32,
+                 name="eval_step_decay_param"):
+        self.improvement_threshold = improvement_threshold
+        self.decay_rate = decay_rate
+        self.decay_threshold = decay_threshold
+        self.less_is_better = less_is_better
+        self.eval_history = []
+
+        def update_fn(evaluation):
+            self.eval_history.append(evaluation)
+            value = self.value
+            if len(self.eval_history) > 1:
+                if self.eval_improvement() <= self.improvement_threshold:
+                    value = max(value * self.decay_rate, self.decay_threshold)
+            return value
+
+        super().__init__(init_value=init_value, dtype=dtype, update_fn=update_fn, name=name)
+
+    def eval_improvement(self):
+        if len(self.eval_history) > 1:
+            improvement = self.eval_history[-2] - self.eval_history[-1]
+            if not self.less_is_better:
+                improvement = -1 * improvement
+            return improvement
+        else:
+            return 0
+
+    def update(self, evaluation):
+        """ update.
+
+        Updates the parameter value. It only makes changes to the parameter after then second update.
+        The decay decays is only applied if the current evaluation did not improve more than the `eval_threshold`.
+
+        Args:
+            evaluation: a float with the current evaluation value
+        """
+        super().update(evaluation)
+
+
 class WrapParam(Param):
     """ WrapParam
 
@@ -971,4 +1042,6 @@ __all__ = ["Model",
            "ModelRunner",
            "Param",
            "InputParam",
+           "DynamicParam",
+           "EvalStepDecayParam",
            "WrapParam"]
