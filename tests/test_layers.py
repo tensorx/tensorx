@@ -136,9 +136,11 @@ class TestLayers(unittest.TestCase):
         self.assertIsInstance(residual_2.projection, Linear)
         self.assertEqual(len(residual_2.variables), 1)
 
-        m = Model(x, residual_2)
-        r = ModelRunner(m)
-        r.log_graph("/tmp")
+        # m = Model(x, residual_2)
+        # r = ModelRunner(m)
+        # r.log_graph("/tmp")
+
+        self.reset()
 
     def test_conv1d(self):
         num_filters = 2
@@ -161,6 +163,8 @@ class TestLayers(unittest.TestCase):
         self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
         self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
         self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
+
+        self.reset()
 
     def test_causal_conv(self):
         num_filters = 1
@@ -198,6 +202,8 @@ class TestLayers(unittest.TestCase):
         self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
         self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
 
+        self.reset()
+
     def test_conv2d(self):
         # simple dummy data with 10 examples of mnist digit and class data
         # digits are 28x28 data
@@ -220,7 +226,7 @@ class TestLayers(unittest.TestCase):
                       same_padding=True,
                       bias=True)
 
-        print(tf.shape(conv.tensor).eval())
+        self.reset()
 
     def test_qrnn(self):
         num_filters = 2
