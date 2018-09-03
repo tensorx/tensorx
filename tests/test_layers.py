@@ -207,9 +207,10 @@ class TestLayers(unittest.TestCase):
     def test_conv2d(self):
         # simple dummy data with 10 examples of mnist digit and class data
         # digits are 28x28 data
+        local_path = (os.path.dirname(__file__))
 
-        x = np.load("data/mnist_10x.npy")
-        y = np.load("data/mnist_10y.npy")
+        x = np.load(local_path + "/data/mnist_10x.npy")
+        y = np.load(local_path + "/data/mnist_10y.npy")
 
         # we only have one channel so we need to reshape the data
         x = tf.reshape(x, shape=[-1, 28, 28, 1])
