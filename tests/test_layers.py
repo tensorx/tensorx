@@ -198,6 +198,30 @@ class TestLayers(unittest.TestCase):
         self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
         self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
 
+    def test_conv2d(self):
+        # simple dummy data with 10 examples of mnist digit and class data
+        # digits are 28x28 data
+
+        x = np.load("data/mnist_10x.npy")
+        y = np.load("data/mnist_10y.npy")
+
+        # we only have one channel so we need to reshape the data
+        x = tf.reshape(x, shape=[-1, 28, 28, 1])
+        self.assertTrue(np.array_equal(tf.shape(x).eval(), (10, 28, 28, 1)))
+
+        x_layer = TensorLayer(x, 1)
+        # f = Flatten(x_layer)
+
+        conv = Conv2D(layer=x_layer,
+                      n_units=2,
+                      filter_size=5,
+                      stride=(1, 1),
+                      dilation_rate=(1, 1),
+                      same_padding=True,
+                      bias=True)
+
+        print(tf.shape(conv.tensor).eval())
+
     def test_qrnn(self):
         num_filters = 2
         input_dim = 1000
