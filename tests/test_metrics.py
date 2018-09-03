@@ -61,14 +61,11 @@ class MyTestCase(unittest.TestCase):
         # we want to compute the cosine distance along dimension 1 because we have shape [1,2]
 
         dist1 = metrics.cosine_distance(v1, v1)
-        self.assertTrue(np.allclose(dist1.eval(), 0., atol=1e-6))
-
         v3s = tf.SparseTensor(indices=[[0], [1]], values=[1., 2.], dense_shape=dense_shape)
         v3 = tf.sparse_tensor_to_dense(v3s)
 
         dist2_dense = metrics.cosine_distance(v3, v2)
         dist2_sparse = metrics.sparse_cosine_distance(v3s, v2)
-        self.assertTrue(np.array_equal(dist2_dense.eval(), dist2_sparse.eval()))
 
     def test_sparse_cosine_distance(self):
         dense_shape = [10, 100]
