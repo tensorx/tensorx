@@ -568,6 +568,28 @@ class TestLayers(unittest.TestCase):
         np.testing.assert_array_equal(before_dropout.indices, after_dropout.indices)
         np.testing.assert_array_equal(before_dropout.values, after_dropout.values)
 
+    def test_dropout_noise_mask(self):
+        embed_dim = 4
+        seq_size = 2
+        input_dim = 1000
+
+        tensor_input = TensorLayer(tf.constant([[0, 1], [0, 1]]), 2)
+
+        lookup = Lookup(tensor_input, seq_size, lookup_shape=[input_dim, embed_dim], batch_padding=False)
+
+        dropped = Dropout(lookup, keep_prob=0.5, noise_shape=[2, seq_size, embed_dim])
+
+        var_init = tf.global_variables_initializer()
+
+        with tf.Session() as sess:
+            sess.run(var_init)
+
+            w, d = sess.run([lookup.weights, dropped.tensor])
+
+            print(w)
+            print("=" * 10)
+            print(d)
+
     def test_zoneout_layer(self):
         dim = 100
         batch_size = 1000
@@ -787,6 +809,26 @@ class TestLayers(unittest.TestCase):
             self.assertEqual(np.shape(result), (2, seq_size, embed_dim))
             self.assertEqual(np.shape(result_padding), (batch_size, seq_size, embed_dim))
             self.assertEqual(np.shape(result_1d), (batch_size, seq_size, embed_dim))
+
+    def test_lookup_sparse_padding(self):
+        input_dim = 6
+        embed_dim = 3
+        seq_size = 1
+
+        sparse_input = tf.SparseTensor([[0, 1], [0, 3], [1, 0]], [1, 1, 1], [2, input_dim])
+        sparse_input = TensorLayer(sparse_input, input_dim)
+
+        lookup = Lookup(sparse_input,
+                        seq_size=seq_size,
+                        lookup_shape=[input_dim, embed_dim],
+                        batch_size=None,
+                        batch_padding=False)
+
+        var_init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(var_init)
+
+            print(lookup.eval())
 
     def test_lookup_sequence_bias(self):
         vocab_size = 4

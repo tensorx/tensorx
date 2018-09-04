@@ -468,8 +468,7 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
 
         # uniform [keep_prob, 1.0 + keep_prob)
         random_tensor = keep_prob
-        random_tensor += random_ops.random_uniform(
-            noise_shape, seed=seed, dtype=tensor.dtype)
+        random_tensor += random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
         # 0. if [keep_prob, 1.0) and 1. if [1.0, 1.0 + keep_prob)
         binary_tensor = math_ops.floor(random_tensor)
         if scale:

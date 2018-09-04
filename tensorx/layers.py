@@ -17,6 +17,7 @@ from tensorflow.python.ops import variables
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.ops import variable_scope
 
+from tensorflow.python.ops.logging_ops import Print
 from tensorflow.python.ops import random_ops, sparse_ops, state_ops
 from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, moments, convolution, \
     batch_normalization, conv2d
@@ -774,6 +775,7 @@ class Linear(Layer):
                  weight_init=random_uniform(),
                  shared_weights=None,
                  transpose_weights=False,
+                 sparse_weights=False,
                  bias=True,
                  bias_init=zero_init(),
                  dtype=dtypes.float32,
@@ -784,6 +786,7 @@ class Linear(Layer):
         self.bias = bias
         self.share_vars_with = share_vars_with
         self.transpose_weights = transpose_weights
+        self.sparse_weights = sparse_weights
         self.bias_init = bias_init
 
         shape = [layer.shape[1], n_units]
@@ -843,8 +846,10 @@ class Linear(Layer):
                 # but we have a sparse input to this layer, this is the most efficient way to do it
                 if self.transpose_weights:
                     dense_sp = sparse_ops.sparse_tensor_to_dense(sp_values)
-                    lookup_sum = math_ops.sparse_matmul(dense_sp, self.weights,
+                    lookup_sum = math_ops.sparse_matmul(a=dense_sp,
+                                                        b=self.weights,
                                                         a_is_sparse=True,
+                                                        b_is_sparse=self.sparse_weights,
                                                         transpose_b=True)
                 else:
 
@@ -856,8 +861,11 @@ class Linear(Layer):
                                                          name=self.scoped_name + "_embeddings")
                 tensor = lookup_sum
             else:
-                tensor = math_ops.matmul(input_layer.tensor, self.weights, name="mat_mul",
-                                         transpose_b=self.transpose_weights)
+                tensor = math_ops.matmul(a=input_layer.tensor,
+                                         b=self.weights,
+                                         name="mat_mul",
+                                         transpose_b=self.transpose_weights,
+                                         b_is_sparse=self.sparse_weights)
 
             # y = xW + [b]
             if self.bias:
@@ -869,7 +877,7 @@ class Linear(Layer):
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
 
-    def reuse_with(self, input_layer, name=None, transpose_weights=None):
+    def reuse_with(self, input_layer, name=None, transpose_weights=None, sparse_weights=None):
         """ Reuses the current layer on a different input.
 
         Uses the variables in this layer to create a new Layer instance with a different input_layer
@@ -890,12 +898,15 @@ class Linear(Layer):
 
         if transpose_weights is None:
             transpose_weights = self.transpose_weights
+        if sparse_weights is None:
+            sparse_weights = self.sparse_weights
 
         return Linear(layer=input_layer,
                       n_units=self.n_units,
                       weight_init=self.weight_init,
                       shared_weights=self.shared_weights,
                       transpose_weights=transpose_weights,
+                      sparse_weights=sparse_weights,
                       bias=self.bias,
                       name=name,
                       share_vars_with=share_vars_with)
@@ -2010,12 +2021,12 @@ class Lookup(Layer):
             if layer.is_sparse():
 
                 input_tensor = layer.tensor
-                sp_batch_size = array_ops.shape(input_tensor.values)[0]
                 sp_dim = math_ops.cast(input_tensor.dense_shape[-1], dtypes.int32)
 
                 # transform 1D sparse lookups into 2D sparse lookup with 3 lookups
                 # similar to the semantics of 1D dense tensor lookups
                 if len(input_tensor.get_shape().as_list()) == 1:
+                    sp_batch_size = array_ops.shape(input_tensor.values)[0]
                     sp_indices = transform.column_indices_to_matrix_indices(input_tensor.indices).eval()
                     sp_batch_dim = math_ops.cast(array_ops.stack([sp_batch_size, sp_dim]), dtypes.int64)
                     input_tensor = SparseTensor(sp_indices, input_tensor.values, sp_batch_dim)
@@ -2043,13 +2054,23 @@ class Lookup(Layer):
                 tensor = lookup_weights
 
                 # pad lookup if layer.tensor.dense_shape[0] is not a multiple of self.seq_size
-                batch_padding = sp_batch_size % self.seq_size
-                batch_padding = array_ops.stack([[0, batch_padding], [0, 0]])
-                tensor = array_ops.pad(tensor, batch_padding)
+                # this can happen if different lookups have a different number of indices
+                lookup_batch = array_ops.shape(tensor)[0]
+                expected_lookup_batch = math_ops.cast(math_ops.ceil(lookup_batch / self.seq_size) * self.seq_size,
+                                                      dtypes.int32)
+                lookup_padding = expected_lookup_batch - lookup_batch
+
+                # lookup_padding = sp_batch_size % self.seq_size
+                lookup_padding = array_ops.stack([[0, lookup_padding], [0, 0]])
+                tensor = array_ops.pad(tensor, lookup_padding)
+                # tensor = Print(tensor,[tensor[0],tensor[1]],message="padded")
 
                 # dynamic batch size with sparse tensors
-                batch_size = math_ops.cast(math_ops.ceil(sp_batch_size / self.seq_size), dtypes.int32)
-                tensor = array_ops.reshape(tensor, array_ops.stack([batch_size, self.seq_size, self.n_units]))
+                # batch_size = math_ops.cast(math_ops.ceil(sp_batch_size / self.seq_size), dtypes.int32)
+                # batch_size = Print(batch_size, [batch_size], message="")
+                # tensor = array_ops.reshape(tensor, array_ops.stack([-1, self.seq_size, self.n_units]))
+                output_shape = array_ops.stack([-1, self.seq_size, self.n_units])
+                tensor = array_ops.reshape(tensor, output_shape)
 
                 # padding
                 padding = []
@@ -2103,6 +2124,7 @@ class Lookup(Layer):
 
     def as_concat(self):
         n_units = self.n_units * self.seq_size
+
         return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
                          attr_fwd=["weights", "bias", "seq_size"])
 
@@ -2311,6 +2333,9 @@ class Dropout(Layer):
     Dropout can be viewed a stochastic version of model averaging and prevents the nodes from co-adapting too much. This
     reduces generalisation error during training.
 
+    Warning:
+        if input is sparse the noise shape is not used
+
     References:
         [1] "Dropout:  A Simple Way to Prevent Neural Networks from Overfitting"
         http://www.jmlr.org/papers/volume15/srivastava14a/srivastava14a.pdf
@@ -2327,21 +2352,28 @@ class Dropout(Layer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.1, scale=True, seed=None, name="dropout"):
+    def __init__(self, layer, keep_prob=0.1, scale=True, noise_shape=None, seed=None, name="dropout"):
         self.seed = seed
         self.keep_prob = keep_prob
         self.scale = scale
+        self.noise_shape = noise_shape
 
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name)
 
+        if self.noise_shape is not None:
+            input_shape = array_ops.shape(layer.tensor)
+            self.noise_shape = [input_shape[axis] if dim is None else dim for axis, dim in enumerate(self.noise_shape)]
+
         with layer_scope(self):
             if layer.is_sparse():
+                # if input is sparse, noise_shape is not used
                 tensor = transform.sparse_dropout(sp_tensor=layer.tensor,
                                                   keep_prob=self.keep_prob,
                                                   scale=scale,
                                                   seed=seed)
             else:
                 tensor = transform.dropout(tensor=layer.tensor,
+                                           noise_shape=self.noise_shape,
                                            keep_prob=self.keep_prob,
                                            scale=scale,
                                            seed=seed)
@@ -2351,7 +2383,12 @@ class Dropout(Layer):
     def reuse_with(self, layer, name=None):
         if name is None:
             name = self.name
-        return Dropout(layer, keep_prob=self.keep_prob, scale=self.scale, seed=self.seed, name=name)
+        return Dropout(layer,
+                       keep_prob=self.keep_prob,
+                       noise_shape=self.noise_shape,
+                       scale=self.scale,
+                       seed=self.seed,
+                       name=name)
 
 
 class ZoneOut(Layer):
