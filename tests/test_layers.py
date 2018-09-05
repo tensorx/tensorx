@@ -715,7 +715,7 @@ class TestLayers(unittest.TestCase):
         """
         l11 = Input(1, name="in1")
         l12 = Input(1, name="in2")
-        l121 = WrapLayer(l12, l12.n_units, tf_fn=lambda x: tf.identity(x))
+        l121 = WrapLayer(l12, l12.n_units, wrap_fn=lambda x: tf.identity(x))
         l2 = Add(l11, l121)
 
         l3 = Linear(l2, 1)
@@ -742,15 +742,73 @@ class TestLayers(unittest.TestCase):
         data = np.random.uniform(-1, 1, [1, 4])
 
         input_layer = Input(4)
-        wrap_layer = WrapLayer(input_layer, 4, lambda layer: tf.identity(layer))
+        wrap_layer = WrapLayer(input_layer, 4, lambda layer: tf.multiply(layer, 2))
         self.assertIs(input_layer.placeholder, wrap_layer.placeholder)
 
         with tf.Session() as sess:
             t1 = sess.run(input_layer.tensor, feed_dict={input_layer.placeholder: data})
             t2 = sess.run(wrap_layer.tensor, feed_dict={wrap_layer.placeholder: data})
 
-            np.testing.assert_array_almost_equal(t1, data, decimal=6)
-            np.testing.assert_array_almost_equal(t1, t2, decimal=6)
+            np.testing.assert_array_almost_equal(t1 * 2, t2, decimal=6)
+
+    def test_wrap_reuse(self):
+        """
+
+                     +---------------------------------------+
+                     | +----------------------------+        |
+                     | | +------------+             |        |
+                     | | |            | WRAP        | WRAP   |
+                     | | |   INPUT    |             |        |
+            +--------------> LAYER    |             |        +------->
+                     | | |            |             |        |
+                     | | +------------+             |        |
+                     | +----------------------------+        |
+                     +---------------------------------------+
+
+        """
+        input1 = TensorLayer(np.array([1, 1, 1, 1]), 4)
+        input2 = TensorLayer(np.array([0, 1, 0, 1]), 4)
+
+        wrap1 = WrapLayer(input1, n_units=input1.n_units, wrap_fn=lambda x: tf.multiply(x, 2))
+        wrap2 = WrapLayer(wrap1, n_units=wrap1.n_units, wrap_fn=lambda x: tf.multiply(x, 2))
+
+        with self.assertRaises(AttributeError):
+            wrap1.reuse_with(input2)
+            # this will try to call reuse on wrap1 which will call reuse in TensorLayer
+            wrap2.reuse_with(input2)
+
+        """
+        
+
+                         +---------------------------------------+
+                         | +----------------------------+        |
+                         | | +------------+             |        |
+                         | | |            | WRAP        | WRAP   |
+                         | | | ACTIVATION |             |        |
+           INPUT +--------------> LAYER   |             |        +------->
+                         | | |            |             |        |
+                         | | +------------+             |        |
+                         | +----------------------------+        |
+                         +---------------------------------------+
+
+        """
+
+        input1 = TensorLayer(np.array([1, 1, 1, 1]), 4)
+        input1_act = Activation(input1, fn=lambda x: tf.identity(x))
+
+        input2 = TensorLayer(np.array([0, 1, 0, 1]), 4)
+
+        wrap1 = WrapLayer(input1_act, n_units=input1_act.n_units, wrap_fn=lambda x: tf.multiply(x, 2), attr_fwd="fn")
+        wrap2 = WrapLayer(wrap1, n_units=wrap1.n_units, wrap_fn=lambda x: tf.multiply(x, 2))
+
+        # this is ok because we're wrapping the activation
+        wrap2_r1 = wrap2.reuse_with(input2)
+        wrap2_r2 = wrap2_r1.reuse_with(input2)
+
+        self.assertTrue(hasattr(wrap2_r2, "fn"))
+
+        self.assertFalse(np.array_equal(sum(wrap2.eval()), sum(wrap2_r2.eval())))
+        self.assertTrue(np.array_equal(sum(wrap2.eval()), sum(wrap2_r2.eval()) * 2))
 
     def test_lookup_sequence_dense(self):
         input_dim = 4

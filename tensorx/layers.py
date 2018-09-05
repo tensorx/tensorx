@@ -382,7 +382,7 @@ class Layer:
     def __getitem__(self, item):
         return WrapLayer(layer=self,
                          n_units=self.n_units,
-                         tf_fn=lambda tensor: tensor[item],
+                         wrap_fn=lambda tensor: tensor[item],
                          name="{}_{}".format(self.name, item))
 
     def eval(self, *args, **kwargs):
@@ -394,6 +394,23 @@ class WrapLayer(Layer):
 
     Utility layer used to wrap arbitrary layers with another tensorflow graph op
     this might be useful to customize existing layers without creating a new layer from scratch
+
+
+    Example::
+
+    You can create nested WrapLayer objects in which case, the reuse will forwarded all the way to the input layer
+
+                     +---------------------------------------+
+                     | +----------------------------+        |
+                     | | +------------+             |        |
+                     | | |            | WRAP        | WRAP   |
+                     | | |   INPUT    |             |        |
+            +--------------> LAYER    |             |        +------->
+                     | | |            |             |        |
+                     | | +------------+             |        |
+                     | +----------------------------+        |
+                     +---------------------------------------+
+
 
     Attributes:
         tensor: like any other layer, the tensor is the application of the given tensorflow op to the output of the
@@ -410,16 +427,17 @@ class WrapLayer(Layer):
 
     """
 
-    def __init__(self, layer, n_units, tf_fn, attr_fwd=[], name="wrap"):
+    def __init__(self, layer, n_units, wrap_fn, attr_fwd=None, name="wrap"):
         if name == "wrap":
             name = "wrap_{}".format(layer.name)
 
-        self.tf_fn = tf_fn
+        self.wrap_fn = wrap_fn
+        self.attr_fwd = _as_list(attr_fwd)
 
         if hasattr(layer, "placeholder"):
             self.placeholder = layer.placeholder
 
-        for attr in attr_fwd:
+        for attr in self.attr_fwd:
             if hasattr(layer, attr):
                 setattr(self, attr, getattr(layer, attr))
 
@@ -429,22 +447,33 @@ class WrapLayer(Layer):
         super().__init__(layer, n_units, None, None, name=name)
 
         with layer_scope(self):
-            tensor = self.tf_fn(layer.tensor)
+            tensor = self.wrap_fn(layer.tensor)
 
         self.tensor = tensor
         self.dtype = tensor.dtype
         self.shape = tensor.get_shape()
 
-    def reuse_with(self, layer):
-        """ Reuse this WrapLayer with another layer
+    def reuse_with(self, *layers, name=None):
+        """ Reuse with a different input layer
 
-        # TODO this should be called ApplyLayer or FNLayer or something similar
-        # FN should be called fully connected ?
-
-        Reusing this layer is a matter of applying the tf graph building function
-        to the new layer
+            Calls reuse with on the wrapped layer and then creates a new wrapped layer
+            around it, using the current tensor function.
         """
-        return WrapLayer(layer, self.n_units, self.tf_fn)
+        new_wrapped = self.input_layers[0].reuse_with(*layers)
+
+        # forward any previous attributes if we're wrapping over other WrapLayer instances
+        attr_fwd = self.attr_fwd
+        if isinstance(new_wrapped, WrapLayer):
+            attr_fwd += new_wrapped.attr_fwd
+
+        if name is None:
+            name = self.name
+
+        return WrapLayer(layer=new_wrapped,
+                         n_units=self.n_units,
+                         wrap_fn=self.wrap_fn,
+                         attr_fwd=attr_fwd,
+                         name=name)
 
 
 class Module(Layer):
@@ -665,6 +694,9 @@ class Input(Layer):
                 dtype=self.dtype)
         return str_representation
 
+    def reuse_with(self, *layers, name=None):
+        raise AttributeError("Cannot call reuse_with on Input Layer: Input has no input layers")
+
 
 class TensorLayer(Layer):
     """ Tensor Input Layer
@@ -699,6 +731,9 @@ class TensorLayer(Layer):
         super().__init__(None, n_units, shape, dtype, name)
 
         self.tensor = tensor
+
+    def reuse_with(self, *layers, name=None):
+        raise AttributeError("Cannot call reuse_with on TensorLayer Layer: TensorLayer has no input layers")
 
 
 class SparseInput(Layer):
@@ -737,6 +772,9 @@ class SparseInput(Layer):
                 values = array_ops.identity(self.placeholder.values)
 
             self.tensor = SparseTensor(self.placeholder.indices, values, self.placeholder.dense_shape)
+
+    def reuse_with(self, *layers, name=None):
+        raise AttributeError("Cannot call reuse_with on SparseInput Layer: SparseInput has no input layers")
 
 
 class Linear(Layer):
@@ -1125,7 +1163,7 @@ class Conv1D(Layer):
     def as_concat(self):
         n_units = self.n_units * self.shape[1]
         return WrapLayer(self, n_units,
-                         tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+                         wrap_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
                          attr_fwd=["weights", "bias", "seq_size"],
                          name="flat_{}".format(self.name))
 
@@ -1541,7 +1579,7 @@ class QRNN(Layer):
 
     def as_concat(self):
         n_units = self.n_units * self.shape[1]
-        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+        return WrapLayer(self, n_units, wrap_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
                          attr_fwd=["w_z", "w_f", "w_o"])
 
     def as_seq(self):
@@ -2125,7 +2163,7 @@ class Lookup(Layer):
     def as_concat(self):
         n_units = self.n_units * self.seq_size
 
-        return WrapLayer(self, n_units, tf_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+        return WrapLayer(self, n_units, wrap_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
                          attr_fwd=["weights", "bias", "seq_size"])
 
     def as_seq(self):
