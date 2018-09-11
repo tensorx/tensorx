@@ -697,6 +697,25 @@ class TestLayers(unittest.TestCase):
         mean_result = np.mean(result)
         self.assertEqual(mean_result, 0)
 
+    def test_sp_noise_sp(self):
+        noise_density = 0.5
+        batch_size = 4
+        dim = 1000
+
+        data = np.random.randint(0, dim, [batch_size, 1])
+
+        x = Input(dim, n_active=1)
+        n = SaltPepperNoise(x, density=noise_density, pepper_value=1)
+
+        feed = {x.placeholder: data}
+
+        res = n.eval(feed)
+
+        sum_res = tf.sparse_reduce_sum(res, axis=-1)
+
+        expected = [dim * noise_density] * batch_size
+        np.testing.assert_allclose(sum_res.eval(), expected, atol=1)
+
     def test_activation_with_params(self):
         inputs = Input(1)
         act = Activation(inputs, leaky_relu, alpha=0.)

@@ -2587,7 +2587,10 @@ class SaltPepperNoise(Layer):
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
 
         # do nothing if amount of noise is 0
-        if density == 0.0 or self.num_corrupted() > 0:
+        if density == 0.0 or self.num_corrupted() == 0:
+            print("lulz: ")
+            print(density)
+            print(self.num_corrupted())
             tensor = layer.tensor
         else:
             with layer_scope(self):

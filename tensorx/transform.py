@@ -327,7 +327,7 @@ def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
             sp_updates = math_ops.cast(sp_updates, sp_tensor.dtype)
 
         # 1 concat indices and establish final tensor shape
-        update_shape = sp_updates.values.get_shape()
+        update_shape = array_ops.shape(sp_updates.values)
         zero_updates = SparseTensor(sp_updates.indices,
                                     array_ops.zeros(update_shape, dtype=dtypes.float32),
                                     sp_updates.dense_shape)
@@ -338,12 +338,12 @@ def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
 
         # 2 get mask for input tensor
         proto_ones = SparseTensor(proto_result.indices,
-                                  array_ops.ones(proto_shape, dtypes.int8),
+                                  array_ops.ones(proto_shape, dtypes.int32),
                                   proto_result.dense_shape)
 
         # mask_ones = math_ops.scalar_mul(-1, array_ops.ones(update_shape))
         sp_mask = SparseTensor(sp_updates.indices,
-                               array_ops.constant(-1, dtypes.int8, update_shape),
+                               array_ops.ones_like(sp_updates.values, dtype=dtypes.int32) * -1,
                                sp_updates.dense_shape)
 
         to_retain = sparse_ops.sparse_add(proto_ones, sp_mask)
