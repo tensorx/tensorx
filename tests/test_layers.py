@@ -51,13 +51,13 @@ class TestLayers(unittest.TestCase):
         in1 = Input(1)
         in2 = TensorLayer([[1.]], 1)
 
-        l1 = Linear(in1, 4)
+        l1 = Linear(in1, 4, bias=True)
         l2 = Activation(l1, relu)
 
         comp = Compose(l1, l2)
         comp2 = comp.reuse_with(in2)
 
-        fn1 = Fn(in1, 4, fn=relu, share_vars_with=l1)
+        fn1 = FC(in1, 4, fn=relu, share_vars_with=l1)
         fn2 = fn1.reuse_with(in2, name="fn2")
 
         tf.global_variables_initializer().run()
@@ -101,7 +101,7 @@ class TestLayers(unittest.TestCase):
         x = TensorLayer([[1., 1., 1., 1.]], 4)
         x2 = TensorLayer([[1., 1., 1., 1.]], 4)
 
-        h = Fn(x, 4, fn=sigmoid)
+        h = FC(x, 4, fn=sigmoid)
 
         highway = Highway(x, h)
 
@@ -116,8 +116,8 @@ class TestLayers(unittest.TestCase):
         x = TensorLayer([[1., 1., 1., 1.]], 4)
         x2 = TensorLayer([[1., 1., 1., 1.]], 4)
 
-        h = Fn(x, 4, fn=sigmoid)
-        h2 = Fn(x, 2, fn=sigmoid)
+        h = FC(x, 4, fn=sigmoid)
+        h2 = FC(x, 2, fn=sigmoid)
 
         residual = Residual(x, h)
         residual_2 = Residual(x, h2)
@@ -275,7 +275,7 @@ class TestLayers(unittest.TestCase):
         in2 = TensorLayer([[1.]], 1)
         in3 = TensorLayer([[-1.]], 1)
 
-        layer1 = Linear(in1, 2)
+        layer1 = Linear(in1, 2, bias=True)
 
         layer2 = layer1.reuse_with(in2)
         layer3 = layer2.reuse_with(in3)
@@ -402,9 +402,9 @@ class TestLayers(unittest.TestCase):
         self.reset()
 
         inputs = TensorLayer([[1]], 1, dtype=tf.float32)
-        layer = Linear(inputs, 10)
-        layer2 = Linear(inputs, 10)
-        layer_shared = Linear(inputs, 10, shared_weights=layer.weights)
+        layer = Linear(inputs, 10, bias=True)
+        layer2 = Linear(inputs, 10, bias=True)
+        layer_shared = Linear(inputs, 10, shared_weights=layer.weights, bias=True)
 
         var_names = layer.variable_names
         var_names_2 = layer2.variable_names
@@ -426,7 +426,7 @@ class TestLayers(unittest.TestCase):
         in1 = TensorLayer([[-1.]], 1)
         in2 = TensorLayer([[2.]], 1)
 
-        l1 = Linear(in1, 1, weight_init=ones_init())
+        l1 = Linear(in1, 1, weight_init=ones_init(), bias=True)
         l2 = l1.reuse_with(in2, name="shared")
         l3 = Linear(in1, 1, weight_init=ones_init(), shared_weights=l1.weights, bias=True)
         l4 = l3.reuse_with(in2)
@@ -964,7 +964,7 @@ class TestLayers(unittest.TestCase):
         features = Lookup(inputs, seq_size, lookup_shape=[vocab_size, n_features]).as_concat()
         sp_features = ToSparse(features)
 
-        gate_w = Linear(features, seq_size)
+        gate_w = Linear(features, seq_size, bias=True)
         gate1 = Gate(features, gate_w)
         gate2 = gate1.reuse_with(sp_features)
 
@@ -994,7 +994,7 @@ class TestLayers(unittest.TestCase):
 
         sp_features1 = ToSparse(features1)
 
-        gate_w = Linear(features1, seq_size)
+        gate_w = Linear(features1, seq_size, bias=True)
         coupled_gate = CoupledGate(features1, features2, gate_w)
 
         coupled_gate2 = coupled_gate.reuse_with(sp_features1, features2)

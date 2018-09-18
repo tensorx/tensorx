@@ -245,8 +245,6 @@ def layers_to_list(output_layers, input_layers=[]):
     return flat_layers
 
 
-# TODO probably can refactor reuse_with to forward certain properties
-# like layers, share_vars_with, etc
 class Layer:
     """ Layer.
 
@@ -711,7 +709,7 @@ class TensorLayer(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, tensor, n_units, shape=None, var_list=None, dtype=None, name="tensor_input"):
+    def __init__(self, tensor, n_units=None, shape=None, var_list=None, dtype=None, name="tensor_input"):
         tensor = txutils.to_tensor_cast(tensor, dtype)
         dtype = tensor.dtype
 
@@ -720,6 +718,11 @@ class TensorLayer(Layer):
 
             if all(dim is None for dim in shape):
                 raise ValueError("dynamic shape couldn't be determined: provided shape can't be none")
+
+        if n_units is None:
+            n_units = shape[-1]
+            if n_units is None:
+                raise ValueError("number of units could not be determined from tensor")
 
         if shape[-1] != n_units:
             raise ValueError("tensor shape [...,n_units={}] does not match n_units={}".format(shape[-1], n_units))
@@ -950,7 +953,7 @@ class Linear(Layer):
                       share_vars_with=share_vars_with)
 
 
-class Fn(Layer):
+class FC(Layer):
     def __init__(self,
                  layer,
                  n_units,
@@ -992,7 +995,7 @@ class Fn(Layer):
         if name is None:
             name = self.name
 
-        return Fn(layer=layer,
+        return FC(layer=layer,
                   n_units=self.n_units,
                   fn=self.activation.fn,
                   weight_init=self.linear.weight_init,
@@ -3246,7 +3249,7 @@ class BatchNorm(Layer):
 
 
 __all__ = ["Input",
-           "Fn",
+           "FC",
            "RNNCell",
            "GRUCell",
            "LSTMCell",

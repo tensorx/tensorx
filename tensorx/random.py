@@ -209,7 +209,7 @@ def random_bernoulli(shape, prob=0.5, seed=None, dtype=dtypes.float32):
 
 
 def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32, seed=None):
-    """Uses values to create a sparse random mask according to a given density (number of non-zero entries)
+    """Uses values to create a sparse random mask according to a given density (proportion of non-zero entries)
     a density of 0 returns an empty sparse tensor
 
     Note:
@@ -244,8 +244,10 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
 
 
     Returns:
-        A sparse random mask with a density of the original shape corrupted using the mask values
+        A sparse tensor representing a random mask
     """
+    #batch_size = math_ops.cast(dense_shape[1],dtypes.float32)
+
     # total number of corrupted indices
     num_values = len(mask_values)
     num_corrupted = int(density * dense_shape[1])
