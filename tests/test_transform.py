@@ -272,6 +272,15 @@ class TestTransform(unittest.TestCase):
             for i in range(n_runs):
                 ss.run(gather_sp_tx)
 
+    def test_sort_by_first(self):
+        v1 = [[3, 1], [2, 1]]
+        v2 = [[1, 2], [1, 2]]
+
+        s1, s2 = transform.sort_by_first(v1, v2, ascending=True)
+
+        self.assertTrue(np.array_equal(s1.eval(), [[1, 3], [1, 2]]))
+        self.assertTrue(np.array_equal(s2.eval(), [[2, 1], [2, 1]]))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -6,6 +6,9 @@ import tensorflow as tf
 from tensorx import random as random
 from tensorx import transform
 import numpy as np
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class TestRandom(unittest.TestCase):
@@ -68,7 +71,7 @@ class TestRandom(unittest.TestCase):
         dim = 12
         noise_amount = 0.5
 
-        noise_tensor = random.salt_pepper_noise([batch_size, dim], density=noise_amount, salt_value=1, pepper_value=0,
+        noise_tensor = random.salt_pepper_noise(batch_size, dim, density=noise_amount, salt_value=1, pepper_value=0,
                                                 dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         max_tensor = tf.sparse_reduce_max(noise_tensor)
@@ -78,13 +81,13 @@ class TestRandom(unittest.TestCase):
         # self.assertEqual(min_tensor,0)
 
         # use negative pepper
-        noise_tensor = random.salt_pepper_noise([batch_size, dim], density=noise_amount, salt_value=1, pepper_value=-1,
+        noise_tensor = random.salt_pepper_noise(batch_size, dim, density=noise_amount, salt_value=1, pepper_value=-1,
                                                 dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), 0)
 
         dim = 10
-        noise_tensor = random.salt_pepper_noise([batch_size, dim], density=noise_amount, salt_value=1, pepper_value=-1,
+        noise_tensor = random.salt_pepper_noise(batch_size, dim, density=noise_amount, salt_value=1, pepper_value=-1,
                                                 dtype=tf.float32)
         sum_tensor = tf.sparse_reduce_sum(noise_tensor)
         self.assertEqual(sum_tensor.eval(), 0)
@@ -116,24 +119,24 @@ class TestRandom(unittest.TestCase):
         density = 0.3
         mask_values = [1, -1]
 
-        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values, symmetrical=False)
+        sp_mask = random.sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=False)
         dense_mask = tf.sparse_tensor_to_dense(sp_mask)
         dense_result = dense_mask.eval()
-        self.assertNotEqual(np.sum(dense_result), 0)
+        self.assertNotEqual(np.sum(dense_result), 0.0)
 
         density = 0.5
         mask_values = [1, -1, 2, -2]
-        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values, symmetrical=False)
+        sp_mask = random.sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=False)
         dense_mask = tf.sparse_tensor_to_dense(sp_mask)
         dense_result = dense_mask.eval()
-        self.assertNotEqual(np.sum(dense_result), 0)
+        self.assertNotEqual(np.sum(dense_result), 0.0)
 
         density = 0.5
         mask_values = [1, -1]
-        sp_mask = random.sparse_random_mask([batch_size, dim], density, mask_values, symmetrical=True)
+        sp_mask = random.sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=True)
         dense_mask = tf.sparse_tensor_to_dense(sp_mask)
         dense_result = dense_mask.eval()
-        self.assertEqual(np.sum(dense_result), 0)
+        self.assertEqual(np.sum(dense_result), 0.0)
 
     def test_sample_sigmoid(self):
         shape = [4]

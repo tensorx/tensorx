@@ -7,7 +7,7 @@ from tensorflow.python.eager import context
 from tensorflow.contrib.layers.python.ops import sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops
+from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 
 import numbers
@@ -873,6 +873,39 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
         return filtered
 
 
+def flatten(tensor):
+    return array_ops.reshape(tensor, [-1])
+
+
+def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
+    """ Sorts two tensors by the first tensor
+
+    Args:
+        tensor1: tensor to determine the oder by which the second is sorted
+        tensor2: tensor to be sorted according to the sorting of the first
+        ascending: if True sorts by ascending order of value
+        name: name of the op
+
+    Returns:
+        tensor1, tensor2 sorted according to the
+
+    """
+    tensor1 = to_tensor_cast(tensor1)
+    tensor2 = to_tensor_cast(tensor2)
+
+    with ops.name_scope(name, values=[tensor1, tensor2]):
+        sorted_tensor1, sorted_tensor1_indices = nn.top_k(tensor1, k=array_ops.shape(tensor1)[-1])
+        if ascending:
+            sorted_tensor1 = array_ops.reverse(sorted_tensor1, axis=[-1])
+            sorted_tensor1_indices = array_ops.reverse(sorted_tensor1_indices, axis=[-1])
+        sorted_tensor1_indices = column_indices_to_matrix_indices(sorted_tensor1_indices)
+
+        sorted_values = array_ops.gather_nd(tensor2, sorted_tensor1_indices)
+        sorted_values = array_ops.reshape(sorted_values, array_ops.shape(tensor2))
+
+        return sorted_tensor1, sorted_values
+
+
 __all__ = ["sparse_overlap",
            "empty_sparse_tensor",
            "to_sparse",
@@ -891,5 +924,6 @@ __all__ = ["sparse_overlap",
            "grid",
            "filter_nd",
            "repeat",
-           "repeat_each"
+           "repeat_each",
+           "sort_by_first"
            ]

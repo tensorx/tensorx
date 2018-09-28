@@ -864,7 +864,10 @@ class ModelRunner:
             weighted_losses = math_ops.multiply(t_losses, loss_weights)
             self.joint_loss = math_ops.reduce_sum(weighted_losses)
         else:
-            self.joint_loss = self.model.train_loss_tensors[0]
+            if len(self.model.train_loss_tensors) > 0:
+                self.joint_loss = self.model.train_loss_tensors[0]
+            else:
+                raise ValueError("no loss tensors detected in the given model: \n set train_loss_tensors in Model")
 
         if gradient_op is not None:
             grads_vars = self.optimizer.compute_gradients(self.joint_loss, var_list=self.var_list)

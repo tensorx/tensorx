@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.python.framework import dtypes, ops
+from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import check_ops, array_ops, random_ops, math_ops, sparse_ops
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
@@ -21,7 +21,7 @@ def _shape_tensor(shape, dtype=dtypes.int32):
 
 def _sample(range_max, num_sampled, unique=True, seed=None):
     """
-    Samples using a uni
+    Sample from a range without replacement
     Args:
         range_max:
         num_sampled:
@@ -208,7 +208,8 @@ def random_bernoulli(shape, prob=0.5, seed=None, dtype=dtypes.float32):
     return math_ops.floor(random_tensor)
 
 
-def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32, seed=None):
+def sparse_random_mask(dim, batch_size, density=0.5, mask_values=[1], symmetrical=True, dtype=dtypes.float32,
+                       seed=None):
     """Uses values to create a sparse random mask according to a given density (proportion of non-zero entries)
     a density of 0 returns an empty sparse tensor
 
@@ -238,7 +239,8 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
     Args:
         seed: int32 to te used as seed
         dtype: tensor tensor value type
-        dense_shape: a 1-D tensor tensor with shape [2]
+        dim: an int value with the dimension for the random mask noise
+        batch_size: an int or tensor with the batch dimension (must be known so you can pass the result of tf.shape(x)[0]
         density: desired density
         mask_values: the values to be used to generate the random mask
 
@@ -246,15 +248,18 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
     Returns:
         A sparse tensor representing a random mask
     """
-    #batch_size = math_ops.cast(dense_shape[1],dtypes.float32)
+    dim = ops.convert_to_tensor(dim)
+    dim = tensor_util.constant_value(dim)
+    if dim is None:
+        raise ValueError("could not determine the constant value of dim")
 
     # total number of corrupted indices
     num_values = len(mask_values)
-    num_corrupted = int(density * dense_shape[1])
+    num_corrupted = int(density * dim)
     num_mask_values = num_corrupted // num_values * num_values
 
     if num_mask_values == 0:
-        return empty_sparse_tensor(dense_shape)
+        return empty_sparse_tensor(math_ops.cast(array_ops.stack([batch_size, dim]), dtypes.int64))
     else:
         # num corrupted indices per value
         if not symmetrical:
@@ -264,7 +269,7 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
         if not symmetrical:
             num_mask_values = num_corrupted
 
-        samples = sample(dense_shape[1], num_mask_values, dense_shape[0], unique=True, seed=seed)
+        samples = sample(dim, num_mask_values, batch_size=batch_size, unique=True, seed=seed)
         indices = column_indices_to_matrix_indices(samples, dtype=dtypes.int64)
 
         value_tensors = []
@@ -273,7 +278,7 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
             # spread the extra to be corrupted by n mask_values
             if not symmetrical and i < extra_corrupted:
                 num_vi = num_vi + 1
-            vi_shape = math_ops.cast([dense_shape[0], num_vi], dtypes.int32)
+            vi_shape = math_ops.cast([batch_size, num_vi], dtypes.int32)
             vi_tensor = array_ops.fill(vi_shape, mask_values[i])
             value_tensors.append(vi_tensor)
 
@@ -283,7 +288,7 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
         if values.dtype != dtype:
             values = math_ops.cast(values, dtype)
 
-        dense_shape = math_ops.cast([dense_shape[0], dense_shape[1]], dtypes.int64)
+        dense_shape = math_ops.cast(array_ops.stack([batch_size, dim]), dtypes.int64)
         sp_tensor = SparseTensor(indices, values, dense_shape)
         # the indices were generated at random so
         sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
@@ -291,7 +296,7 @@ def sparse_random_mask(dense_shape, density=0.5, mask_values=[1], symmetrical=Tr
         return sp_tensor
 
 
-def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, seed=None, dtype=dtypes.float32):
+def salt_pepper_noise(dim, batch_size, density=0.5, salt_value=1, pepper_value=-1, seed=None, dtype=dtypes.float32):
     """ Creates a noise tensor with a given shape [N,M]
 
     Note:
@@ -300,7 +305,8 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
     Args:
         seed: an int32 seed for the random number generator
         dtype: the tensor type for the resulting `SparseTensor`
-        dense_shape: a 1-D int64 tensor with shape [2] with the tensor shape for the salt and pepper noise
+         dim: an int value with the dimension for the random mask noise
+        batch_size: an int or tensor with the batch dimension (must be known so you can pass the result of tf.shape(x)[0]
         density: the proportion of entries corrupted, 1.0 means every index is corrupted and set to
         one of two values: `max_value` or `min_value`.
 
@@ -313,13 +319,18 @@ def salt_pepper_noise(dense_shape, density=0.5, salt_value=1, pepper_value=-1, s
         salt or pepper values (max_value, min_value)
 
     """
-    num_noise = int(density * dense_shape[1])
+    dim = tensor_util.constant_value(dim)
+    if dim is None:
+        raise ValueError("could not determine the constant value of dim")
 
-    if num_noise < 2:
-        return empty_sparse_tensor(dense_shape)
+    # total number of corrupted indices
+    num_corrupted = int(density * dim)
+
+    if num_corrupted < 2:
+        return empty_sparse_tensor(math_ops.cast(array_ops.stack([batch_size, dim]), dtypes.int64))
     else:
         mask_values = [salt_value, pepper_value]
-        return sparse_random_mask(dense_shape, density, mask_values, symmetrical=True, dtype=dtype, seed=seed)
+        return sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=True, dtype=dtype, seed=seed)
 
 
 def sample_sigmoid_from_logits(x, n, dtype=None, seed=None, name="sample_sigmoid"):
