@@ -2604,7 +2604,7 @@ class SaltPepperNoise(Layer):
                 else:
                     batch_size = noise_shape[0]
 
-                noise = salt_pepper_noise(batch_size, noise_shape[1], density, salt_value, pepper_value, seed)
+                noise = salt_pepper_noise(noise_shape[1], batch_size, density, salt_value, pepper_value, seed)
 
                 if layer.is_sparse():
                     tensor = transform.sparse_put(layer.tensor, noise)

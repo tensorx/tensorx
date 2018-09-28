@@ -319,6 +319,7 @@ def salt_pepper_noise(dim, batch_size, density=0.5, salt_value=1, pepper_value=-
         salt or pepper values (max_value, min_value)
 
     """
+    dim = ops.convert_to_tensor(dim)
     dim = tensor_util.constant_value(dim)
     if dim is None:
         raise ValueError("could not determine the constant value of dim")
