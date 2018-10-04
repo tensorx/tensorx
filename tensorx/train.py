@@ -23,6 +23,8 @@ from tensorflow.python.ops.state_ops import assign_sub
 from tensorflow.python.ops.variables import Variable
 from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.training.saver import Saver, import_meta_graph, export_meta_graph
+from tensorflow.python.summary import summary
+from tensorflow.python import debug as tf_debug
 
 from tensorflow.core.protobuf.config_pb2 import RunOptions, RunMetadata
 
@@ -559,34 +561,32 @@ class ModelRunner:
         self.init_var_op = None
 
         self.log_writer = None
-        self.logdir = None
+        self.log_dir = None
         self.runtime_stats = None
         self.run_metadata = None
 
-        # TODO for now this is only activate with runtime stats set to True
         self.run_options = None
 
         self.run_step_counter = 1
         self.train_step_counter = 1
         self.eval_step_counter = 1
 
-    def set_logdir(self, logdir=None):
-        if logdir is not None:
-            self.logdir = logdir
+    def set_log_dir(self, logdir=None):
+        self.log_dir = logdir
 
-        else:
-            self.logdir = os.path.join(os.getcwd(), "log")
+        if self.log_dir is None:
+            self.log_dir = os.path.join(os.getcwd(), "log")
 
-        if not os.path.exists(self.logdir):
-            os.mkdir(self.logdir)
+        if not os.path.exists(self.log_dir):
+            os.mkdir(self.log_dir)
 
-        if not os.path.exists(self.logdir) or not os.path.isdir(self.logdir):
+        if not os.path.exists(self.log_dir) or not os.path.isdir(self.log_dir):
             raise ValueError("logdir {} does not exist or is not a directory".format(logdir))
 
     def set_log_writer(self):
-        # logdir changed, change writer
-        if self.log_writer is None or not os.path.samefile(self.log_writer.get_logdir(), self.logdir):
-            self.log_writer = FileWriter(self.logdir, self.session.graph)
+        # log dir changed, change writer
+        if self.log_writer is None or not os.path.samefile(self.log_writer.get_logdir(), self.log_dir):
+            self.log_writer = FileWriter(self.log_dir, self.session.graph)
 
     def close_logs(self):
         """ Closes log writers, etc
@@ -620,9 +620,9 @@ class ModelRunner:
 
         """
         self.set_session()
-        if self.logdir is not None and logdir is None:
-            logdir = self.logdir
-        self.set_logdir(logdir)
+        if self.log_dir is not None and logdir is None:
+            logdir = self.log_dir
+        self.set_log_dir(logdir)
         self.set_log_writer()
         self.log_writer.add_graph(self.session.graph)
 
@@ -650,8 +650,8 @@ class ModelRunner:
         if self.session is None:
             self.set_session()
 
-        self.set_logdir(logdir)
-        model_path = os.path.join(self.logdir, model_name)
+        self.set_log_dir(logdir)
+        model_path = os.path.join(self.log_dir, model_name)
 
         if save_graph:
             meta_path = "{model_path}.meta".format(model_path=model_path)
@@ -678,8 +678,8 @@ class ModelRunner:
         if self.session is None:
             self.set_session()
 
-        self.set_logdir(logdir)
-        model_path = os.path.join(self.logdir, model_name)
+        self.set_log_dir(logdir)
+        model_path = os.path.join(self.log_dir, model_name)
 
         if global_step is not None:
             if isinstance(global_step, Variable):
@@ -703,14 +703,16 @@ class ModelRunner:
             2. creates a new session and uses it as the default session for the model class.
 
         Args:
-            session: a tensorflow ``Session``.
+            run_options:
+            runtime_stats:
+            session: a TensorFlow ``Session``.
 
         Returns:
             ``Session``: the current ``Session`` being used by the model class.
 
         """
         if session is not None and not isinstance(session, (Session, InteractiveSession)):
-            raise TypeError("Expecting a tensorflow Session object, got {} instead".format(type(session)))
+            raise TypeError("Expecting a TensorFlow Session object, got {} instead".format(type(session)))
 
         if session is None:
             session = _default_session()
@@ -768,7 +770,7 @@ class ModelRunner:
         self.session.run(self.init_var_op)
         self._var_inited = (True, self.session)
 
-    def run(self, *data):
+    def run(self, *data, write_summaries=False):
         """ run the model (inference graph)
 
         Runs the model from the output layers and feeding the data to the input layers
@@ -804,16 +806,23 @@ class ModelRunner:
         feed_dict = {in_layer.placeholder: data for in_layer, data in zip(feedable_inputs, data)}
         output_tensors = [output.tensor for output in self.model.run_out_layers]
 
+        if write_summaries:
+            output_tensors = [summary.merge_all()] + output_tensors
+
         if self.runtime_stats:
             result = self.session.run(output_tensors, feed_dict, options=self.run_options,
                                       run_metadata=self.run_metadata)
-            if self.logdir is None:
-                self.set_logdir()
+            if self.log_dir is None:
+                self.set_log_dir()
             self.set_log_writer()
             self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_step_counter),
                                              global_step=self.run_step_counter)
         else:
             result = self.session.run(output_tensors, feed_dict)
+
+        if write_summaries:
+            logs, result = result[0], result[1:]
+            self.log_writer.add_summary(logs, self.run_step_counter)
 
         self.run_step_counter += 1
 
@@ -884,7 +893,7 @@ class ModelRunner:
         else:
             self.train_step = self.optimizer.minimize(self.joint_loss, var_list=var_list)
 
-    def train(self, data=None, loss_input_data=None, optimizer_params={}, output_loss=False):
+    def train(self, data=None, loss_input_data=None, optimizer_params={}, output_loss=False, write_summaries=False):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -963,10 +972,14 @@ class ModelRunner:
         if output_loss:
             fetches.append(self.model.train_loss_tensors)
 
+        # write logs
+        if write_summaries:
+            fetches = [summary.merge_all()] + fetches
+
         # RUNTIME STATISTICS such as compute time, memory etc
         if self.runtime_stats:
-            if self.logdir is None:
-                self.set_logdir()
+            if self.log_dir is None:
+                self.set_log_dir()
             self.set_log_writer()
 
             res = self.session.run(fetches, feed_dict, options=self.run_options, run_metadata=self.run_metadata)
@@ -977,13 +990,17 @@ class ModelRunner:
         else:
             res = self.session.run(fetches, feed_dict)
 
+        if write_summaries:
+            logs, result = res[0], res[1:]
+            self.log_writer.add_summary(logs, self.run_step_counter)
+
         self.train_step_counter += 1
 
         if output_loss:
             # res has
             return res[-1]
 
-    def eval(self, data=None, eval_input_data=None):
+    def eval(self, data=None, eval_input_data=None, write_summaries=False):
         """ Evaluates the model on the given data.
 
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
@@ -1022,16 +1039,26 @@ class ModelRunner:
                        zip(feedable_eval_inputs, eval_input_data)}
         feed_dict.update(target_dict)
 
+        fetches = self.model.eval_tensors
+
+        # write logs
+        if write_summaries:
+            fetches = [summary.merge_all()] + fetches
+
         if self.runtime_stats:
-            result = self.session.run(self.model.eval_tensors, feed_dict, options=self.run_options,
+            result = self.session.run(fetches, feed_dict, options=self.run_options,
                                       run_metadata=self.run_metadata)
-            if self.logdir is None:
-                self.set_logdir()
+            if self.log_dir is None:
+                self.set_log_dir()
             self.set_log_writer()
             self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_step_counter),
                                              global_step=self.eval_step_counter)
         else:
-            result = self.session.run(self.model.eval_tensors, feed_dict)
+            result = self.session.run(fetches, feed_dict)
+
+        if write_summaries:
+            logs, result = result[0], result[1:]
+            self.log_writer.add_summary(logs, self.run_step_counter)
 
         self.eval_step_counter += 1
 

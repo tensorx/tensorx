@@ -16,7 +16,7 @@ class TestStruct(TestCase):
         i = [[1, 0], [2, 3], [5, 4]]
         v = [[-1, 1], [1, -1], [-1, 1]]
 
-        table = tx.IndexValueTable.from_index_value_list(i, v, 6)
+        table = tx.IndexValueTable.from_list(i, v, 6)
 
         sp_tensor = table.to_sparse_tensor()
 

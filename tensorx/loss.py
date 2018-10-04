@@ -6,18 +6,21 @@ additional documentation.
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor
-from tensorflow.python.ops import array_ops, sparse_ops
+from tensorflow.python.ops import array_ops, sparse_ops, check_ops, numerics
 from tensorflow.python.ops import math_ops, variables
 from tensorflow.python.ops.losses.losses import mean_squared_error
 from tensorflow.python.ops.nn import sigmoid_cross_entropy_with_logits
 from tensorflow.python.ops.nn import softmax_cross_entropy_with_logits_v2
 from tensorflow.python.ops.nn import embedding_lookup_sparse, embedding_lookup
-from tensorflow.python.ops.nn import embedding_lookup
+from tensorflow.python.ops.nn import embedding_lookup, softplus
 from tensorflow.python.ops import candidate_sampling_ops as candidate_sampling
 from tensorflow.python.ops.losses.losses import hinge_loss as tf_hinge_loss
 from tensorflow.python.ops.candidate_sampling_ops import uniform_candidate_sampler as uniform_sampler
 import tensorx.transform as tx_fn
 import tensorx.random as tx_rnd
+
+from tensorx.activation import relu
+from tensorflow.python import debug
 from tensorflow.python.ops import random_ops
 
 
@@ -340,46 +343,13 @@ def sparse_cnce_loss(labels,
     true_logits = math_ops.matmul(model_prediction, true_w, transpose_b=True)
     noise_logits = math_ops.matmul(model_prediction, noise_w, transpose_b=True)
 
-    true_logits = math_ops.exp(true_logits)
-    noise_logits = num_samples * math_ops.exp(noise_logits)
+    # log(exp(a)/exp(b)) =  -log(exp(b)/exp(a))
+    logit_ratio = true_logits - noise_logits
+    # logit_ratio = array_ops.reshape(logit_ratio, [batch_size, -1])
 
-    # true_logits = math_ops.exp(true_logits)
-    # noise_logits = math_ops.exp(noise_logits)
+    # log(exp(features) + 1) is the softplus holy shit
 
-    true_logits = math_ops.log(1 / (1 + noise_logits / true_logits))
-    noise_logits = math_ops.log(1 / (1 + true_logits / noise_logits))
-
-    true_logits = true_logits - noise_logits
-    noise_logits = noise_logits - true_logits
-    # true_logits = true_logits - noise_logits
-    # noise_logits = noise_logits - true_logits
-
-    # this returns a smooth curve to perplexity 3, for 3 classes it should be 1 because I'm not repeating
-    # loss = -2*math_ops.reduce_mean(math_ops.log(1 + math_ops.exp(true_logits + noise_logits)))
-    # loss = -2*math_ops.reduce_mean(math_ops.log(1 + math_ops.exp(true_logits + noise_logits)))
-    # loss = -math_ops.reduce_mean(math_ops.log(math_ops.exp(true_logits + noise_logits)))
-    # noise_loss = -2 * math_ops.reduce_sum(math_ops.log(1 + math_ops.exp(-true_logits + num_samples*noise_logits)))
-    # also reduces to a smooth curve
-    # loss = -2*math_ops.reduce_mean(math_ops.log(1+math_ops.exp(true_logits + noise_logits)))
-    # loss = -2 * math_ops.reduce_mean(math_ops.log(math_ops.exp(1 + math_ops.log(true_logits)-math_ops.log(noise_logits))))
-
-    # loss = nce_loss(labels, model_prediction, weights, None, 1, num_samples, num_classes,
-    #                labels_to_features=labels_to_sparse_features)
-
-    # return loss + 0.1 * noise_loss
-
-    # return loss
-    out_logits = array_ops.concat([true_logits, noise_logits], 1)
-
-    # true_logits is a float tensor, ones_like(true_logits) is a float
-    # tensor of ones. We then divide by num_true to ensure the per-example
-    # labels sum to 1.0, i.e. form a proper probability distribution.
-    out_labels = array_ops.concat([
-        array_ops.ones_like(true_logits),
-        array_ops.zeros_like(noise_logits)
-    ], 1)
-
-    return binary_cross_entropy(labels=out_labels, logits=out_logits)
+    return math_ops.reduce_mean(softplus(-logit_ratio))
 
 
 __all__ = ["mse",

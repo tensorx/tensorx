@@ -30,15 +30,14 @@ class IndexValueTable:
         self.k = to_tensor_cast(k)
 
     @staticmethod
-    def from_index_value_list(indices, values, k):
+    def from_list(indices, values, k):
         indices, values = sort_by_first(indices, values)
         return IndexValueTable(indices, values, k)
 
     def to_sparse_tensor(self, reorder=False):
         with name_scope("to_sparse"):
-            """
-            [[0,2],[0,4]] ---> [[0,0],[0,2],[1,0],[1,4]]
-            """
+
+            # [[0,2],[0,4]] --> [[0,0],[0,2],[1,0],[1,4]]
             indices = column_indices_to_matrix_indices(self.indices, dtype=dtypes.int64)
             values = array_ops.reshape(self.values, [-1])
 
