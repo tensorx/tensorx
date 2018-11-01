@@ -527,6 +527,18 @@ class Model:
                 or len(self.train_vars) != 0
                 or len(self.eval_vars) != 0)
 
+    def update_state(self):
+        """ Updates the model state before evaluation or inference
+
+        If the model train has been called and we call eval or run, this is called before
+        any one of those graphs are run.
+
+        Use case:
+            Useful to update state variables the inference or evaluation steps might depend upon and we want
+            to update only once, and not every time run or eval are called.
+        """
+        pass
+
 
 class ModelRunner:
     """ Model Runner
@@ -540,7 +552,7 @@ class ModelRunner:
 
     """
 
-    def __init__(self, model):
+    def __init__(self, model: Model):
         self.model = model
         self.session = None
 
@@ -567,12 +579,18 @@ class ModelRunner:
 
         self.run_options = None
 
-        self.run_step_counter = 1
-        self.train_step_counter = 1
-        self.eval_step_counter = 1
+        self.run_steps = 0
+        self.train_steps = 0
+        self.eval_steps = 0
 
-    def set_log_dir(self, logdir=None):
-        self.log_dir = logdir
+        # used to track if train was called since the last time
+        # eval or run were called
+        # eval or run set this to false
+        # train sets this to true
+        self.train_called = False
+
+    def set_log_dir(self, log_dir=None):
+        self.log_dir = log_dir
 
         if self.log_dir is None:
             self.log_dir = os.path.join(os.getcwd(), "log")
@@ -581,7 +599,7 @@ class ModelRunner:
             os.mkdir(self.log_dir)
 
         if not os.path.exists(self.log_dir) or not os.path.isdir(self.log_dir):
-            raise ValueError("logdir {} does not exist or is not a directory".format(logdir))
+            raise ValueError("logdir {} does not exist or is not a directory".format(log_dir))
 
     def set_log_writer(self):
         # log dir changed, change writer
@@ -629,7 +647,7 @@ class ModelRunner:
     def save_model(self, logdir=None, model_name="model.ckpt", step=None, epoch=None, save_graph=False,
                    write_state=True):
         """ Saves all the variables by default
-        # TODO add feature to save only some variables this requires init vars to run only
+        # TODO save only some variables this requires init vars to run only
         # on some variables
 
         Note:
@@ -781,7 +799,7 @@ class ModelRunner:
         Note: it uses the default session if available, if not, creates a new session which is stored in `self.session`
 
         Args:
-            run_step: an integer or str that tags this run step if runtime stats are used with set session
+            write_summaries: if true adds any summaries created and writes them to the current model folder
             *data: a :obj:`list` or multiple parameters with the data to be fed to each model input
 
         Returns:
@@ -795,6 +813,12 @@ class ModelRunner:
 
         if not self.vars_inited() and self.model.has_vars():
             self.init_vars()
+
+        # make sure state is up to date before calling run
+        if self.train_called:
+            self.session.run(self.model.update_state())
+
+        self.train_called = False
 
         feedable_inputs = self.model.feedable_run()
         n_feedable = len(feedable_inputs)
@@ -815,16 +839,16 @@ class ModelRunner:
             if self.log_dir is None:
                 self.set_log_dir()
             self.set_log_writer()
-            self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_step_counter),
-                                             global_step=self.run_step_counter)
+            self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_steps + 1),
+                                             global_step=self.run_steps + 1)
         else:
             result = self.session.run(output_tensors, feed_dict)
 
         if write_summaries:
             logs, result = result[0], result[1:]
-            self.log_writer.add_summary(logs, self.run_step_counter)
+            self.log_writer.add_summary(logs, self.run_steps + 1)
 
-        self.run_step_counter += 1
+        self.run_steps += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
         if len(self.model.run_out_layers) == 1:
@@ -910,6 +934,8 @@ class ModelRunner:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             loss_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
         """
+        self.train_called = True
+
         if self.session is None:
             self.set_session()
 
@@ -985,16 +1011,16 @@ class ModelRunner:
             res = self.session.run(fetches, feed_dict, options=self.run_options, run_metadata=self.run_metadata)
 
             self.log_writer.add_run_metadata(self.run_metadata,
-                                             tag="train step {}".format(self.train_step_counter),
-                                             global_step=self.train_step_counter)
+                                             tag="train step {}".format(self.train_steps + 1),
+                                             global_step=self.train_steps + 1)
         else:
             res = self.session.run(fetches, feed_dict)
 
         if write_summaries:
             logs, result = res[0], res[1:]
-            self.log_writer.add_summary(logs, self.run_step_counter)
+            self.log_writer.add_summary(logs, self.train_steps + 1)
 
-        self.train_step_counter += 1
+        self.train_steps += 1
 
         if output_loss:
             # res has
@@ -1009,11 +1035,17 @@ class ModelRunner:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
             eval_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to the evaluation ops.
         """
+
         if self.session is None:
             self.set_session()
 
         if not self.vars_inited():
             self.init_vars()
+
+        # make sure state is up to date before calling eval
+        if self.train_called:
+            self.session.run(self.model.update_state())
+        self.train_called = False
 
         data = _as_list(data)
 
@@ -1051,16 +1083,16 @@ class ModelRunner:
             if self.log_dir is None:
                 self.set_log_dir()
             self.set_log_writer()
-            self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_step_counter),
-                                             global_step=self.eval_step_counter)
+            self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_step + 1),
+                                             global_step=self.eval_step + 1)
         else:
             result = self.session.run(fetches, feed_dict)
 
         if write_summaries:
             logs, result = result[0], result[1:]
-            self.log_writer.add_summary(logs, self.run_step_counter)
+            self.log_writer.add_summary(logs, self.eval_step + 1)
 
-        self.eval_step_counter += 1
+        self.eval_step += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
         if len(self.model.eval_tensors) == 1:

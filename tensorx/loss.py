@@ -281,9 +281,10 @@ def nce_loss(labels,
 def sparse_cnce_loss(labels,
                      model_prediction,
                      weights,
-                     num_classes,
                      num_samples=1,
                      noise_ratio=0.1,
+                     corrupt_labels=False,
+                     gaussian_corruption=False,
                      labels_to_sparse_features=None):
     """
     Sparse Conditional Noise-Contrastive Estimation
@@ -296,6 +297,13 @@ def sparse_cnce_loss(labels,
         https://arxiv.org/abs/1806.03664
 
     Args:
+        gaussian_corruption: if True the corrupted entries of the sparse noise are taken from a random.normal * noise_values
+        corrupt_labels: if corrupt labels, we add the noise to the current sparse feature labels
+        noise_ratio: the ratio of noise according to the number of sparse features
+        num_samples: number of counter examples to use for each true label
+        weights: the weight table (embeddings) from which we draw the features
+        model_prediction: the predicted embedding representation for the next class to be predicted
+        labels: the labels to be transformed into sparse features according to the given function
         labels_to_sparse_features: function that transforms label indices into sparse tensor values possibly
         with multiple features
 
@@ -319,10 +327,16 @@ def sparse_cnce_loss(labels,
                                       symmetrical=True,
                                       dtype=dtypes.float32)
 
-    # noise_features = sparse_ops.sparse_add(math_ops.cast(features_tile, dtypes.float32), noise)
-    # noise_features = noise
+    if corrupt_labels:
+        noise = sparse_ops.sparse_add(math_ops.cast(features_tile, dtypes.float32), noise)
+
+    if gaussian_corruption:
+        sp_noise_values = noise.values * random_ops.random_normal(array_ops.shape(noise.values))
+    else:
+        sp_noise_values = noise.values
+
     noise_features = SparseTensor(indices=noise.indices,
-                                  values=noise.values * random_ops.random_normal(array_ops.shape(noise.values)),
+                                  values=sp_noise_values,
                                   dense_shape=noise.dense_shape)
 
     true_w = embedding_lookup_sparse(

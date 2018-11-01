@@ -72,12 +72,12 @@ def repeat(x, n, name="repeat"):
     """
     with ops.name_scope(name, values=[x, n]):
         x = ops.convert_to_tensor(x)
-        n = ops.convert_to_tensor(n)
+        n = to_tensor_cast(n,dtype=x.dtype)
 
-        shape = array_ops.shape(x)
+        shape = array_ops.shape(x, out_type=x.dtype)
         flat_x = array_ops.reshape(x, [-1])
 
-        rep_x = array_ops.tile(array_ops.expand_dims(flat_x, -1), [1, n])
+        rep_x = array_ops.tile(array_ops.expand_dims(flat_x, -1), array_ops.stack([1, n]))
 
         new_shape = array_ops.concat([shape[:-1, ], shape[-1:, ] * n], axis=-1)
         rep_x = array_ops.reshape(rep_x, new_shape)
@@ -117,6 +117,30 @@ def repeat_each(x, repeats, name="repeat_each"):
         return array_ops.boolean_mask(x_tiled, mask)
 
 
+def sparse_tile(sp_tensor, num, name="sparse_tile"):
+    with ops.name_scope(name, values=[sp_tensor, num]):
+        sp_tensor = to_tensor_cast(sp_tensor)
+        values = array_ops.tile(sp_tensor.values, [num])
+
+        indices = array_ops.tile(sp_tensor.indices, [num, 1])
+        row_indices, col_indices = array_ops.unstack(indices, num=2, axis=-1)
+
+        # fix row indices
+        num_values = array_ops.shape(sp_tensor.values, out_type=dtypes.int64)[0]
+        batch_size = sp_tensor.dense_shape[0]
+        dim = sp_tensor.dense_shape[-1]
+
+        max_index = num * batch_size
+        offset = math_ops.range(start=0, limit=max_index, delta=batch_size, dtype=dtypes.int64)
+
+        row_offset = repeat(x=offset, n=num_values)
+        row_indices = row_indices + row_offset
+
+        return SparseTensor(indices=array_ops.stack([row_indices, col_indices], axis=-1),
+                            values=values,
+                            dense_shape=array_ops.stack([batch_size * num_values, dim]))
+
+
 def enum_each(enum_sizes, name="repeat_each"):
     """ creates an enumeration for each repeat
     and concatenates the results because we can't have
@@ -128,7 +152,7 @@ def enum_each(enum_sizes, name="repeat_each"):
 
         Returns
 
-        [0,0,1,0,1,2,3]
+        [0,0,0,1,0,1,2,3]
 
         the enums are [0], [0,1], [0,1,2,3]
 

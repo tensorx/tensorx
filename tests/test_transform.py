@@ -21,6 +21,15 @@ class TestTransform(unittest.TestCase):
     def tearDown(self):
         self.ss.close()
 
+    def test_sparse_tile(self):
+        n = 4
+        sp = tf.SparseTensorValue([[0, 0], [0, 1], [1, 2], [2, 3]], [1, 1, 2, 3], [3, 10])
+        tilled_sp = transform.sparse_tile(sp, n)
+
+        shape = tf.shape(tilled_sp).eval()
+        self.assertEqual(shape[0], sp.dense_shape[0] * n)
+        self.assertEqual(shape[-1], sp.dense_shape[-1])
+
     def test_repeat(self):
         n = 23
         x = np.array([[1, 2], [3, 4]])
