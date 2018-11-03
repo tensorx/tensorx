@@ -278,14 +278,13 @@ def nce_loss(labels,
     return binary_cross_entropy(labels=out_labels, logits=out_logits)
 
 
-def sparse_cnce_loss(labels,
+def sparse_cnce_loss(label_features,
                      model_prediction,
                      weights,
                      num_samples=1,
                      noise_ratio=0.1,
                      corrupt_labels=False,
-                     gaussian_corruption=False,
-                     labels_to_sparse_features=None):
+                     gaussian_corruption=False):
     """
     Sparse Conditional Noise-Contrastive Estimation
 
@@ -297,23 +296,22 @@ def sparse_cnce_loss(labels,
         https://arxiv.org/abs/1806.03664
 
     Args:
+        label_features: the labels to be transformed into sparse features according to the given function
         gaussian_corruption: if True the corrupted entries of the sparse noise are taken from a random.normal * noise_values
         corrupt_labels: if corrupt labels, we add the noise to the current sparse feature labels
         noise_ratio: the ratio of noise according to the number of sparse features
         num_samples: number of counter examples to use for each true label
         weights: the weight table (embeddings) from which we draw the features
         model_prediction: the predicted embedding representation for the next class to be predicted
-        labels: the labels to be transformed into sparse features according to the given function
-        labels_to_sparse_features: function that transforms label indices into sparse tensor values possibly
-        with multiple features
 
     """
-    labels_flat = array_ops.reshape(labels, [-1])
+
+    #labels_flat = array_ops.reshape(label_features, [-1])
 
     labels_tile = array_ops.tile(labels_flat, [num_samples])
-    features_tile = labels_to_sparse_features(labels_tile)
+    #features_tile = labels_to_sparse_features(labels_tile)
 
-    features = labels_to_sparse_features(labels_flat)
+
     if not isinstance(features, SparseTensor):
         raise TypeError("labels_to_sparse_features did not convert labels to a SparseTensor")
 

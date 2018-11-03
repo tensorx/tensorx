@@ -949,5 +949,6 @@ __all__ = ["sparse_overlap",
            "filter_nd",
            "repeat",
            "repeat_each",
-           "sort_by_first"
+           "sort_by_first",
+           "sparse_tile"
            ]

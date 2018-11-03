@@ -537,7 +537,7 @@ class Model:
             Useful to update state variables the inference or evaluation steps might depend upon and we want
             to update only once, and not every time run or eval are called.
         """
-        pass
+        return None
 
 
 class ModelRunner:
@@ -816,7 +816,9 @@ class ModelRunner:
 
         # make sure state is up to date before calling run
         if self.train_called:
-            self.session.run(self.model.update_state())
+            update_op = self.model.update_state()
+            if update_op is not None:
+                self.session.run(update_op)
 
         self.train_called = False
 
@@ -1044,7 +1046,9 @@ class ModelRunner:
 
         # make sure state is up to date before calling eval
         if self.train_called:
-            self.session.run(self.model.update_state())
+            update_op = self.model.update_state()
+            if update_op is not None:
+                self.session.run(update_op)
         self.train_called = False
 
         data = _as_list(data)
