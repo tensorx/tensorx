@@ -5,20 +5,23 @@ additional documentation.
 """
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.framework.sparse_tensor import SparseTensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops import array_ops, sparse_ops, check_ops, numerics
 from tensorflow.python.ops import math_ops, variables
 from tensorflow.python.ops.losses.losses import mean_squared_error
 from tensorflow.python.ops.nn import sigmoid_cross_entropy_with_logits
 from tensorflow.python.ops.nn import softmax_cross_entropy_with_logits_v2
-from tensorflow.python.ops.nn import embedding_lookup_sparse, embedding_lookup
 from tensorflow.python.ops.nn import embedding_lookup, softplus
 from tensorflow.python.ops import candidate_sampling_ops as candidate_sampling
 from tensorflow.python.ops.losses.losses import hinge_loss as tf_hinge_loss
 from tensorflow.python.ops.candidate_sampling_ops import uniform_candidate_sampler as uniform_sampler
-import tensorx.transform as tx_fn
+import tensorx.transform as txf
 import tensorx.random as tx_rnd
+from tensorx.utils import to_tensor_cast, convert_to_tensor_or_sparse_tensor
+from tensorx.layers import Linear, TensorLayer
 
+
+from tensorx.math import embedding_lookup_sparse
 from tensorx.activation import relu
 from tensorflow.python import debug
 from tensorflow.python.ops import random_ops
@@ -197,7 +200,7 @@ def nce_loss(labels,
     all_ids = labels_to_features(all_ids)
     if isinstance(all_ids, SparseTensor):
         sp_values = all_ids
-        sp_indices = tx_fn.sparse_indices(sp_values)
+        sp_indices = txf.sparse_indices(sp_values)
 
         all_w = embedding_lookup_sparse(
             params=weights,
@@ -297,36 +300,37 @@ def sparse_cnce_loss(label_features,
 
     Args:
         label_features: the labels to be transformed into sparse features according to the given function
-        gaussian_corruption: if True the corrupted entries of the sparse noise are taken from a random.normal * noise_values
-        corrupt_labels: if corrupt labels, we add the noise to the current sparse feature labels
+        gaussian_corruption: if True the corrupted entries of the sparse noise are taken from a
+        random.normal * noise_values
+        corrupt_labels: if True, noise is added to the current sparse feature labels, if False, random noise is used
+        without the current labels
         noise_ratio: the ratio of noise according to the number of sparse features
         num_samples: number of counter examples to use for each true label
         weights: the weight table (embeddings) from which we draw the features
         model_prediction: the predicted embedding representation for the next class to be predicted
 
     """
+    label_features = convert_to_tensor_or_sparse_tensor(label_features)
+    num_samples = convert_to_tensor_or_sparse_tensor(num_samples)
 
-    #labels_flat = array_ops.reshape(label_features, [-1])
+    if not isinstance(label_features, SparseTensor):
+        raise TypeError("label_features is must be a SparseTensor: {} found".format(type(label_features)))
 
-    labels_tile = array_ops.tile(labels_flat, [num_samples])
-    #features_tile = labels_to_sparse_features(labels_tile)
+    tiled_label_features = txf.sparse_tile(label_features, num_samples)
 
-
-    if not isinstance(features, SparseTensor):
-        raise TypeError("labels_to_sparse_features did not convert labels to a SparseTensor")
-
-    batch_size = array_ops.shape(labels_flat)[0]
-    dim = features.get_shape().as_list()[-1]
+    dim = label_features.get_shape().as_list()[-1]
+    batch_size = array_ops.shape(tiled_label_features)[0]
 
     noise = tx_rnd.sparse_random_mask(dim=dim,
-                                      batch_size=batch_size * num_samples,
+                                      batch_size=batch_size,
                                       density=noise_ratio,
                                       mask_values=[-1, 1],
                                       symmetrical=True,
                                       dtype=dtypes.float32)
 
     if corrupt_labels:
-        noise = sparse_ops.sparse_add(math_ops.cast(features_tile, dtypes.float32), noise)
+        noise = sparse_ops.sparse_add(tiled_label_features, noise)
+        noise = SparseTensor(noise.indices, noise.values, tiled_label_features.dense_shape)
 
     if gaussian_corruption:
         sp_noise_values = noise.values * random_ops.random_normal(array_ops.shape(noise.values))
@@ -337,19 +341,29 @@ def sparse_cnce_loss(label_features,
                                   values=sp_noise_values,
                                   dense_shape=noise.dense_shape)
 
+    # dim = tiled_label_features.get_shape().as_list()[-1]
+    # embed_dim = weights.get_shape().as_list()[-1]
+    # true_w = Linear(TensorLayer(tiled_label_features, n_units=dim), shared_weights=weights, n_units=embed_dim)
+    # noise_w = Linear(TensorLayer(noise_features, n_units=dim), shared_weights=weights, n_units=embed_dim)
+
+    # true_w = true_w.tensor
+    # noise_w = noise_w.tensor
+
     true_w = embedding_lookup_sparse(
         params=weights,
-        sp_ids=tx_fn.sparse_indices(features_tile),
-        sp_weights=features_tile,
+        sp_ids=txf.sparse_indices(tiled_label_features),
+        sp_weights=tiled_label_features,
         combiner="sum",
         partition_strategy="mod")
 
     noise_w = embedding_lookup_sparse(
         params=weights,
-        sp_ids=tx_fn.sparse_indices(noise_features),
+        sp_ids=txf.sparse_indices(noise_features),
         sp_weights=noise_features,
         combiner="sum",
         partition_strategy="mod")
+
+    # print(noise_w.get_shape())
 
     # p_m(y=1|m)
     true_logits = math_ops.matmul(model_prediction, true_w, transpose_b=True)
@@ -359,8 +373,7 @@ def sparse_cnce_loss(label_features,
     logit_ratio = true_logits - noise_logits
     # logit_ratio = array_ops.reshape(logit_ratio, [batch_size, -1])
 
-    # log(exp(features) + 1) is the softplus holy shit
-
+    # log(exp(features) + 1) is the softplus, and softplus from tf already deals with numerical instability
     return math_ops.reduce_mean(softplus(-logit_ratio))
 
 

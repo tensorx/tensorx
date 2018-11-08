@@ -1,11 +1,12 @@
-from unittest import TestCase
+from tensorx import test_utils
 import tensorflow as tf
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-class TestVarExtend(TestCase):
+class TestVarExtend(test_utils.TestCase):
     def test_extend(self):
-        ss = tf.InteractiveSession()
-
         # if validate_shape=True var ends up with shape [1,4] until we call set shape
         var = tf.Variable(tf.zeros([1, 4], tf.float32), validate_shape=False)
         # setting the shape to None,dim, makes so that we don't have to adjust it later
@@ -19,18 +20,18 @@ class TestVarExtend(TestCase):
         # we want to expand the var so this would fail
         extend = tf.assign(var, tf.concat([var, new_row], axis=0), validate_shape=False)
 
-        ss.run(tf.global_variables_initializer())
-        shape1 = tf.shape(var).eval()
-        comp_shape1 = tf.shape(comp).eval()
-        print(shape1)
-        print(var.get_shape())
-        print(comp.get_shape())
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            shape = tf.shape(var)
+            comp_shape = tf.shape(comp)
 
-        extend.eval({new_row: [[1, 1, 1, 1]]})
+            self.eval(extend, {new_row: [[1, 1, 1, 1]]})
 
-        shape2 = tf.shape(var).eval()
-        comp_shape2 = tf.shape(comp).eval()
+            self.assertEqual(shape[0], 2)
+            self.assertEqual(comp_shape[0], 2)
 
-        print(shape2)
-        print(var.get_shape())
-        var.set_shape(tf.shape(var).eval())
+            var.set_shape(self.eval(tf.shape(var)))
+
+
+if __name__ == "__main__":
+    test_utils.main()

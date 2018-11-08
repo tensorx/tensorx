@@ -259,7 +259,12 @@ def sparse_random_mask(dim, batch_size, density=0.5, mask_values=[1], symmetrica
     num_mask_values = num_corrupted // num_values * num_values
 
     if num_mask_values == 0:
-        return empty_sparse_tensor(math_ops.cast(array_ops.stack([batch_size, dim]), dtypes.int64))
+        batch_size = math_ops.cast(batch_size, dtypes.int64)
+        dense_shape = array_ops.stack([batch_size, dim], axis=0)
+
+        zero_sparse_tensor = empty_sparse_tensor(dense_shape)
+
+        return zero_sparse_tensor
     else:
         # num corrupted indices per value
         if not symmetrical:
@@ -288,12 +293,16 @@ def sparse_random_mask(dim, batch_size, density=0.5, mask_values=[1], symmetrica
         if values.dtype != dtype:
             values = math_ops.cast(values, dtype)
 
-        dense_shape = math_ops.cast(array_ops.stack([batch_size, dim]), dtypes.int64)
+        batch_size = math_ops.cast(batch_size, dtypes.int64)
+        dense_shape = array_ops.stack([batch_size, dim], axis=0)
+
         sp_tensor = SparseTensor(indices, values, dense_shape)
+
         # the indices were generated at random so
         sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
 
-        return sp_tensor
+        # reconstruct the tensor because shape is turned into unknown with reorder
+        return SparseTensor(sp_tensor.indices, sp_tensor.values, dense_shape)
 
 
 def salt_pepper_noise(dim, batch_size, density=0.5, salt_value=1, pepper_value=-1, seed=None, dtype=dtypes.float32):

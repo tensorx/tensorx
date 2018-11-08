@@ -19,15 +19,15 @@ from tensorflow.python.ops import variable_scope
 
 from tensorflow.python.ops.logging_ops import Print
 from tensorflow.python.ops import random_ops, sparse_ops, state_ops
-from tensorflow.python.ops.nn import embedding_lookup_sparse, bias_add, embedding_lookup, moments, convolution, \
-    batch_normalization, conv2d
+from tensorflow.python.ops.nn import bias_add, embedding_lookup, moments, convolution, batch_normalization
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 from tensorflow.python.training import moving_averages
 
 from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
 from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx import transform
-from tensorx import utils as txutils
+from tensorx.math import embedding_lookup_sparse
+from tensorx import utils as tx_utils
 from tensorx.activation import sigmoid, tanh, identity
 
 from tensorx import math as mathx
@@ -37,7 +37,7 @@ from contextlib import ExitStack
 
 def _validate_shape_type(x, shape, dtype=None):
     if x is not None:
-        x = txutils.to_tensor_cast(x)
+        x = tx_utils.to_tensor_cast(x)
         tensor_shape = x.get_shape().as_list()
         if tensor_shape != shape:
             raise ValueError(
@@ -710,7 +710,7 @@ class TensorLayer(Layer):
     """
 
     def __init__(self, tensor, n_units=None, shape=None, var_list=None, dtype=None, name="tensor_input"):
-        tensor = txutils.to_tensor_cast(tensor, dtype)
+        tensor = tx_utils.to_tensor_cast(tensor, dtype)
         dtype = tensor.dtype
 
         if shape is None:
@@ -2064,11 +2064,11 @@ class Lookup(Layer):
                 input_tensor = layer.tensor
                 sp_dim = math_ops.cast(input_tensor.dense_shape[-1], dtypes.int32)
 
-                # transform 1D sparse lookups into 2D sparse lookup with 3 lookups
+                # transform.py 1D sparse lookups into 2D sparse lookup with 3 lookups
                 # similar to the semantics of 1D dense tensor lookups
                 if len(input_tensor.get_shape().as_list()) == 1:
                     sp_batch_size = array_ops.shape(input_tensor.values)[0]
-                    sp_indices = transform.column_indices_to_matrix_indices(input_tensor.indices).eval()
+                    sp_indices = transform.column_indices_to_matrix_indices(input_tensor.indices)
                     sp_batch_dim = math_ops.cast(array_ops.stack([sp_batch_size, sp_dim]), dtypes.int64)
                     input_tensor = SparseTensor(sp_indices, input_tensor.values, sp_batch_dim)
 
@@ -2385,7 +2385,7 @@ class Dropout(Layer):
         Contrary to the tensorflow operator, this layer also works with sparse layers as input it uses:
 
             * `dropout` from tensorflow for dense layers
-            * :class:`tensorx.transform.sparse_dropout` from for sparse layers
+            * :class:`tensorx.transform.py.sparse_dropout` from for sparse layers
 
     Args:
             layer: an input layer :class:`Layer` to which dropout will be applied
@@ -2409,15 +2409,15 @@ class Dropout(Layer):
             if layer.is_sparse():
                 # if input is sparse, noise_shape is not used
                 tensor = transform.sparse_dropout(sp_tensor=layer.tensor,
-                                                  keep_prob=self.keep_prob,
-                                                  scale=scale,
-                                                  seed=seed)
+                                            keep_prob=self.keep_prob,
+                                            scale=scale,
+                                            seed=seed)
             else:
                 tensor = transform.dropout(tensor=layer.tensor,
-                                           noise_shape=self.noise_shape,
-                                           keep_prob=self.keep_prob,
-                                           scale=scale,
-                                           seed=seed)
+                                     noise_shape=self.noise_shape,
+                                     keep_prob=self.keep_prob,
+                                     scale=scale,
+                                     seed=seed)
 
         self.tensor = tensor
 

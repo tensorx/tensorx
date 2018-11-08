@@ -1,4 +1,4 @@
-import unittest
+from tensorx import test_utils
 import tensorflow as tf
 import numpy as np
 from tensorx.layers import *
@@ -14,18 +14,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-class TestLayers(unittest.TestCase):
-    # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
-    def reset(self):
-        tf.reset_default_graph()
-        self.ss.close()
-        self.ss = tf.InteractiveSession()
-
-    def setUp(self):
-        self.ss = tf.InteractiveSession()
-
-    def tearDown(self):
-        self.ss.close()
+class TestLayers(test_utils.TestCase):
 
     def test_compose(self):
         in1 = Input(1)
@@ -37,15 +26,16 @@ class TestLayers(unittest.TestCase):
         comp = Compose(l1, l2)
         comp2 = comp.reuse_with(in2)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        res1 = l2.tensor.eval({in1.placeholder: [[1.]]})
-        res2 = comp.tensor.eval({in1.placeholder: [[1.]]})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            res1 = self.eval(l2.tensor, {in1.placeholder: [[1.]]})
+            res2 = self.eval(comp.tensor, {in1.placeholder: [[1.]]})
+            res3 = self.eval(comp2.tensor)
 
-        res3 = comp2.tensor.eval()
-
-        self.assertTrue(np.array_equal(res1, res2))
-        self.assertTrue(np.array_equal(res1, res3))
+            self.assertArrayEqual(res1, res2)
+            self.assertTrue(np.array_equal(res1, res3))
 
     def test_fn_compose(self):
         in1 = Input(1)
@@ -60,24 +50,23 @@ class TestLayers(unittest.TestCase):
         fn1 = FC(in1, 4, fn=relu, share_vars_with=l1)
         fn2 = fn1.reuse_with(in2, name="fn2")
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
         feed = {in1.placeholder: [[1.]]}
-        res1 = l2.tensor.eval(feed)
-        res2 = comp.tensor.eval(feed)
-        res3 = comp2.tensor.eval()
 
-        self.assertTrue(np.array_equal(res1, res2))
-        self.assertTrue(np.array_equal(res1, res3))
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-        res_fn1 = fn1.tensor.eval(feed)
-        res_fn2 = fn2.tensor.eval()
+            res1 = self.eval(l2.tensor, feed)
+            res2 = self.eval(comp.tensor, feed)
+            res3 = self.eval(comp2.tensor)
 
-        self.assertTrue(np.array_equal(res_fn1, res_fn2))
+            self.assertArrayEqual(res1, res2)
+            self.assertArrayEqual(res1, res3)
 
-        # m = Model(in1, fn1)
-        # r = ModelRunner(m)
-        # r.log_graph("/tmp")
+            res_fn1 = self.eval(fn1.tensor, feed)
+            res_fn2 = self.eval(fn2.tensor)
+            self.assertArrayEqual(res_fn1, res_fn2)
 
     def test_compose_merge(self):
         in1 = Input(1)
@@ -90,27 +79,30 @@ class TestLayers(unittest.TestCase):
         comp = Compose(a1, l1)
         comp2 = comp.reuse_with(in1, in3)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        res1 = comp.tensor.eval({in1.placeholder: [[1.]]})
-        res2 = comp2.tensor.eval({in1.placeholder: [[1.]], in3.placeholder: [[1.]]})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-        self.assertTrue(np.array_equal(res1, res2))
+            res1 = self.eval(comp.tensor, {in1.placeholder: [[1.]]})
+            res2 = self.eval(comp2.tensor, {in1.placeholder: [[1.]], in3.placeholder: [[1.]]})
+            self.assertArrayEqual(res1, res2)
 
     def test_highway(self):
         x = TensorLayer([[1., 1., 1., 1.]], 4)
         x2 = TensorLayer([[1., 1., 1., 1.]], 4)
 
         h = FC(x, 4, fn=sigmoid)
-
         highway = Highway(x, h)
 
         with self.assertRaises(ValueError):
             Highway(x2, h)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        self.assertSequenceEqual(x.shape, highway.shape)
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertArrayEqual(x.shape, highway.shape)
 
     def test_residual(self):
         x = TensorLayer([[1., 1., 1., 1.]], 4)
@@ -125,22 +117,18 @@ class TestLayers(unittest.TestCase):
         with self.assertRaises(ValueError):
             Residual(x2, h)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        self.assertSequenceEqual(h.shape, residual.shape)
-        self.assertTrue(residual.projection == residual.input_layers[0])
-        self.assertIsInstance(residual.projection, TensorLayer)
-        self.assertEqual(len(residual.variables), 0)
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertArrayEqual(h.shape, residual.shape)
+            self.assertTrue(residual.projection == residual.input_layers[0])
+            self.assertIsInstance(residual.projection, TensorLayer)
+            self.assertEqual(len(residual.variables), 0)
 
-        self.assertTrue(residual_2.projection != residual.input_layers[0])
-        self.assertIsInstance(residual_2.projection, Linear)
-        self.assertEqual(len(residual_2.variables), 1)
-
-        # m = Model(x, residual_2)
-        # r = ModelRunner(m)
-        # r.log_graph("/tmp")
-
-        self.reset()
+            self.assertTrue(residual_2.projection != residual.input_layers[0])
+            self.assertIsInstance(residual_2.projection, Linear)
+            self.assertEqual(len(residual_2.variables), 1)
 
     def test_conv1d(self):
         num_filters = 2
@@ -156,15 +144,21 @@ class TestLayers(unittest.TestCase):
 
         filters = tf.ones(filter_shape)
         conv_layer = Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
-        conv = tf.nn.conv1d(x, filters, stride=1, padding="SAME", use_cudnn_on_gpu=True, data_format="NWC")
+        conv = tf.nn.conv1d(value=x,
+                            filters=filters,
+                            stride=1,
+                            padding="SAME",
+                            use_cudnn_on_gpu=True,
+                            data_format="NWC")
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
         self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
         self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
-        self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
 
-        self.reset()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertArrayEqual(conv, conv_layer.tensor)
 
     def test_causal_conv(self):
         num_filters = 1
@@ -180,9 +174,9 @@ class TestLayers(unittest.TestCase):
 
         x_layer = TensorLayer(x, input_dim)
 
-        filter = tf.ones(filter_shape)
+        conv_filter = tf.ones(filter_shape)
         conv_layer = CausalConv(x_layer, num_filters, filter_size,
-                                shared_filters=filter,
+                                shared_filters=conv_filter,
                                 dilation_rate=dilation_rate)
 
         left_pad = dilation_rate * (filter_size - 1)
@@ -190,19 +184,19 @@ class TestLayers(unittest.TestCase):
         x = tf.pad(x, padding)
 
         conv = tf.nn.convolution(input=x,
-                                 filter=filter,
+                                 filter=conv_filter,
                                  dilation_rate=(dilation_rate,),
                                  strides=(1,),
                                  padding="VALID",
                                  data_format="NWC")
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
-        self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
-        self.assertTrue(np.array_equal(conv.eval(), conv_layer.tensor.eval()))
-
-        self.reset()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
+            self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
+            self.assertArrayEqual(conv, conv_layer.tensor)
 
     def test_conv2d(self):
         # simple dummy data with 10 examples of mnist digit and class data
@@ -214,7 +208,6 @@ class TestLayers(unittest.TestCase):
 
         # we only have one channel so we need to reshape the data
         x = tf.reshape(x, shape=[-1, 28, 28, 1])
-        self.assertTrue(np.array_equal(tf.shape(x).eval(), (10, 28, 28, 1)))
 
         x_layer = TensorLayer(x, 1)
         # f = Flatten(x_layer)
@@ -227,7 +220,10 @@ class TestLayers(unittest.TestCase):
                       same_padding=True,
                       bias=True)
 
-        self.reset()
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            self.assertArrayEqual(tf.shape(x), (10, 28, 28, 1))
+            self.eval(conv.tensor)
 
     def test_qrnn(self):
         num_filters = 2
@@ -248,18 +244,17 @@ class TestLayers(unittest.TestCase):
         qrnn2 = qrnn.reuse_with(x_layer)
         qrnn_zoneout = qrnn.reuse_with(x_layer, zoneout=True)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        res1 = qrnn.tensor.eval()
-        res2 = qrnn2.tensor.eval()
-        res3 = qrnn_zoneout.tensor.eval()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-        self.assertSequenceEqual(np.shape(res1), (batch_size, seq_size, num_filters))
-        self.assertSequenceEqual(np.shape(res3), (batch_size, seq_size, num_filters))
+            self.assertArrayEqual(tf.shape(qrnn.tensor), (batch_size, seq_size, num_filters))
+            self.assertArrayEqual(tf.shape(qrnn_zoneout.tensor), (batch_size, seq_size, num_filters))
 
-        self.assertTrue(np.array_equal(res1, res2))
-        # this might fail, zoneout is stochastic
-        # self.assertFalse(np.array_equal(res1, res3))
+            self.assertArrayEqual(qrnn.tensor, qrnn2.tensor)
+            # this might fail, zoneout is stochastic
+            # self.assertFalse(np.array_equal(qrnn, qrnn_zoneout))
 
     def test_bias_reuse(self):
         in1 = TensorLayer([[1.]], 1)
@@ -283,16 +278,12 @@ class TestLayers(unittest.TestCase):
         self.assertListEqual(layer1.variable_names, layer2.variable_names)
         self.assertListEqual(layer2.variable_names, layer3.variable_names)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        result1 = layer1.tensor.eval()
-        result2 = layer2.tensor.eval()
-        result3 = layer3.tensor.eval()
-
-        np.testing.assert_array_equal(result1, result2)
-
-        expected = result2 * -1
-        np.testing.assert_array_equal(expected, result3)
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertArrayEqual(layer1.tensor, layer2.tensor)
+            self.assertArrayEqual(layer3.tensor, layer2.tensor * -1)
 
     def test_input(self):
         """ Test Input layer - creates a TensorFlow Placeholder
@@ -304,18 +295,16 @@ class TestLayers(unittest.TestCase):
         self.assertIsInstance(in_layer.tensor, tf.Tensor)
 
         ones = np.ones(shape=(2, 10))
-        result = self.ss.run(in_layer.tensor, feed_dict={in_layer.tensor: ones})
-        np.testing.assert_array_equal(ones, result)
+        ones_wrong_shape = np.ones([2, 11])
 
-        variables = in_layer.variable_names
-        self.assertEqual(len(variables), 0)
+        with self.cached_session(use_gpu=True):
+            result = self.eval(in_layer.tensor, {in_layer.tensor: ones})
+            self.assertArrayEqual(ones, result)
 
-        ones_wrong_shape = np.ones(shape=(2, 11))
-        try:
-            self.ss.run(in_layer.tensor, feed_dict={in_layer.tensor: ones_wrong_shape})
-            self.fail("Should have raised an exception since shapes don't match")
-        except ValueError:
-            pass
+            variables = in_layer.variable_names
+            self.assertEqual(len(variables), 0)
+
+            self.assertRaises(ValueError, self.eval, in_layer.tensor, {in_layer.tensor: ones_wrong_shape})
 
     def test_flat_sparse_input(self):
         """ Create a Sparse Input by providing
@@ -327,8 +316,9 @@ class TestLayers(unittest.TestCase):
         input_layer = Input(n_units=dim, n_active=1, dtype=tf.int64)
         self.assertEqual(input_layer.tensor.values.dtype, tf.int64)
 
-        result = self.ss.run(input_layer.tensor, feed_dict={input_layer.placeholder: index})
-        self.assertEqual(len(result.values), 1)
+        with self.cached_session(use_gpu=True):
+            result = self.eval(input_layer.tensor, {input_layer.placeholder: index})
+            self.assertEqual(len(result.values), 1)
 
     def test_sparse_input(self):
         indices = [[0, 1], [1, 1]]
@@ -337,10 +327,11 @@ class TestLayers(unittest.TestCase):
         sp_data = tf.SparseTensorValue(indices, values, dense_shape)
 
         sp_input = SparseInput(n_units=4)
-        result = tf.sparse_tensor_to_dense(sp_input.tensor).eval({sp_input.placeholder: sp_data})
 
-        np.testing.assert_array_equal(result[sp_data.indices], [1, 1])
-        np.testing.assert_array_equal(result.shape, dense_shape)
+        with self.cached_session(use_gpu=True):
+            result = self.eval(tf.sparse_tensor_to_dense(sp_input.tensor), {sp_input.placeholder: sp_data})
+            self.assertArrayEqual(result[tuple(sp_data.indices)], [1, 1])
+            self.assertArrayEqual(result.shape, dense_shape)
 
     def test_tensor_input(self):
         indices = [[0, 1], [1, 1]]
@@ -355,16 +346,14 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(tensor_input.is_sparse())
         self.assertTrue(sparse_input.is_sparse())
 
-        result_tensor = tf.sparse_tensor_to_dense(tensor_input.tensor).eval()
-        result_sparse = tf.sparse_tensor_to_dense(sparse_input.tensor).eval({sparse_input.tensor: sp_data})
+        with self.cached_session(use_gpu=True):
+            result_tensor = self.eval(tf.sparse_tensor_to_dense(tensor_input.tensor))
+            result_sparse = self.eval(tf.sparse_tensor_to_dense(sparse_input.tensor), {sparse_input.tensor: sp_data})
 
-        np.testing.assert_array_equal(result_sparse, result_tensor)
+            self.assertArrayEqual(result_tensor, result_sparse)
 
-        dense_input = TensorLayer(result_tensor, n_units=4)
-        np.testing.assert_array_equal(dense_input.tensor.eval(), result_tensor)
-
-        # np.testing.assert_array_equal(result_tensor[sp_data.indices], [1, 1])
-        # np.testing.assert_array_equal(result.shape, dense_shape)
+            dense_input = TensorLayer(result_tensor, n_units=4)
+            self.assertArrayEqual(dense_input.tensor, result_tensor)
 
     def test_linear_equal_sparse_dense(self):
         index = 0
@@ -380,7 +369,7 @@ class TestLayers(unittest.TestCase):
         y2 = Linear(x2, 4, shared_weights=y1.weights, name="linear2")
         y3 = Linear(x3, 4, shared_weights=y1.weights, name="linear3")
 
-        self.ss.run(tf.global_variables_initializer())
+        init = tf.global_variables_initializer()
 
         # dummy input data
         input1 = np.zeros([1, dim])
@@ -389,18 +378,17 @@ class TestLayers(unittest.TestCase):
         input3 = sparse_tensor_value_one_hot(input2, [1, dim])
         self.assertIsInstance(input3, tf.SparseTensorValue)
 
-        # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
-        y1_output = y1.tensor.eval({x1.placeholder: input1})
-        y2_output = y2.tensor.eval({x2.placeholder: input2})
-        y3_output = y3.tensor.eval({x3.placeholder: input3})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
+            y1_output = self.eval(y1.tensor, {x1.placeholder: input1})
+            y2_output = self.eval(y2.tensor, {x2.placeholder: input2})
+            y3_output = self.eval(y3.tensor, {x3.placeholder: input3})
 
-        # the result should be the same
-        np.testing.assert_array_equal(y1_output, y2_output)
-        np.testing.assert_array_equal(y2_output, y3_output)
+            self.assertArrayEqual(y1_output, y2_output)
+            self.assertArrayEqual(y2_output, y3_output)
 
     def test_linear_variable_names(self):
-        self.reset()
-
         inputs = TensorLayer([[1]], 1, dtype=tf.float32)
         layer = Linear(inputs, 10, bias=True)
         layer2 = Linear(inputs, 10, bias=True)
@@ -431,20 +419,17 @@ class TestLayers(unittest.TestCase):
         l3 = Linear(in1, 1, weight_init=ones_init(), shared_weights=l1.weights, bias=True)
         l4 = l3.reuse_with(in2)
 
-        self.ss.run(tf.global_variables_initializer())
+        init = tf.global_variables_initializer()
 
-        res1 = l1.tensor.eval()
-        res2 = l2.tensor.eval()
-        res3 = l3.tensor.eval()
-        res4 = l4.tensor.eval()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertArrayEqual(l1.tensor, l3.tensor)
+            self.assertArrayEqual(l2.tensor, l4.tensor)
 
-        self.assertTrue(np.array_equal(res1, res3))
-        self.assertTrue(np.array_equal(res2, res4))
+            self.assertListEqual(l1.variable_names, l2.variable_names)
 
-        self.assertListEqual(l1.variable_names, l2.variable_names)
-
-        self.assertFalse(l3.variable_names == l1.variable_names)
-        self.assertListEqual(l3.variable_names, l4.variable_names)
+            self.assertFalse(l3.variable_names == l1.variable_names)
+            self.assertListEqual(l3.variable_names, l4.variable_names)
 
     def test_to_sparse(self):
         index = 0
@@ -465,20 +450,22 @@ class TestLayers(unittest.TestCase):
         s2 = ToSparse(x2)
         s3 = ToSparse(x3)
 
-        y1_sp_tensor = self.ss.run(s1.tensor, {x1.placeholder: input1})
+        with self.cached_session(use_gpu=True):
+            y1_sp_tensor = self.eval(s1.tensor, {x1.placeholder: input1})
+            self.assertEqual(len(y1_sp_tensor.values), 1)
 
-        self.assertEqual(len(y1_sp_tensor.values), 1)
+            y2_sp_tensor = self.eval(s2.tensor, {x2.placeholder: input2})
+            self.assertEqual(len(y1_sp_tensor.values), 1)
 
-        y2_sp_tensor = self.ss.run(s2.tensor, {x2.placeholder: input2})
-        self.assertEqual(len(y1_sp_tensor.values), 1)
-        np.testing.assert_array_equal(y1_sp_tensor.indices, y2_sp_tensor.indices)
-        np.testing.assert_array_equal(y1_sp_tensor.values, y2_sp_tensor.values)
+            self.assertArrayEqual(y1_sp_tensor.indices, y2_sp_tensor.indices)
+            self.assertArrayEqual(y1_sp_tensor.values, y2_sp_tensor.values)
 
-        y3_sp_tensor = self.ss.run(s3.tensor, {x3.placeholder: input3})
-        self.assertEqual(len(y2_sp_tensor.values), 1)
-        self.assertEqual(y2_sp_tensor.values, 1)
-        np.testing.assert_array_equal(y1_sp_tensor.indices, y3_sp_tensor.indices)
-        np.testing.assert_array_equal(y1_sp_tensor.values, y3_sp_tensor.values)
+            y3_sp_tensor = self.eval(s3.tensor, {x3.placeholder: input3})
+            self.assertEqual(len(y2_sp_tensor.values), 1)
+            self.assertEqual(y2_sp_tensor.values, 1)
+
+            self.assertArrayEqual(y1_sp_tensor.indices, y3_sp_tensor.indices)
+            self.assertArrayEqual(y1_sp_tensor.values, y3_sp_tensor.values)
 
     def test_to_dense(self):
         dim = 10
@@ -497,11 +484,11 @@ class TestLayers(unittest.TestCase):
         to_dense1 = ToDense(x1)
         to_dense2 = ToDense(x2)
 
-        result1 = to_dense1.tensor.eval({x1.placeholder: data1})
-        result2 = to_dense2.tensor.eval({x2.placeholder: data2})
-
-        np.testing.assert_array_equal(expected, result1)
-        np.testing.assert_array_equal(expected, result2)
+        with self.cached_session(use_gpu=True):
+            result1 = self.eval(to_dense1.tensor, {x1.placeholder: data1})
+            result2 = self.eval(to_dense2.tensor, {x2.placeholder: data2})
+            self.assertArrayEqual(result1, expected)
+            self.assertArrayEqual(result2, expected)
 
     def test_dropout_layer(self):
         dim = 100
@@ -512,61 +499,62 @@ class TestLayers(unittest.TestCase):
         data = np.ones([1, dim], dtype=np.float32)
         dropout = Dropout(dense_input, keep_prob)
 
-        # TEST DROPOUT WITH DENSE INPUTS
-        final_count = 0
-        for _ in range(0, num_iter):
-            result = dropout.tensor.eval({dense_input.placeholder: data})
-            final_count += np.count_nonzero(result)
+        with self.cached_session(use_gpu=True):
+            # TEST DROPOUT WITH DENSE INPUTS
+            final_count = 0
+            for _ in range(0, num_iter):
+                result = self.eval(dropout.tensor, {dense_input.placeholder: data})
+                final_count += np.count_nonzero(result)
 
-            # test the scaling
-            sorted_result = np.unique(np.sort(result))
-            if len(sorted_result) > 1:
-                np.testing.assert_allclose(1 / keep_prob, sorted_result[1])
+                # test the scaling
+                sorted_result = np.unique(np.sort(result))
+                if len(sorted_result) > 1:
+                    self.assertAllClose(1 / keep_prob, sorted_result[1])
 
-        # Check that we are in the 10% error range
-        expected_count = dim * keep_prob * num_iter
-        rel_error = math.fabs(math.fabs(final_count - expected_count) / expected_count)
-        self.assertLess(rel_error, 0.1)
+            # Check that we are in the 10% error range
+            expected_count = dim * keep_prob * num_iter
+            rel_error = math.fabs(math.fabs(final_count - expected_count) / expected_count)
+            self.assertLess(rel_error, 0.1)
 
-        # TEST DROPOUT WITH keep_prob = 1
-        drop_dense = Dropout(dense_input, keep_prob=1)
-        result = drop_dense.tensor.eval({dense_input.placeholder: data})
-        np.testing.assert_array_equal(result, data)
+            # TEST DROPOUT WITH keep_prob = 1
+            drop_dense = Dropout(dense_input, keep_prob=1)
+            result = self.eval(drop_dense.tensor, {dense_input.placeholder: data})
+            self.assertArrayEqual(result, data)
 
-        # TEST FLAT INDEX SPARSE INPUT
-        n_active = 2
-        data = [list(range(0, n_active, 1))]
-        flat_sparse = Input(dim, n_active)
-        self.assertTrue(flat_sparse.is_sparse())
+            # TEST FLAT INDEX SPARSE INPUT
+            n_active = 2
+            data = [list(range(0, n_active, 1))]
+            flat_sparse = Input(dim, n_active)
+            self.assertTrue(flat_sparse.is_sparse())
 
-        dropout = Dropout(flat_sparse, keep_prob)
-        self.assertTrue(dropout.is_sparse())
+            dropout = Dropout(flat_sparse, keep_prob)
+            self.assertTrue(dropout.is_sparse())
 
-        result = self.ss.run(dropout.tensor, {flat_sparse.placeholder: data})
-        np.testing.assert_allclose(1 / keep_prob, result.values)
-        self.assertLessEqual(len(result.values), len(data[0]))
+            result = self.eval(dropout.tensor, {flat_sparse.placeholder: data})
+            self.assertAllClose(1 / keep_prob, result.values)
+            self.assertLessEqual(len(result.values), len(data[0]))
 
-        # test for keep_prob == 1
-        dropout = Dropout(flat_sparse, keep_prob=1)
-        after_dropout = self.ss.run(dropout.tensor, {flat_sparse.placeholder: data})
-        after_input = flat_sparse.tensor.eval({flat_sparse.placeholder: data})
-        np.testing.assert_array_equal(after_input.indices, after_dropout.indices)
+            # test for keep_prob == 1
+            dropout = Dropout(flat_sparse, keep_prob=1)
+            after_dropout = self.eval(dropout.tensor, {flat_sparse.placeholder: data})
+            after_input = self.eval(flat_sparse.tensor, {flat_sparse.placeholder: data})
+            self.assertArrayEqual(after_input.indices, after_dropout.indices)
 
-        # TEST DROPOUT ON SPARSE INPUT
-        sparse_data = sparse_tensor_value_one_hot(data, [1, dim])
-        sparse_input = SparseInput(dim)
-        dropout = Dropout(sparse_input, keep_prob=keep_prob)
+            # TEST DROPOUT ON SPARSE INPUT
+            sparse_data = sparse_tensor_value_one_hot(data, [1, dim])
+            sparse_input = SparseInput(dim)
+            dropout = Dropout(sparse_input, keep_prob=keep_prob)
 
-        # feed sparse tensor values with indices
-        after_dropout = self.ss.run(dropout.tensor, {sparse_input.placeholder: sparse_data})
-        np.testing.assert_allclose(1 / keep_prob, after_dropout.values)
-        self.assertLessEqual(len(after_dropout.indices), len(sparse_data.indices))
+            # feed sparse tensor values with indices
+            after_dropout = self.eval(dropout.tensor, {sparse_input.placeholder: sparse_data})
+            np.testing.assert_allclose(1 / keep_prob, after_dropout.values)
+            self.assertLessEqual(len(after_dropout.indices), len(sparse_data.indices))
 
-        dropout = Dropout(sparse_input, keep_prob=1)
-        before_dropout = self.ss.run(sparse_input.tensor, {sparse_input.placeholder: sparse_data})
-        after_dropout = self.ss.run(dropout.tensor, {sparse_input.placeholder: sparse_data})
-        np.testing.assert_array_equal(before_dropout.indices, after_dropout.indices)
-        np.testing.assert_array_equal(before_dropout.values, after_dropout.values)
+            dropout = Dropout(sparse_input, keep_prob=1)
+            before_dropout = self.eval(sparse_input.tensor, {sparse_input.placeholder: sparse_data})
+            after_dropout = self.eval(dropout.tensor, {sparse_input.placeholder: sparse_data})
+            self.assertArrayEqual(before_dropout.indices, after_dropout.indices)
+            self.assertArrayEqual(before_dropout.values, after_dropout.values)
 
     def test_dropout_noise_mask(self):
         embed_dim = 4
@@ -579,16 +567,12 @@ class TestLayers(unittest.TestCase):
 
         dropped = Dropout(lookup, keep_prob=0.5, noise_shape=[2, seq_size, embed_dim])
 
-        var_init = tf.global_variables_initializer()
+        init = tf.global_variables_initializer()
 
-        with tf.Session() as sess:
-            sess.run(var_init)
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-            w, d = sess.run([lookup.weights, dropped.tensor])
-
-            print(w)
-            print("=" * 10)
-            print(d)
+            w, d = self.eval([lookup.weights, dropped.tensor])
 
     def test_zoneout_layer(self):
         dim = 100
@@ -603,8 +587,8 @@ class TestLayers(unittest.TestCase):
 
         zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
 
-        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
-        self.assertAlmostEqual(mean_sum, 0., delta=1.0)
+        with self.cached_session(use_gpu=True):
+            self.assertAlmostEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), 0., delta=1.0)
 
         # test keep_prob = 1
         keep_prob = 1.0
@@ -617,8 +601,8 @@ class TestLayers(unittest.TestCase):
 
         zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
 
-        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
-        self.assertEqual(mean_sum, dim)
+        with self.cached_session(use_gpu=True):
+            self.assertEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), dim)
 
         # test keep_prob = 0
         keep_prob = 0.0
@@ -631,8 +615,8 @@ class TestLayers(unittest.TestCase):
 
         zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
 
-        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
-        self.assertEqual(mean_sum, -dim)
+        with self.cached_session(use_gpu=True):
+            self.assertEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), -dim)
 
         # test keep_prob = 0
         keep_prob = np.random.rand()
@@ -645,10 +629,9 @@ class TestLayers(unittest.TestCase):
 
         zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
 
-        mean_sum = np.mean(np.sum(zoneout.tensor.eval(), axis=-1))
-        expected = (2 * dim * keep_prob) - dim
-
-        self.assertAlmostEqual(mean_sum, expected, delta=1.0)
+        with self.cached_session(use_gpu=True):
+            expected = (2 * dim * keep_prob) - dim
+            self.assertAlmostEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), expected, delta=1.0)
 
     def test_gaussian_noise(self):
         dim = 1000
@@ -660,29 +643,30 @@ class TestLayers(unittest.TestCase):
         noise_layer = GaussianNoise(dense_input)
 
         # test that expected average tensor is approximately the same
-        result = noise_layer.tensor.eval({dense_input.placeholder: dense_data})
-        mean_result = np.mean(result)
-        mean_data = np.mean(dense_data)
-        self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
+        with self.cached_session(use_gpu=True):
+            result = self.eval(noise_layer.tensor, {dense_input.placeholder: dense_data})
+            mean_result = np.mean(result)
+            mean_data = np.mean(dense_data)
+            self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
 
-        # sparse input with flat indices
-        flat_indices = [list(range(0, n_active, 1))]
-        flat_input = Input(dim, n_active, dtype=tf.int64)
-        noise_layer = GaussianNoise(flat_input)
-        result = noise_layer.tensor.eval({flat_input.placeholder: flat_indices})
+            # sparse input with flat indices
+            flat_indices = [list(range(0, n_active, 1))]
+            flat_input = Input(dim, n_active, dtype=tf.int64)
+            noise_layer = GaussianNoise(flat_input)
+            result = self.eval(noise_layer.tensor, {flat_input.placeholder: flat_indices})
 
-        dense_input = np.zeros([1, dim])
-        dense_input[0, flat_indices[0]] = 1
-        mean_data = np.mean(dense_input)
-        mean_result = np.mean(result)
-        self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
+            dense_input = np.zeros([1, dim])
+            dense_input[0, flat_indices[0]] = 1
+            mean_data = np.mean(dense_input)
+            mean_result = np.mean(result)
+            self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
 
-        sparse_input = SparseInput(dim)
-        noise_layer = GaussianNoise(sparse_input)
-        sparse_data = sparse_tensor_value_one_hot(flat_indices, [1, dim])
-        result = noise_layer.tensor.eval({sparse_input.placeholder: sparse_data})
-        mean_result = np.mean(result)
-        self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
+            sparse_input = SparseInput(dim)
+            noise_layer = GaussianNoise(sparse_input)
+            sparse_data = sparse_tensor_value_one_hot(flat_indices, [1, dim])
+            result = self.eval(noise_layer.tensor, {sparse_input.placeholder: sparse_data})
+            mean_result = np.mean(result)
+            self.assertAlmostEqual(mean_data, mean_result, delta=0.1)
 
     def test_sp_noise(self):
         # PARAMS
@@ -693,9 +677,11 @@ class TestLayers(unittest.TestCase):
         dense_input = Input(dim)
         dense_data = np.zeros([batch_size, dim], dtype=np.float32)
         noise_layer = SaltPepperNoise(dense_input, noise_amount)
-        result = noise_layer.tensor.eval({dense_input.placeholder: dense_data})
-        mean_result = np.mean(result)
-        self.assertEqual(mean_result, 0)
+
+        with self.cached_session(use_gpu=True):
+            result = self.eval(noise_layer.tensor, {dense_input.placeholder: dense_data})
+            mean_result = np.mean(result)
+            self.assertEqual(mean_result, 0)
 
     def test_sp_noise_sp(self):
         noise_density = 0.5
@@ -709,24 +695,23 @@ class TestLayers(unittest.TestCase):
 
         feed = {x.placeholder: data}
 
-        res = n.eval(feed)
-
-        sum_res = tf.sparse_reduce_sum(res, axis=-1)
-
-        expected = [dim * noise_density] * batch_size
-        np.testing.assert_allclose(sum_res.eval(), expected, atol=1)
+        with  self.cached_session(use_gpu=True):
+            sum_res = tf.sparse_reduce_sum(n.tensor, axis=-1)
+            expected = [dim * noise_density] * batch_size
+            self.assertAllClose(self.eval(sum_res, feed), expected, atol=1)
 
     def test_activation_with_params(self):
         inputs = Input(1)
         act = Activation(inputs, leaky_relu, alpha=0.)
 
-        r0 = act.tensor.eval({inputs.tensor: [[-1]]})
-        r1 = act.tensor.eval({inputs.tensor: [[1]]})
-        r2 = act.tensor.eval({inputs.tensor: [[3]]})
+        with self.cached_session(use_gpu=True):
+            r0 = self.eval(act.tensor, {inputs.tensor: [[-1]]})
+            r1 = self.eval(act.tensor, {inputs.tensor: [[1]]})
+            r2 = self.eval(act.tensor, {inputs.tensor: [[3]]})
 
-        self.assertEqual(r0[0], 0)
-        self.assertEqual(r1[0], 1)
-        self.assertEqual(r2[0], 3)
+            self.assertEqual(r0[0], 0)
+            self.assertEqual(r1[0], 1)
+            self.assertEqual(r2[0], 3)
 
     def test_layers_to_list(self):
         """ layers_to_list returns the layers without repetition using a breadth first search from the last layer
@@ -764,11 +749,11 @@ class TestLayers(unittest.TestCase):
         wrap_layer = WrapLayer(input_layer, 4, lambda layer: tf.multiply(layer, 2))
         self.assertIs(input_layer.placeholder, wrap_layer.placeholder)
 
-        with tf.Session() as sess:
-            t1 = sess.run(input_layer.tensor, feed_dict={input_layer.placeholder: data})
-            t2 = sess.run(wrap_layer.tensor, feed_dict={wrap_layer.placeholder: data})
+        with self.cached_session(use_gpu=True):
+            t1 = self.eval(input_layer.tensor, {input_layer.placeholder: data})
+            t2 = self.eval(wrap_layer.tensor, {wrap_layer.placeholder: data})
 
-            np.testing.assert_array_almost_equal(t1 * 2, t2, decimal=6)
+            self.assertAllClose(t1 * 2, t2, atol=1e-6)
 
     def test_wrap_reuse(self):
         """
@@ -826,8 +811,9 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(hasattr(wrap2_r2, "fn"))
 
-        self.assertFalse(np.array_equal(sum(wrap2.eval()), sum(wrap2_r2.eval())))
-        self.assertTrue(np.array_equal(sum(wrap2.eval()), sum(wrap2_r2.eval()) * 2))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayNotEqual(tf.reduce_sum(wrap2.tensor), tf.reduce_sum(wrap2_r2.tensor))
+            self.assertArrayEqual(tf.reduce_sum(wrap2.tensor), tf.reduce_sum(wrap2_r2.tensor * 2))
 
     def test_lookup_sequence_dense(self):
         input_dim = 4
@@ -845,12 +831,12 @@ class TestLayers(unittest.TestCase):
 
         lookup_from_tensor = lookup.reuse_with(tensor_input)
 
-        var_init = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(var_init)
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-            v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
-            v2 = sess.run(lookup_from_tensor.tensor)
+            v1 = self.eval(lookup.tensor, {inputs.placeholder: input_data})
+            v2 = self.eval(lookup_from_tensor.tensor)
 
             self.assertEqual(np.shape(v1), (batch_size, seq_size, embed_dim))
             self.assertEqual(np.shape(v2), (batch_size, seq_size, embed_dim))
@@ -866,22 +852,28 @@ class TestLayers(unittest.TestCase):
         tensor_input = TensorLayer(sparse_input, input_dim)
         tensor_input_1d = TensorLayer(sparse_input_1d, input_dim)
 
-        lookup = Lookup(tensor_input, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
+        lookup = Lookup(tensor_input, seq_size,
+                        lookup_shape=[input_dim, embed_dim],
+                        batch_size=batch_size,
                         batch_padding=False)
 
-        lookup_padding = Lookup(tensor_input, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
+        lookup_padding = Lookup(tensor_input, seq_size,
+                                lookup_shape=[input_dim, embed_dim],
+                                batch_size=batch_size,
                                 batch_padding=True)
 
-        lookup_1d = Lookup(tensor_input_1d, seq_size, lookup_shape=[input_dim, embed_dim], batch_size=batch_size,
+        lookup_1d = Lookup(tensor_input_1d, seq_size,
+                           lookup_shape=[input_dim, embed_dim],
+                           batch_size=batch_size,
                            batch_padding=True)
 
-        var_init = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(var_init)
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-            result = sess.run(lookup.tensor)
-            result_padding = sess.run(lookup_padding.tensor)
-            result_1d = sess.run(lookup_1d.tensor)
+            result = self.eval(lookup.tensor)
+            result_padding = self.eval(lookup_padding.tensor)
+            result_1d = self.eval(lookup_1d.tensor)
 
             self.assertEqual(np.shape(result), (2, seq_size, embed_dim))
             self.assertEqual(np.shape(result_padding), (batch_size, seq_size, embed_dim))
@@ -901,11 +893,10 @@ class TestLayers(unittest.TestCase):
                         batch_size=None,
                         batch_padding=False)
 
-        var_init = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(var_init)
-
-            print(lookup.eval())
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.eval(lookup.tensor)
 
     def test_lookup_sequence_bias(self):
         vocab_size = 4
@@ -916,12 +907,10 @@ class TestLayers(unittest.TestCase):
         input_data = np.array([[2, 0], [1, 2], [0, 2]])
         lookup = Lookup(inputs, seq_size, lookup_shape=[vocab_size, n_features], bias=True)
 
-        var_init = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(var_init)
-
-            v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
-
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            v1 = self.eval(lookup.tensor, {inputs.placeholder: input_data})
             self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, n_features))
 
     def test_lookup_sequence_transform(self):
@@ -937,13 +926,13 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(hasattr(lookup, "seq_size"))
 
-        var_init = tf.global_variables_initializer()
-        with tf.Session() as sess:
-            sess.run(var_init)
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-            v1 = sess.run(lookup.tensor, {inputs.placeholder: input_data})
-            v2 = sess.run(concat_lookup.tensor, {inputs.placeholder: input_data})
-            v3 = sess.run(seq_lookup.tensor, {inputs.placeholder: input_data})
+            v1 = self.eval(lookup.tensor, {inputs.placeholder: input_data})
+            v2 = self.eval(concat_lookup.tensor, {inputs.placeholder: input_data})
+            v3 = self.eval(seq_lookup.tensor, {inputs.placeholder: input_data})
 
             self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, embed_dim))
             self.assertEqual(np.shape(v2), (np.shape(input_data)[0], seq_size * embed_dim))
@@ -952,8 +941,6 @@ class TestLayers(unittest.TestCase):
             self.assertTrue(np.array_equal(v1[:, 0], v3[0]))
 
     def test_gating(self):
-        self.reset()
-
         vocab_size = 4
         n_features = 3
         seq_size = 2
@@ -969,22 +956,20 @@ class TestLayers(unittest.TestCase):
         gate2 = gate1.reuse_with(sp_features)
 
         init = tf.global_variables_initializer()
-        init.run()
-
         feed = {inputs.placeholder: input_data}
 
-        r1 = gate1.tensor.eval(feed)
-        r2 = gate2.tensor.eval(feed)
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            r1 = self.eval(gate1.tensor, feed)
+            r2 = self.eval(gate2.tensor, feed)
 
-        self.assertTrue(np.array_equal(r1, r2))
+            self.assertArrayEqual(r1, r2)
 
     def test_coupled_gate(self):
-        self.reset()
 
         vocab_size = 4
         n_features = 3
         seq_size = 2
-        batch_size = 4
 
         inputs = Input(seq_size, dtype=tf.int32)
         input_data = np.array([[2, 0], [1, 2]])
@@ -1000,17 +985,17 @@ class TestLayers(unittest.TestCase):
         coupled_gate2 = coupled_gate.reuse_with(sp_features1, features2)
 
         init = tf.global_variables_initializer()
-        init.run()
 
         feed = {inputs.placeholder: input_data}
 
-        r1 = coupled_gate.tensor.eval(feed)
-        r2 = coupled_gate2.tensor.eval(feed)
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            r1 = self.eval(coupled_gate.tensor, feed)
+            r2 = self.eval(coupled_gate2.tensor, feed)
 
-        self.assertTrue(np.array_equal(r1, r2))
+            self.assertArrayEqual(r1, r2)
 
     def test_rnn_cell(self):
-        self.reset()
 
         n_inputs = 4
         n_hidden = 2
@@ -1022,24 +1007,21 @@ class TestLayers(unittest.TestCase):
 
         rnn_3 = rnn_1.reuse_with(inputs)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
         data = np.ones([batch_size, 4])
 
-        res1 = rnn_1.tensor.eval({inputs.placeholder: data})
-        res2 = rnn_2.tensor.eval({inputs.placeholder: data})
-        res3 = rnn_3.tensor.eval({inputs.placeholder: data})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            res1 = self.eval(rnn_1.tensor, {inputs.placeholder: data})
+            res2 = self.eval(rnn_2.tensor, {inputs.placeholder: data})
+            res3 = self.eval(rnn_3.tensor, {inputs.placeholder: data})
 
-        self.assertEqual((batch_size, n_hidden), np.shape(res1))
-        self.assertTrue(np.array_equal(res1, res3))
-        self.assertFalse(np.array_equal(res1, res2))
-
-        m = Model(inputs, rnn_2)
-        # r = ModelRunner(m)
-        # r.log_graph("/tmp")
+            self.assertEqual((batch_size, n_hidden), np.shape(res1))
+            self.assertArrayEqual(res1, res3)
+            self.assertArrayNotEqual(res1, res2)
 
     def test_lstm_cell(self):
-        self.reset()
 
         n_inputs = 4
         n_hidden = 2
@@ -1055,25 +1037,21 @@ class TestLayers(unittest.TestCase):
                                  previous_state=None,
                                  memory_state=LSTMCell.zero_state(inputs, rnn_1.n_units))
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
         data = np.ones([batch_size, 4])
 
-        res1 = rnn_1.tensor.eval({inputs.placeholder: data})
-        res2 = rnn_2.tensor.eval({inputs.placeholder: data})
-        res3 = rnn_3.tensor.eval({inputs.placeholder: data})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            res1 = self.eval(rnn_1.tensor, {inputs.placeholder: data})
+            res2 = self.eval(rnn_2.tensor, {inputs.placeholder: data})
+            res3 = self.eval(rnn_3.tensor, {inputs.placeholder: data})
 
-        self.assertEqual((batch_size, n_hidden), np.shape(res1))
-        self.assertTrue(np.array_equal(res1, res3))
-        self.assertFalse(np.array_equal(res1, res2))
-
-        m = Model(inputs, rnn_2)
-        # r = ModelRunner(m)
-        # r.log_graph("/tmp")
+            self.assertEqual((batch_size, n_hidden), np.shape(res1))
+            self.assertArrayEqual(res1, res3)
+            self.assertArrayNotEqual(res1, res2)
 
     def test_gru_cell(self):
-        self.reset()
-
         n_inputs = 4
         n_hidden = 2
         batch_size = 2
@@ -1087,21 +1065,20 @@ class TestLayers(unittest.TestCase):
         rnn_3 = rnn_1.reuse_with(inputs,
                                  previous_state=GRUCell.zero_state(inputs, rnn_1.n_units))
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
         data = np.ones([batch_size, 4])
 
-        res1 = rnn_1.tensor.eval({inputs.placeholder: data})
-        res2 = rnn_2.tensor.eval({inputs.placeholder: data})
-        res3 = rnn_3.tensor.eval({inputs.placeholder: data})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-        self.assertEqual((batch_size, n_hidden), np.shape(res1))
-        self.assertTrue(np.array_equal(res1, res3))
-        self.assertFalse(np.array_equal(res1, res2))
+            res1 = self.eval(rnn_1.tensor, {inputs.placeholder: data})
+            res2 = self.eval(rnn_2.tensor, {inputs.placeholder: data})
+            res3 = self.eval(rnn_3.tensor, {inputs.placeholder: data})
 
-        m = Model(inputs, rnn_2)
-        r = ModelRunner(m)
-        r.log_graph("/tmp")
+            self.assertEqual((batch_size, n_hidden), np.shape(res1))
+            self.assertArrayEqual(res1, res3)
+            self.assertArrayNotEqual(res1, res2)
 
     def test_module(self):
         l1 = Input(1, name="in1")
@@ -1120,15 +1097,14 @@ class TestLayers(unittest.TestCase):
         with tf.name_scope("module_reuse"):
             m2 = m.reuse_with(t2, t3, t1)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
         feed = {l1.placeholder: [[1]], l2.placeholder: [[1]]}
-        res1 = m.tensor.eval(feed)
-        res2 = m2.tensor.eval()
 
-        # model = Model(m2.input_layers, m2)
-        # runner = ModelRunner(model)
-        # runner.log_graph("/tmp")
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.eval(m.tensor, feed)
+            self.eval(m2.tensor)
 
     def test_module_gate(self):
         l1 = Input(4, name="in1")
@@ -1137,9 +1113,9 @@ class TestLayers(unittest.TestCase):
         gate = Gate(layer=l1, gate_input=l2)
         gate_module = Module([l1, l2], gate)
 
-        model = Model(run_in_layers=gate_module.input_layers, run_out_layers=gate_module)
-        runner = ModelRunner(model)
-        runner.log_graph("/tmp")
+        # model = Model(run_in_layers=gate_module.input_layers, run_out_layers=gate_module)
+        # runner = ModelRunner(model)
+        # runner.log_graph("/tmp")
 
         t1 = TensorLayer([[1, 1, 1, 1]], n_units=4, dtype=tf.float32)
         t2 = TensorLayer([[1, 1]], n_units=2, dtype=tf.float32)
@@ -1147,9 +1123,9 @@ class TestLayers(unittest.TestCase):
         with tf.name_scope("module_reuse"):
             m2 = gate_module.reuse_with(t1, t2)
 
-        model = Model(m2.input_layers, m2)
-        runner = ModelRunner(model)
-        runner.log_graph("/tmp/")
+        # model = Model(m2.input_layers, m2)
+        # runner = ModelRunner(model)
+        # runner.log_graph("/tmp/")
 
     def test_reshape(self):
         v = np.array([[[1], [2]], [[3], [4]]])
@@ -1158,7 +1134,8 @@ class TestLayers(unittest.TestCase):
         fl = Reshape(x, [-1, 2])
         fl2 = fl.reuse_with(x)
 
-        self.assertTrue(np.array_equal(fl.eval(), fl2.eval()))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(fl.tensor, fl2.tensor)
 
     def test_flatten(self):
         v = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
@@ -1166,13 +1143,13 @@ class TestLayers(unittest.TestCase):
         fl = Flatten(x)
         self.assertSequenceEqual(fl.shape, [2, 6])
         rs = Reshape(fl, x.shape)
-        self.assertTrue(np.array_equal(x.eval(), rs.eval()))
         fl2 = fl.reuse_with(x)
 
-        self.assertTrue(np.array_equal(fl.eval(), fl2.eval()))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(x.tensor, rs.tensor)
+            self.assertArrayEqual(fl.tensor, fl2.tensor)
 
     def test_batch_norm(self):
-        self.reset()
 
         v = np.array([[1, 1, 1, 1], [2, 2, 2, 2], [-1, 1, -1, -1]])
         x = TensorLayer(v, n_units=4, dtype=tf.float32)
@@ -1245,34 +1222,37 @@ class TestLayers(unittest.TestCase):
 
         bn_inference = bn.reuse_with(x, training=False)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        # test updated moving avg
-        before = bn.moving_mean.eval()
-        bn.eval()
-        after = bn.moving_mean.eval()
-        self.assertFalse(np.array_equal(before, after))
-        before = bn.moving_mean.eval()
-        bn.eval()
-        after = bn.moving_mean.eval()
-        self.assertFalse(np.array_equal(before, after))
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
 
-        self.assertEqual(bn.moving_mean, bn_inference.moving_mean)
-        before = bn_inference.moving_mean.eval()
-        bn_inference.eval()
-        after = bn_inference.moving_mean.eval()
-        self.assertTrue(np.array_equal(before, after))
+            # test updated moving avg
+            before = self.eval(bn.moving_mean)
+            self.eval(bn.tensor)
+            after = self.eval(bn.moving_mean)
 
-        self.assertTrue(np.array_equal(outputs.eval(), bn.eval()))
-        self.assertFalse(np.array_equal(outputs.eval(), bn_inference.eval()))
-        # ignores init because we pass beta and gamma
-        self.assertTrue(np.array_equal(outputs.eval(), bn3.eval()))
-        self.assertFalse(np.array_equal(outputs.eval(), bn2.eval()))
+            self.assertArrayNotEqual(before, after)
+            before = self.eval(bn.moving_mean)
+            self.eval(bn.tensor)
+            after = self.eval(bn.moving_mean)
+            self.assertArrayNotEqual(before, after)
 
-        self.assertTrue(np.array_equal(outputs.eval(), bn_simple.eval()))
+            self.assertEqual(bn.moving_mean, bn_inference.moving_mean)
+            before = self.eval(bn_inference.moving_mean)
+            self.eval(bn_inference.tensor)
+            after = self.eval(bn_inference.moving_mean)
+            self.assertArrayEqual(before, after)
+
+            self.assertArrayEqual(outputs, bn.tensor)
+            self.assertArrayNotEqual(outputs, bn_inference.tensor)
+            # ignores init because we pass beta and gamma
+            self.assertArrayEqual(outputs, bn3.tensor)
+            self.assertArrayNotEqual(outputs, bn2.tensor)
+
+            self.assertArrayEqual(outputs, bn_simple.tensor)
 
     def test_batch_norm_sparse(self):
-        self.reset()
 
         v = np.array([[1, 1], [2, 3], [-1, 6]])
         x = TensorLayer(v, n_units=2, dtype=tf.float32)
@@ -1284,34 +1264,24 @@ class TestLayers(unittest.TestCase):
         # print(bn.moving_mean.op.name)
         # print(bns.moving_mean.op.name)
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        res1 = bn.eval()
-        res2 = bns.eval()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertArrayEqual(bn.tensor, bns.tensor)
 
-        # moving average and variance should be the same
-        self.assertTrue(np.array_equal(res1, res2))
+            bn = bn.reuse_with(x, training=True, name="bn_train")
+            bns = bn.reuse_with(xs, name="bns_train")
 
-        bn = bn.reuse_with(x, training=True, name="bn_train")
-        bns = bn.reuse_with(xs, name="bns_train")
+            moving_mean_before = self.eval(bn.moving_mean)
+            self.assertArrayEqual(bn.tensor, bns.tensor)
+            moving_mean_after = self.eval(bn.moving_mean)
+            self.assertArrayNotEqual(moving_mean_before, moving_mean_after)
 
-        moving_mean_before = bn.moving_mean.eval()
-        res1 = bn.eval()
-        res2 = bns.eval()
-        moving_mean_after = bn.moving_mean.eval()
+            bn = bn.reuse_with(x, training=False)
+            bns = bn.reuse_with(xs)
 
-        # moving average and variance are updated so they can't be the same
-        self.assertFalse(np.array_equal(moving_mean_before, moving_mean_after))
-        self.assertTrue(np.array_equal(res1, res2))
-
-        bn = bn.reuse_with(x, training=False)
-        bns = bn.reuse_with(xs)
-
-        res1 = bn.eval()
-        res2 = bns.eval()
-
-        # testing switching between training and inference modes in the batch norm
-        self.assertTrue(np.array_equal(res1, res2))
+            self.assertArrayEqual(bn.tensor, bns.tensor)
 
     def test_batch_norm_mv_average(self):
         t1 = np.array([[1, 1], [2, 3], [-1, 6]])
@@ -1325,41 +1295,43 @@ class TestLayers(unittest.TestCase):
 
         bn_infer = bn.reuse_with(x, training=False, name="bn_infer")
 
-        tf.global_variables_initializer().run()
+        init = tf.global_variables_initializer()
 
-        r0_infer = bn_infer.eval({x.placeholder: t1})
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            r0_infer = self.eval(bn_infer.tensor, {x.placeholder: t1})
 
-        mv0 = bn.moving_mean.eval()
-        r1 = bn.eval({x.placeholder: t1})
-        mv1 = bn.moving_mean.eval()
+            mv0 = self.eval(bn.moving_mean)
+            r1 = self.eval(bn.tensor, {x.placeholder: t1})
+            mv1 = self.eval(bn.moving_mean)
 
-        r1_infer = bn_infer.eval({x.placeholder: t1})
+            r1_infer = self.eval(bn_infer.tensor,{x.placeholder: t1})
 
-        # moving average and variance are updated so they can't be the same
-        self.assertFalse(np.array_equal(mv0, mv1))
+            # moving average and variance are updated so they can't be the same
+            self.assertArrayNotEqual(mv0, mv1)
 
-        # the result with the same data can't be the same because it uses the
-        # estimate for population mean and variance which is updated by the training step
-        self.assertFalse(np.array_equal(r0_infer, r1_infer))
+            # the result with the same data can't be the same because it uses the
+            # estimate for population mean and variance which is updated by the training step
+            self.assertArrayNotEqual(r0_infer, r1_infer)
 
-        r2 = bn.eval({x.placeholder: t2})
-        r2_infer = bn_infer.eval({x.placeholder: t1})
+            r2 = self.eval(bn.tensor, {x.placeholder: t2})
+            r2_infer = self.eval(bn_infer.tensor,{x.placeholder: t1})
 
-        rs1 = bns.eval({x.placeholder: t1})
-        r3_infer = bn_infer.eval({x.placeholder: t1})
-        rs2 = bns.eval({x.placeholder: t2})
+            rs1 = self.eval(bns.tensor,{x.placeholder: t1})
+            r3_infer = self.eval(bn_infer.tensor, {x.placeholder: t1})
+            rs2 = self.eval(bns.tensor, {x.placeholder: t2})
 
-        # the results should be the same because they are computed based on the current
-        # mini-batch mean and variance
-        self.assertTrue(np.array_equal(r1, rs1))
-        self.assertTrue(np.array_equal(r2, rs2))
+            # the results should be the same because they are computed based on the current
+            # mini-batch mean and variance
+            self.assertArrayEqual(r1, rs1)
+            self.assertArrayEqual(r2, rs2)
 
-        # again can't be the same because the moving avg changed
-        self.assertFalse(np.array_equal(r1_infer, r2_infer))
+            # again can't be the same because the moving avg changed
+            self.assertArrayNotEqual(r1_infer, r2_infer)
 
-        # the reused layer should also update the moving average
-        # so the inference step will give a different value again
-        self.assertFalse(np.array_equal(r2_infer, r3_infer))
+            # the reused layer should also update the moving average
+            # so the inference step will give a different value again
+            self.assertArrayNotEqual(r2_infer, r3_infer)
 
     if __name__ == '__main__':
-        unittest.main()
+        test_utils.main()

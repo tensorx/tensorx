@@ -7,7 +7,7 @@ from tensorflow.python.eager import context
 from tensorflow.contrib.layers.python.ops import sparse_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn
+from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn, gen_data_flow_ops
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 
 import numbers
@@ -72,7 +72,7 @@ def repeat(x, n, name="repeat"):
     """
     with ops.name_scope(name, values=[x, n]):
         x = ops.convert_to_tensor(x)
-        n = to_tensor_cast(n,dtype=x.dtype)
+        n = to_tensor_cast(n, dtype=x.dtype)
 
         shape = array_ops.shape(x, out_type=x.dtype)
         flat_x = array_ops.reshape(x, [-1])
@@ -85,6 +85,7 @@ def repeat(x, n, name="repeat"):
     return rep_x
 
 
+# TODO check boolean mask here and see if it can be replaced by dynamic partition
 def repeat_each(x, repeats, name="repeat_each"):
     """ Repeats each element in x its corresponding number of repetitions
 
@@ -121,24 +122,31 @@ def sparse_tile(sp_tensor, num, name="sparse_tile"):
     with ops.name_scope(name, values=[sp_tensor, num]):
         sp_tensor = to_tensor_cast(sp_tensor)
         values = array_ops.tile(sp_tensor.values, [num])
+        num = to_tensor_cast(num, dtypes.int64)
 
         indices = array_ops.tile(sp_tensor.indices, [num, 1])
         row_indices, col_indices = array_ops.unstack(indices, num=2, axis=-1)
 
         # fix row indices
         num_values = array_ops.shape(sp_tensor.values, out_type=dtypes.int64)[0]
-        batch_size = sp_tensor.dense_shape[0]
-        dim = sp_tensor.dense_shape[-1]
+        batch_size = array_ops.shape(sp_tensor, out_type=dtypes.int64)[0]
 
-        max_index = num * batch_size
-        offset = math_ops.range(start=0, limit=max_index, delta=batch_size, dtype=dtypes.int64)
+        # this is preferable to using dense shape directly because we need the num cols to be known
+        dim = sp_tensor.get_shape().as_list()[-1]
+
+        offset = math_ops.range(start=0, limit=num * batch_size, delta=batch_size, dtype=dtypes.int64)
 
         row_offset = repeat(x=offset, n=num_values)
         row_indices = row_indices + row_offset
+        indices = array_ops.stack([row_indices, col_indices], axis=-1)
 
-        return SparseTensor(indices=array_ops.stack([row_indices, col_indices], axis=-1),
-                            values=values,
-                            dense_shape=array_ops.stack([batch_size * num_values, dim]))
+        tile_batch_size = batch_size * num_values
+        tiled_dense_shape = array_ops.stack([tile_batch_size, dim], axis=0)
+        sp_tilled = SparseTensor(indices=indices,
+                                 values=values,
+                                 dense_shape=tiled_dense_shape)
+
+        return sp_tilled
 
 
 def enum_each(enum_sizes, name="repeat_each"):
@@ -233,7 +241,7 @@ def pairs(tensor1, tensor2, name="pairs"):
         return result
 
 
-def column_indices_to_matrix_indices(tensor, name="batch_to_matrix", dtype=dtypes.int64):
+def column_indices_to_matrix_indices(tensor, dtype=dtypes.int64, name="batch_to_matrix"):
     """ Converts batches of column indices to batches of [row,column] indices
 
     For a given batch of indices of shape [n,m] or [b,n,m] this op outputs a 2-D ``Tensor``
@@ -712,7 +720,9 @@ def sparse_indices(sp_values, name="sparse_indices"):
             [flat_indices] = array_ops.unstack(sp_values.indices, num=1, axis=-1)
         else:
             _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
-        return SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
+        sp_indices = SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
+
+        return sp_indices
 
 
 def to_sparse(tensor, name="to_sparse"):
@@ -811,7 +821,10 @@ def filter_nd(condition, params, name="filter_nd"):
 
 
 def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
-    """ gather_sparse.
+    """ gather_sparse
+
+    Warning:
+        very inefficient for obvious reasons.
 
     Performs gather on sparse tensors.
 
@@ -914,10 +927,11 @@ def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
         tensor1, tensor2 sorted according to the
 
     """
-    tensor1 = to_tensor_cast(tensor1)
-    tensor2 = to_tensor_cast(tensor2)
 
     with ops.name_scope(name, values=[tensor1, tensor2]):
+        tensor1 = to_tensor_cast(tensor1)
+        tensor2 = to_tensor_cast(tensor2)
+
         sorted_tensor1, sorted_tensor1_indices = nn.top_k(tensor1, k=array_ops.shape(tensor1)[-1])
         if ascending:
             sorted_tensor1 = array_ops.reverse(sorted_tensor1, axis=[-1])

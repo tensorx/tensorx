@@ -2,7 +2,7 @@
 import unittest
 
 import tensorflow as tf
-
+from tensorx import test_utils
 from tensorx import random as random
 from tensorx import transform
 import numpy as np
@@ -11,33 +11,27 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-class TestRandom(unittest.TestCase):
-    # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
-    def setUp(self):
-        self.ss = tf.InteractiveSession()
-
-    def tearDown(self):
-        self.ss.close()
+class TestRandom(test_utils.TestCase):
 
     def test_sample(self):
         range_max = 10
         num_sampled = 2
         batch_size = 2
-
         samples = random.sample(range_max, num_sampled, unique=True)
-
         y, _ = tf.unique(samples)
-        unique_set = y.eval()
-        self.assertEqual(len(unique_set), num_sampled)
 
         samples = random.sample(range_max, num_sampled, batch_size, unique=True)
-        for i in range(batch_size):
-            y, _ = tf.unique(tf.squeeze(tf.gather(samples, [i])))
-            unique_set = y.eval()
+
+        with self.cached_session(use_gpu=True):
+            unique_set = self.eval(y)
             self.assertEqual(len(unique_set), num_sampled)
 
-    def test_dynamic_sample(self):
+            for i in range(batch_size):
+                y, _ = tf.unique(tf.squeeze(tf.gather(samples, [i])))
+                unique_set = self.eval(y)
+                self.assertEqual(len(unique_set), num_sampled)
 
+    def test_dynamic_sample(self):
         shape = [1]
         input_ph = tf.placeholder(tf.int32, shape=shape)
 
@@ -46,51 +40,44 @@ class TestRandom(unittest.TestCase):
         with self.assertRaises(ValueError):
             random.sample(range_max=10, num_sampled=input_ph, unique=True)
 
-        # THIS SUCCEEDS
         samples = random.sample(range_max=10, num_sampled=1, unique=True)
-        np.testing.assert_array_equal(tf.shape(samples).eval(), shape)
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(tf.shape(samples), shape)
 
     def test_sample_range_max(self):
         range_max = 10
         num_sampled = 11
+        sample = random.sample(range_max, num_sampled=num_sampled, unique=False)
 
-        try:
-            sample = random.sample(range_max, num_sampled, unique=True)
-            sample.eval()
-        except:
-            pass
-
-        try:
-            sample = random.sample(range_max, num_sampled, unique=False)
-            sample.eval()
-        except Exception:
-            self.fail("should have not raised an exception since the number of samples > range_max but unique == False")
+        with self.cached_session(use_gpu=True):
+            result = self.eval(sample)
+            self.assertEqual(len(result), num_sampled)
 
     def test_salt_pepper_noise(self):
         batch_size = 8
         dim = 12
         noise_amount = 0.5
 
-        noise_tensor = random.salt_pepper_noise(batch_size, dim, density=noise_amount, salt_value=1, pepper_value=0,
-                                                dtype=tf.float32)
-        sum_tensor = tf.sparse_reduce_sum(noise_tensor)
-        max_tensor = tf.sparse_reduce_max(noise_tensor)
+        noise_positive = random.salt_pepper_noise(batch_size, dim,
+                                                  density=noise_amount,
+                                                  salt_value=1,
+                                                  pepper_value=0,
+                                                  dtype=tf.float32)
 
-        self.assertEqual(sum_tensor.eval(), int(dim * noise_amount) // 2 * batch_size)
-        self.assertEqual(max_tensor.eval(), 1)
-        # self.assertEqual(min_tensor,0)
+        sum_tensor = tf.sparse_reduce_sum(noise_positive)
+        max_tensor = tf.sparse_reduce_max(noise_positive)
 
-        # use negative pepper
-        noise_tensor = random.salt_pepper_noise(batch_size, dim, density=noise_amount, salt_value=1, pepper_value=-1,
-                                                dtype=tf.float32)
-        sum_tensor = tf.sparse_reduce_sum(noise_tensor)
-        self.assertEqual(sum_tensor.eval(), 0)
+        noise_symmetric = random.salt_pepper_noise(batch_size, dim,
+                                                   density=noise_amount,
+                                                   salt_value=1,
+                                                   pepper_value=-1,
+                                                   dtype=tf.float32)
+        sum_symmetric = tf.sparse_reduce_sum(noise_symmetric)
 
-        dim = 10
-        noise_tensor = random.salt_pepper_noise(batch_size, dim, density=noise_amount, salt_value=1, pepper_value=-1,
-                                                dtype=tf.float32)
-        sum_tensor = tf.sparse_reduce_sum(noise_tensor)
-        self.assertEqual(sum_tensor.eval(), 0)
+        with self.cached_session(use_gpu=True):
+            self.assertEqual(sum_tensor, int(dim * noise_amount) // 2 * batch_size)
+            self.assertEqual(max_tensor, 1)
+            self.assertEqual(sum_symmetric, 0)
 
     def test_sparse_random_normal(self):
         batch_size = 1000
@@ -98,20 +85,19 @@ class TestRandom(unittest.TestCase):
         density = 0.1
 
         sp_random = random.sparse_random_normal(dense_shape=[batch_size, dim], density=density)
-        result = sp_random.eval()
 
-        self.assertEqual(len(result.indices), int(density * dim) * batch_size)
-        self.assertAlmostEqual(np.mean(result.values), 0, places=1)
+        with self.cached_session(use_gpu=True):
+            self.assertEqual(tf.shape(sp_random.indices)[0], int(density * dim) * batch_size)
+            self.assertAlmostEqual(tf.reduce_mean(sp_random.values, axis=-1), 0, places=1)
 
     def test_random_bernoulli(self):
         n = 20
         batch_size = 1000
         prob = 0.5
-
         binary = random.random_bernoulli(shape=[batch_size, n], prob=prob)
 
-        mean_val = np.mean(np.mean(binary.eval(), axis=-1))
-        self.assertAlmostEqual(mean_val, prob, 1)
+        with self.cached_session(use_gpu=True):
+            self.assertAlmostEqual(tf.reduce_mean(tf.reduce_mean(binary, -1)), prob, 1)
 
     def test_sparse_random_mask(self):
         batch_size = 2
@@ -119,45 +105,45 @@ class TestRandom(unittest.TestCase):
         density = 0.3
         mask_values = [1, -1]
 
-        sp_mask = random.sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=False)
+        sp_mask = random.sparse_random_mask(dim=dim,
+                                            batch_size=batch_size,
+                                            density=density,
+                                            mask_values=mask_values,
+                                            symmetrical=False)
         dense_mask = tf.sparse_tensor_to_dense(sp_mask)
-        dense_result = dense_mask.eval()
-        self.assertNotEqual(np.sum(dense_result), 0.0)
+
+        sp_symmetrical_mask = random.sparse_random_mask(dim=dim,
+                                                        batch_size=batch_size,
+                                                        density=density,
+                                                        mask_values=mask_values,
+                                                        symmetrical=True)
+        dense_symmetrical_mask = tf.sparse_tensor_to_dense(sp_symmetrical_mask)
 
         density = 0.5
         mask_values = [1, -1, 2, -2]
-        sp_mask = random.sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=False)
-        dense_mask = tf.sparse_tensor_to_dense(sp_mask)
-        dense_result = dense_mask.eval()
-        self.assertNotEqual(np.sum(dense_result), 0.0)
+        sp_mask = random.sparse_random_mask(dim=dim,
+                                            batch_size=batch_size,
+                                            density=density,
+                                            mask_values=mask_values,
+                                            symmetrical=False)
+        dense_mask_multiple_values = tf.sparse_tensor_to_dense(sp_mask)
 
-        density = 0.5
-        mask_values = [1, -1]
-        sp_mask = random.sparse_random_mask(dim, batch_size, density, mask_values, symmetrical=True)
-        dense_mask = tf.sparse_tensor_to_dense(sp_mask)
-        dense_result = dense_mask.eval()
-        self.assertEqual(np.sum(dense_result), 0.0)
+        with self.cached_session(use_gpu=True):
+            self.assertNotEqual(tf.reduce_sum(dense_mask), 0.0)
+            self.assertNotEqual(tf.reduce_sum(dense_mask_multiple_values), 0.0)
+            self.assertEqual(tf.reduce_sum(dense_symmetrical_mask), 0.0)
 
     def test_sample_sigmoid(self):
-        shape = [4]
-        n_samples = 2
-        v = np.random.uniform(size=shape)
-        v = tf.nn.sigmoid(v)
-
-        # sample = random.sample_sigmoid_from_logits(v, n_samples)
-
         shape = [2, 4]
         n_samples = 2
         v = np.random.uniform(size=shape)
         v = tf.nn.sigmoid(v)
 
         sample = random.sample_sigmoid_from_logits(v, n_samples)
-        sample_val = sample.eval()
 
-        sp_sample = transform.to_sparse(sample_val)
-        dense_sample = tf.sparse_tensor_to_dense(sp_sample)
-        self.assertTrue(np.array_equal(sample_val, dense_sample.eval()))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(tf.shape(sample), [n_samples] + shape)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    test_utils.main()

@@ -12,7 +12,7 @@ from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensor
 from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot, dot
 from tensorx.utils import to_tensor_cast
 
-import tensorx.transform as transf
+import tensorx.transform as txf
 
 from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
 
@@ -271,7 +271,7 @@ def torus_l1_distance(point, shape):
         max_x = shape[0]
         max_y = shape[1]
 
-        xys = transf.grid(shape)
+        xys = txf.grid(shape)
         xys = math_ops.cast(xys, dtypes.float32)
 
         xs, ys = array_ops.unstack(xys, num=2, axis=-1)

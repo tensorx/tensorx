@@ -1,295 +1,283 @@
-"""Tests for tensor transformations module"""
-import unittest
+""" Tests for TensorX transform module
+"""
+from tensorx import transform, test_utils
+from tensorflow.python.framework.sparse_tensor import *
+from tensorflow.python.ops.sparse_ops import sparse_tensor_to_dense
+from tensorflow.python.ops import array_ops, math_ops
+from tensorflow.python.framework import dtypes
 import os
-
-import tensorflow as tf
 import numpy as np
-
-from tensorflow.python.ops import linalg_ops
-from tensorflow.python.client import timeline
-
-import tensorx.transform as transform
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-class TestTransform(unittest.TestCase):
-    # setup and close TensorFlow sessions before and after the tests (so we can use tensor.eval())
-    def setUp(self):
-        self.ss = tf.InteractiveSession()
-
-    def tearDown(self):
-        self.ss.close()
-
+class TestTransform(test_utils.TestCase):
     def test_sparse_tile(self):
         n = 4
-        sp = tf.SparseTensorValue([[0, 0], [0, 1], [1, 2], [2, 3]], [1, 1, 2, 3], [3, 10])
+        sp = SparseTensorValue([[0, 0], [0, 1], [1, 2], [2, 3]], [1, 1, 2, 3], [3, 10])
         tilled_sp = transform.sparse_tile(sp, n)
 
-        shape = tf.shape(tilled_sp).eval()
-        self.assertEqual(shape[0], sp.dense_shape[0] * n)
-        self.assertEqual(shape[-1], sp.dense_shape[-1])
+        with self.cached_session(use_gpu=True):
+            shape = self.eval(array_ops.shape(tilled_sp))
+            self.assertEqual(shape[0], sp.dense_shape[0] * n)
+            self.assertEqual(shape[-1], sp.dense_shape[-1])
 
     def test_repeat(self):
         n = 23
-        x = np.array([[1, 2], [3, 4]])
+        x = array_ops.constant([[1, 2], [3, 4]])
+        r = transform.repeat(x, n)
+        dim_r = array_ops.shape(r)[-1]
+        dim_x = array_ops.shape(x)[-1]
+
+        with self.cached_session(use_gpu=True):
+            dr, dx = self.eval([dim_r, dim_x])
+            self.assertEqual(dr, dx * n)
+
+        x = array_ops.constant([[[1], [2]], [[3], [4]]])
         r = transform.repeat(x, n)
 
-        shape = tf.shape(r).eval()
+        dim_r = array_ops.shape(r)[-1]
+        dim_x = array_ops.shape(x)[-1]
 
-        self.assertEqual(shape[-1], np.shape(x)[-1] * n)
-
-        x = [[[1], [2]], [[3], [4]]]
-        r = transform.repeat(x, n)
-
-        shape = tf.shape(r).eval()
-
-        self.assertEqual(shape[-1], np.shape(x)[-1] * n)
+        with self.cached_session(use_gpu=True):
+            dr, dx = self.eval([dim_r, dim_x])
+            self.assertEqual(dr, dx * n)
 
     def test_dropout(self):
         n = 10000
         b = 10
-        x = np.ones([b, n])
+        x = array_ops.ones([b, n])
         keep_prob = 0.5
 
         drop_x = transform.dropout(x, keep_prob=keep_prob, scale=True)
-        expected_avg = np.mean(x)
 
-        self.assertTrue(np.allclose(np.mean(drop_x.eval()), expected_avg, atol=1e-2))
+        actual_avg = math_ops.reduce_mean(drop_x)
+        expected_avg = math_ops.mean(x, axis=-1)
+
+        with self.cached_session(use_gpu=True):
+            self.assertAllClose(actual=actual_avg,
+                                desired=expected_avg,
+                                atol=1e-2)
+
+    def test_dropout_unscaled(self):
+        n = 10000
+        b = 10
+        x = array_ops.ones([b, n])
+        keep_prob = 0.5
 
         drop_x = transform.dropout(x, keep_prob=keep_prob, scale=False)
-        expected_avg = np.mean(x) * keep_prob
 
-        self.assertTrue(np.allclose(np.mean(drop_x.eval()), expected_avg, atol=1e-2))
+        actual_avg = math_ops.reduce_mean(drop_x)
+        expected_avg = math_ops.mean(x, axis=-1) * keep_prob
+
+        with self.cached_session(use_gpu=True):
+            self.assertAllClose(actual=actual_avg,
+                                desired=expected_avg,
+                                atol=1e-1)
 
     def test_empty_sparse_tensor(self):
         dense_shape = [2, 2]
         empty = transform.empty_sparse_tensor(dense_shape)
-        dense_empty = tf.sparse_tensor_to_dense(empty)
-        zeros = tf.zeros(dense_shape)
-        np.testing.assert_array_equal(dense_empty.eval(), np.zeros(dense_shape))
-        np.testing.assert_array_equal(zeros.eval(), dense_empty.eval())
+        dense_empty = sparse_tensor_to_dense(empty)
+        zeros = array_ops.zeros(dense_shape)
+        all_zero = math_ops.reduce_all(math_ops.equal(zeros, dense_empty))
 
-        dense_shape = [4]
-        empty = transform.empty_sparse_tensor(dense_shape)
-        dense_empty = tf.sparse_tensor_to_dense(empty)
-        zeros = tf.zeros(dense_shape)
-        np.testing.assert_array_equal(dense_empty.eval(), np.zeros(dense_shape))
-        self.assertTrue(tf.reduce_all(tf.equal(zeros, dense_empty)).eval())
+        with self.cached_session(use_gpu=True):
+            self.assertTrue(self.eval(all_zero))
 
     def test_pairs(self):
         tensor1 = [[0], [1]]
         tensor2 = [1, 2]
         expected = [[0, 1], [1, 1], [0, 2], [1, 2]]
-
         result = transform.pairs(tensor1, tensor2)
-        np.testing.assert_array_equal(expected, result.eval())
+
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(result, expected)
 
     def test_batch_to_matrix_indices(self):
         data = [[0, 1, 3], [1, 2, 3]]
-        const_data = tf.constant(data)
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
+        const_data = array_ops.constant(data)
+        ph = array_ops.placeholder(dtype=dtypes.int64, shape=[2, 3])
+        ph_dy_batch = array_ops.placeholder(dtype=dtypes.int64, shape=[None, 3])
         expected = [[0, 0], [0, 1], [0, 3], [1, 1], [1, 2], [1, 3]]
 
-        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
-        result = result.eval()
-        np.testing.assert_array_equal(expected, result)
+        const_indices = transform.column_indices_to_matrix_indices(const_data, dtypes.int64)
+        ph_indices = transform.column_indices_to_matrix_indices(ph, dtypes.int64)
+        ph_dy_batch_indices = transform.column_indices_to_matrix_indices(ph_dy_batch, dtypes.int64)
 
-        result = transform.column_indices_to_matrix_indices(ph, dtype=tf.int64)
-        result = result.eval({ph: data})
-
-        np.testing.assert_array_equal(expected, result)
-
-        ph = tf.placeholder(dtype=tf.int64, shape=[None, 3])
-        result = transform.column_indices_to_matrix_indices(ph, dtype=tf.int64)
-        result = result.eval({ph: data})
-        np.testing.assert_array_equal(expected, result)
-
-    def test_batch_to_matrix_indices_2d(self):
-        data = [[1, 2], [3, 4]]
-        const_data = tf.constant(data)
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
-        expected = [[0, 1], [1, 2]]
-
-        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
+        with self.cached_session(use_gpu=True):
+            ph_indices = self.eval(ph_indices, {ph: data})
+            ph_dy_batch_indices = self.eval(ph_dy_batch_indices, {ph_dy_batch: data})
+            self.assertArrayEqual(const_indices, expected)
+            self.assertArrayEqual(ph_indices, expected)
+            self.assertArrayEqual(ph_dy_batch_indices, expected)
 
     def test_batch_to_matrix_indices_3d(self):
-        data = [[[1], [2]], [[3], [4]]]
-        const_data = tf.constant(data)
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
-        expected = [[[0, 1], [1, 2]], [[0, 3], [1, 4]]]
+        data1 = array_ops.constant([[[1], [2]], [[3], [4]]])
+        data2 = array_ops.constant([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
 
-        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
+        expected1 = [[[0, 1], [1, 2]], [[0, 3], [1, 4]]]
+        expected2 = [[[0, 1], [0, 2], [1, 3], [1, 4]], [[0, 5], [0, 6], [1, 7], [1, 8]]]
 
-        data = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
-        const_data = tf.constant(data)
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
-        expected = [[[0, 1], [0, 2], [1, 3], [1, 4]], [[0, 5], [0, 6], [1, 7], [1, 8]]]
+        indices1 = transform.column_indices_to_matrix_indices(data1, dtypes.int64)
+        indices2 = transform.column_indices_to_matrix_indices(data2, dtypes.int64)
 
-        result = transform.column_indices_to_matrix_indices(const_data, dtype=tf.int64)
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(indices1, expected1)
+            self.assertArrayEqual(indices2, expected2)
 
     def test_sparse_put(self):
-        tensor = tf.SparseTensor([[0, 0], [1, 0]], [2, 0.2], [2, 2])
-        sp_values = tf.SparseTensor([[0, 0], [0, 1]], [3.0, 0], [2, 2])
-
-        expected = tf.constant([[3., 0], [0.2, 0.]])
+        tensor = SparseTensor([[0, 0], [1, 0]], [2, 0.2], [2, 2])
+        sp_values = SparseTensor([[0, 0], [0, 1]], [3.0, 0], [2, 2])
+        expected = array_ops.constant([[3., 0], [0.2, 0.]])
 
         result = transform.sparse_put(tensor, sp_values)
-        result = tf.sparse_tensor_to_dense(result)
+        result = sparse_tensor_to_dense(result)
 
-        np.testing.assert_array_equal(expected.eval(), result.eval())
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(result, expected)
 
     def test_dense_put(self):
-        tensor = tf.ones([2, 2], dtype=tf.int32)
-        expected = tf.constant([[3, 1], [1, 1]])
+        x = array_ops.ones([2, 2], dtypes.int32)
+        expected = array_ops.constant([[3, 1], [1, 1]])
 
-        sp_values = tf.SparseTensor(indices=[[0, 0]], values=[3], dense_shape=[2, 2])
-        result = transform.dense_put(tensor, sp_values)
+        sp_values = SparseTensor(indices=[[0, 0]], values=[3], dense_shape=[2, 2])
+        result = transform.dense_put(x, sp_values)
 
-        np.testing.assert_array_equal(expected.eval(), result.eval())
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(result, expected)
 
-        # updates are cast to the given tensor type
-        # 0 as update should also work since sparse tensors have a set of indices used to
-        # make the updated indices explicit
-        tensor = tf.ones([2, 2], dtype=tf.int32)
-        expected = tf.constant([[0, 1], [1, 1]])
-        sp_values = tf.SparseTensor(indices=[[0, 0]], values=tf.constant([0], dtype=tf.float32), dense_shape=[2, 2])
+    def test_dense_put_zero(self):
+        x = array_ops.ones([2, 2], dtypes.int32)
+        expected = array_ops.constant([[0, 1], [1, 1]])
+        sp_values = SparseTensor(indices=[[0, 0]], values=[0.], dense_shape=[2, 2])
+        result = transform.dense_put(x, sp_values)
 
-        result = transform.dense_put(tensor, sp_values)
-        np.testing.assert_array_equal(expected.eval(), result.eval())
-
-        # test with unknown input batch dimension
-        ph = tf.placeholder(dtype=tf.int32, shape=[None, 2])
-        data = np.ones([2, 2])
-
-        sp_values = tf.SparseTensor(indices=[[0, 0]], values=[0], dense_shape=[2, 2])
-        result = transform.dense_put(ph, sp_values)
-        np.testing.assert_array_equal(expected.eval(), result.eval({ph: data}))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(result, expected)
 
     def test_fill_sp_ones(self):
         indices = [[0, 0], [1, 0]]
         dense_shape = [2, 2]
-        expected = tf.SparseTensorValue(indices=indices, values=[1, 1], dense_shape=dense_shape)
+        expected = SparseTensorValue(indices=indices, values=[1, 1], dense_shape=dense_shape)
 
-        fill = transform.sparse_ones(indices, dense_shape, dtype=tf.float32)
+        fill = transform.sparse_ones(indices, dense_shape, dtypes.float32)
+        fill_dense = sparse_tensor_to_dense(fill)
+        expected_dense = sparse_tensor_to_dense(expected)
+        expected_dense = math_ops.cast(expected_dense, dtypes.float32)
 
-        fill_dense = tf.sparse_tensor_to_dense(fill)
-        expected_dense = tf.sparse_tensor_to_dense(expected)
-        expected_dense = tf.cast(expected_dense, tf.float32)
-
-        np.testing.assert_array_equal(fill_dense.eval(), expected_dense.eval())
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(fill_dense, expected_dense)
 
     def test_to_sparse(self):
         c = [[1, 0], [2, 3]]
 
         sparse_tensor = transform.to_sparse(c)
 
-        dense_shape = tf.shape(c, out_type=tf.int64)
-        indices = tf.where(tf.not_equal(c, 0))
+        dense_shape = array_ops.shape(c, out_type=dtypes.int64)
+        indices = array_ops.where(math_ops.not_equal(c, 0))
 
-        flat_values = tf.reshape(c, [-1])
-        flat_indices = tf.where(tf.not_equal(flat_values, 0))
-        flat_indices = tf.squeeze(flat_indices)
-        flat_indices = tf.mod(flat_indices, dense_shape[1])
+        flat_values = array_ops.reshape(c, [-1])
+        flat_indices = array_ops.where(math_ops.not_equal(flat_values, 0))
+        flat_indices = array_ops.squeeze(flat_indices)
+        flat_indices = math_ops.mod(flat_indices, dense_shape[1])
 
-        values = tf.gather_nd(c, indices)
+        values = array_ops.gather_nd(c, indices)
 
         sp_indices = transform.sparse_indices(sparse_tensor)
-        np.testing.assert_array_equal(sparse_tensor.indices.eval(), indices.eval())
 
-        np.testing.assert_array_equal(sp_indices.values.eval(), flat_indices.eval())
-        np.testing.assert_array_equal(sparse_tensor.values.eval(), values.eval())
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(sparse_tensor.indices, indices)
+            self.assertArrayEqual(sp_indices.values, flat_indices)
+            self.assertArrayEqual(sparse_tensor.values, values)
 
     def test_to_sparse_zero(self):
         shape = [2, 3]
-        data_zero = np.zeros(shape)
+        data_zero = array_ops.zeros(shape)
         sparse_tensor = transform.to_sparse(data_zero)
+        dense = sparse_tensor_to_dense(sparse_tensor)
+        num_indices = array_ops.shape(sparse_tensor.indices)[0]
 
-        self.assertEqual(sparse_tensor.eval().indices.shape[0], 0)
+        with self.cached_session(use_gpu=True):
+            self.assertEqual(num_indices, 0)
+            self.assertArrayEqual(dense, data_zero)
 
-        dense = tf.sparse_tensor_to_dense(sparse_tensor)
-        np.testing.assert_array_equal(dense.eval(), np.zeros(shape))
-
-    def test_profile_one_hot_conversions(self):
-        ph = tf.placeholder(dtype=tf.int64, shape=[2, 3])
-        data = [[0, 1, 3],
-                [1, 2, 3]]
-
-        dense_shape = [2, 4]
-
+    def test_one_hot_conversions(self):
+        x = array_ops.constant([[0, 1, 3],
+                                [1, 2, 3]])
+        num_cols = 4
         expected_dense = [[1, 1, 0, 1],
                           [0, 1, 1, 1]]
 
-        sp_one_hot = transform.sparse_one_hot(ph, dense_shape[1])
-        dense_one_hot = transform.dense_one_hot(ph, dense_shape[1])
+        sp_one_hot = transform.sparse_one_hot(x, num_cols)
+        dense1 = sparse_tensor_to_dense(sp_one_hot)
+        dense2 = transform.dense_one_hot(x, num_cols)
 
-        dense1 = self.ss.run(tf.sparse_tensor_to_dense(sp_one_hot), feed_dict={ph: data})
-        dense2 = self.ss.run(dense_one_hot, feed_dict={ph: data})
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(dense1, expected_dense)
+            self.assertArrayEqual(dense1, dense2)
 
-        np.testing.assert_array_equal(dense1, expected_dense)
-        np.testing.assert_array_equal(dense1, dense2)
+    def test_grid(self):
+        shape_1d = [4]
+        shape_2d = [4, 4]
+        xs = transform.grid(shape_1d)
+        xys = transform.grid(shape_2d)
+        shape_xys = array_ops.shape(xys)
 
-    def test_indices(self):
-        shape = [4]
-        xs = transform.grid(shape)
-        self.assertTrue(np.ndim(xs.eval()), 1)
-        self.assertTrue(np.array_equal(tf.shape(xs).eval(), [4, 1]))
+        with self.cached_session(use_gpu=False):
+            self.assertEqual(array_ops.rank(xs), 2)
+            self.assertEqual(array_ops.rank(xys), 2)
 
-        shape = [4, 4]
-        xys = transform.grid(shape)
-        self.assertTrue(np.ndim(xys.eval()), 2)
-        self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
-
-        shape = [1, 4]
-        xys = transform.grid(shape)
-        self.assertTrue(np.ndim(xys.eval()), 2)
-        self.assertTrue(np.array_equal(tf.shape(xys).eval(), [shape[0] * shape[1], 2]))
+            self.assertArrayEqual(shape_xys, [shape_2d[0] * shape_2d[1], 2])
 
     def test_sparse_overlapping(self):
-        tensor1 = tf.SparseTensor([[1, 0]], [1], [2, 3])
-        tensor2 = tf.SparseTensor([[0, 0], [1, 0], [1, 1]], [3, 4, 5], [2, 3])
+        tensor1 = SparseTensor([[1, 0]], [1], [2, 3])
+        tensor2 = SparseTensor([[0, 0], [1, 0], [1, 1]], [3, 4, 5], [2, 3])
+        tensor3 = SparseTensor([[0, 1], [1, 1]], [3, 4], [2, 3])
 
-        overlap = transform.sparse_overlap(tensor1, tensor2)
-        expected_overlap_value = [1]
-        self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
+        overlap12 = transform.sparse_overlap(tensor1, tensor2)
+        overlap21 = transform.sparse_overlap(tensor2, tensor1)
+        overlap23 = transform.sparse_overlap(tensor2, tensor3)
+        no_overlap = transform.sparse_overlap(tensor1, tensor3)
+        expected_overlap = [1]
+        expected_overlap23 = [5]
+        expected_no_overlap = []
 
-        overlap2 = transform.sparse_overlap(tensor2, tensor1)
-        self.assertTrue(np.array_equal(overlap.indices.eval(), overlap2.indices.eval()))
-
-        # sparse overlapping with no overlapping
-        tensor3 = tf.SparseTensor([[0, 1], [1, 1]], [3, 4], [2, 3])
-        overlap = transform.sparse_overlap(tensor1, tensor3)
-        expected_overlap_value = []
-        self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
-
-        overlap = transform.sparse_overlap(tensor2, tensor3)
-        expected_overlap_value = [5]
-        self.assertTrue(np.array_equal(expected_overlap_value, overlap.values.eval()))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(overlap12.values, expected_overlap)
+            self.assertArrayEqual(overlap21.indices, overlap12.indices)
+            # sparse overlapping with no overlapping
+            self.assertArrayEqual(no_overlap.values, expected_no_overlap)
+            self.assertArrayEqual(overlap23.values, expected_overlap23)
 
     def test_gather_sparse(self):
-        # with tf.name_scope("test_setup"):
-        n_runs = 10
-
-        v = np.array([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtype=np.float32)
+        v = array_ops.constant([[1, 0, 1], [0, 0, 2], [3, 0, 3]], dtypes.float32)
         sp = transform.to_sparse(v)
 
-        indices = np.array([[0, 1], [0, 0], [1, 2]], dtype=np.int64)
+        indices = np.array([[0, 1], [2, 0]], dtype=np.int64)
 
-        gather_sp_tx = transform.gather_sparse(sp, indices)
+        gather_sp = transform.gather_sparse(sp, indices)
+        gather = sparse_tensor_to_dense(gather_sp)
+        expected = [[1, 0, 1],
+                    [0, 0, 2],
+                    [3, 0, 3],
+                    [1, 0, 1]]
 
-        with tf.Session() as ss:
-            for i in range(n_runs):
-                ss.run(gather_sp_tx)
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(gather, expected)
 
     def test_sort_by_first(self):
-        v1 = [[3, 1], [2, 1]]
-        v2 = [[1, 2], [1, 2]]
+        v1 = array_ops.constant([[3, 1], [2, 1]])
+        sorted1 = [[1, 3], [1, 2]]
+        v2 = array_ops.constant([[1, 2], [1, 2]])
+        sorted2 = [[2, 1], [2, 1]]
 
         s1, s2 = transform.sort_by_first(v1, v2, ascending=True)
 
-        self.assertTrue(np.array_equal(s1.eval(), [[1, 3], [1, 2]]))
-        self.assertTrue(np.array_equal(s2.eval(), [[2, 1], [2, 1]]))
+        with self.cached_session(use_gpu=True):
+            self.assertArrayEqual(s1, sorted1)
+            self.assertArrayEqual(s2, sorted2)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    test_utils.main()
