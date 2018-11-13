@@ -133,6 +133,8 @@ def sparse_tile(sp_tensor, num, name="sparse_tile"):
 
         # this is preferable to using dense shape directly because we need the num cols to be known
         dim = sp_tensor.get_shape().as_list()[-1]
+        if dim is None:
+            raise ValueError("Could not determine the last dimension of input sp_tensor")
 
         offset = math_ops.range(start=0, limit=num * batch_size, delta=batch_size, dtype=dtypes.int64)
 
@@ -140,7 +142,7 @@ def sparse_tile(sp_tensor, num, name="sparse_tile"):
         row_indices = row_indices + row_offset
         indices = array_ops.stack([row_indices, col_indices], axis=-1)
 
-        tile_batch_size = batch_size * num_values
+        tile_batch_size = batch_size * num
         tiled_dense_shape = array_ops.stack([tile_batch_size, dim], axis=0)
         sp_tilled = SparseTensor(indices=indices,
                                  values=values,
@@ -205,7 +207,7 @@ def grid(shape, name="grid"):
             ys = array_ops.tile(ys, [max_x])
             ys = array_ops.reshape(ys, shape)
 
-            xys = column_indices_to_matrix_indices(ys)
+            xys = to_matrix_indices_2d(ys)
             return xys
         else:
             raise ValueError("Invalid shape: shape should have len 1 or 2")
@@ -241,7 +243,45 @@ def pairs(tensor1, tensor2, name="pairs"):
         return result
 
 
-def column_indices_to_matrix_indices(tensor, dtype=dtypes.int64, name="batch_to_matrix"):
+def to_matrix_indices_2d(index_tensor, dtype=dtypes.int64, sort_indices=True, name="matrix_indices"):
+    """ converts a batch of column indices to 2d matrix indices, if the indices are out of order
+    it and sorted is True, returns a batch of sorted matrix indices
+
+    Args:
+        index_tensor: a tensor with shape [b,n] with a batch of n column indices
+        dtype: the out dtype for the indices
+        sort_indices: if true sorts the indices on each row
+        name: name for this op
+
+    Returns:
+         ``Tensor``: a tensor with (row,column) for each index in the input tensor.
+
+    """
+    with ops.name_scope(name=name, values=[index_tensor]):
+        index_tensor = to_tensor_cast(index_tensor, dtype)
+
+        shape = array_ops.shape(index_tensor, out_type=dtype)
+        row_indices = math_ops.range(0, shape[0])
+        row_indices = repeat(row_indices, shape[1])
+
+        # sort ascending
+        if sort_indices:
+            sorted_indices, _ = nn.top_k(math_ops.cast(index_tensor, dtypes.int32),
+                                         k=math_ops.cast(shape[1], dtypes.int32))
+            sorted_indices = array_ops.reverse(sorted_indices, axis=[-1])
+            col_indices = sorted_indices
+        else:
+            col_indices = index_tensor
+
+        col_indices = array_ops.reshape(col_indices, [-1])
+        col_indices = math_ops.cast(col_indices, dtype)
+
+        indices = array_ops.stack([row_indices, col_indices], axis=-1)
+
+        return indices
+
+
+def to_matrix_indices(tensor, dtype=dtypes.int64, name="matrix_indices"):
     """ Converts batches of column indices to batches of [row,column] indices
 
     For a given batch of indices of shape [n,m] or [b,n,m] this op outputs a 2-D ``Tensor``
@@ -665,7 +705,7 @@ def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="sparse_
     """
     with ops.name_scope(name, values=[column_indices, num_cols]):
         column_indices = to_tensor_cast(column_indices, dtypes.int64)
-        matrix_indices = column_indices_to_matrix_indices(column_indices, dtype=dtypes.int64)
+        matrix_indices = to_matrix_indices_2d(column_indices, dtype=dtypes.int64)
 
         dense_shape = math_ops.cast([array_ops.shape(column_indices)[0], num_cols], dtype=dtypes.int64)
 
@@ -936,7 +976,7 @@ def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
         if ascending:
             sorted_tensor1 = array_ops.reverse(sorted_tensor1, axis=[-1])
             sorted_tensor1_indices = array_ops.reverse(sorted_tensor1_indices, axis=[-1])
-        sorted_tensor1_indices = column_indices_to_matrix_indices(sorted_tensor1_indices)
+        sorted_tensor1_indices = to_matrix_indices_2d(sorted_tensor1_indices,sort_indices=False)
 
         sorted_values = array_ops.gather_nd(tensor2, sorted_tensor1_indices)
         sorted_values = array_ops.reshape(sorted_values, array_ops.shape(tensor2))
@@ -948,7 +988,7 @@ __all__ = ["sparse_overlap",
            "empty_sparse_tensor",
            "to_sparse",
            "gather_sparse",
-           "column_indices_to_matrix_indices",
+           "to_matrix_indices",
            "dense_one_hot",
            "sparse_one_hot",
            "dense_put",
@@ -964,5 +1004,6 @@ __all__ = ["sparse_overlap",
            "repeat",
            "repeat_each",
            "sort_by_first",
-           "sparse_tile"
+           "sparse_tile",
+           "to_matrix_indices_2d"
            ]

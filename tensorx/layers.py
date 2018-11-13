@@ -7,20 +7,24 @@ import itertools
 from collections import deque
 
 from tensorflow.python.framework import ops, dtypes
+
 from tensorflow.python.framework.tensor_shape import TensorShape
 
 from tensorflow.python.framework.ops import Tensor, name_scope
 from tensorflow.python.ops import array_ops, check_ops, control_flow_ops, state_ops
 
-from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import math_ops, script_ops
 from tensorflow.python.ops import variables
+from tensorflow.python.ops import resource_variable_ops as res_variables
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.ops import variable_scope
+from tensorflow.python.ops import init_ops
+from tensorflow.python.framework.tensor_shape import TensorShape
 
 from tensorflow.python.ops.logging_ops import Print
 from tensorflow.python.ops import random_ops, sparse_ops, state_ops
 from tensorflow.python.ops.nn import bias_add, embedding_lookup, moments, convolution, batch_normalization
-from tensorflow.python.framework.sparse_tensor import SparseTensor
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.training import moving_averages
 
 from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
@@ -322,7 +326,7 @@ class Layer:
 
         Prevents the setting of tensor to anything other than Tensor or Sparse Tensor
         """
-        if not isinstance(tensor, (Tensor, SparseTensor)):
+        if not isinstance(tensor, (Tensor, SparseTensor, variables.Variable)):
             raise TypeError(
                 "tensor can only be set to Tensor or SparseTensor: {} found ".format(type(self.tensor)))
         self._tensor = tensor
@@ -383,8 +387,8 @@ class Layer:
                          wrap_fn=lambda tensor: tensor[item],
                          name="{}_{}".format(self.name, item))
 
-    def eval(self, *args, **kwargs):
-        return self.tensor.eval(*args, **kwargs)
+    def eval(self, feed_dict=None, session=None):
+        return self.tensor.eval(feed_dict=feed_dict, session=session)
 
 
 class WrapLayer(Layer):
@@ -472,6 +476,51 @@ class WrapLayer(Layer):
                          wrap_fn=self.wrap_fn,
                          attr_fwd=attr_fwd,
                          name=name)
+
+
+class VariableLayer(Layer):
+    """
+    Warning:
+        dynamic shape inference is broken by this layer if we use a resource variable. If we use a normal variable,
+        we can set the shape so that the graph knows that henceforth, the shape of the first dimension is undetermined.
+
+        If used with another layer (e.g. Linear) as a set of shared weights, this layer will have an unknown number of
+        output units.
+    """
+
+    def __init__(self, input_layer, trainable=False, resource=False, name="variable"):
+        name = name if name is not None else input_layer.name + "_variable"
+        n_units = input_layer.n_units
+        shape = input_layer.tensor.get_shape().as_list()
+        super().__init__(input_layer, n_units, shape=shape, dtype=input_layer.dtype, name=name)
+
+        self.trainable = trainable
+        self.resource = resource
+
+        with layer_scope(self):
+            # ResourceVariable doesn't have a set_shape
+            init_shape = [0] + self.shape[1:] if self.shape[0] is None else self.shape
+
+            self._variable = variable_scope.get_variable(self.name + "_var",
+                                                         shape=init_shape,
+                                                         dtype=self.dtype,
+                                                         trainable=trainable,
+                                                         validate_shape=False,
+                                                         initializer=zero_init(),
+                                                         use_resource=resource)
+
+            if not self.resource and self.shape[0] is None:
+                self._variable.set_shape(TensorShape(self.shape))
+
+            update_var = state_ops.assign(self._variable, input_layer.tensor, validate_shape=False)
+
+            self.tensor = update_var
+
+            self._add_variable(self._variable)
+
+    @property
+    def variable(self):
+        return self._variable
 
 
 class Module(Layer):
@@ -640,7 +689,7 @@ class Input(Layer):
     Creates a placeholder to receive tensors with a given shape and data type.
     """
 
-    def __init__(self, n_units, n_active=None, batch_size=None, dtype=dtypes.float32, name="input"):
+    def __init__(self, n_units, n_active=None, batch_size=None, value=None, dtype=dtypes.float32, name="input"):
         """
         if n_active is not None:
             when connected to a Linear layer, this is interpreted
@@ -665,12 +714,14 @@ class Input(Layer):
         shape = [batch_size, n_units]
         super().__init__(None, n_units, shape, dtype, name)
 
+        self.value = value
+
         with layer_scope(self):
             # if n_active is not None convert to SparseTensor
             if n_active is None:
                 self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
                 self.tensor = self.placeholder
-            else:
+            else:  # sparse
                 self.n_active = n_active
                 self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
                 self.tensor = transform.sparse_one_hot(self.placeholder, self.shape[1], dtype=self.dtype)
@@ -694,6 +745,59 @@ class Input(Layer):
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on Input Layer: Input has no input layers")
+
+    def eval(self, feed_dict=None, session=None):
+        if feed_dict is not None:
+            if self.placeholder not in feed_dict:
+                raise ValueError("feed dict does not contain the placeholder in this Input Layer")
+        elif self.value is not None:
+            feed_dict = {self.placeholder: self.value}
+        return self.tensor.eval(feed_dict, session)
+
+
+class SparseInput(Layer):
+    """ Sparse Input Layer.
+
+    Creates an op that depends on a `sparse_placeholder` to which one must feed a ``SparseTensorValue``.
+
+    Attributes:
+        placeholder: like all feedable layer, this has a placeholder attribute which one can (must) supply to feed_dict
+        tensor: as with all layers there's a tensor attribute, not necessarily equivalent to the placeholder one
+
+    Args:
+        n_units (int): the number of output units for this layer
+        batch_size (int): batch_size for the input, helps to define the shape for this sparse layer
+        dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
+        name: name for the layer
+
+
+    Notes:
+        ``SparseTensorValues`` can be created with empty values, but this layer will require the number of values
+        to be the same as the number of indices. If this is not the case, an ``InvalidArgumentError`` will be thrown
+        when the `TensorFlow` graph is evaluated.
+    """
+
+    def __init__(self, n_units, batch_size=None, dtype=dtypes.float32, value=None, name="sparse_input"):
+        shape = [batch_size, n_units]
+        super().__init__(None, n_units, shape, dtype, name)
+        self.value = value
+
+        with layer_scope(self):
+            self.placeholder = array_ops.sparse_placeholder(dtype, shape=self.shape, name=name)
+
+            dense_shape = array_ops.stack([self.placeholder.dense_shape[0], math_ops.cast(n_units, dtypes.int64)])
+            self.tensor = SparseTensor(self.placeholder.indices, self.placeholder.values, dense_shape)
+
+    def reuse_with(self, *layers, name=None):
+        raise AttributeError("Cannot call reuse_with on SparseInput Layer: SparseInput has no input layers")
+
+    def eval(self, feed_dict=None, session=None):
+        if feed_dict is not None:
+            if self.placeholder not in feed_dict:
+                raise ValueError("feed dict does not contain the placeholder in this Input Layer")
+        elif self.value is not None:
+            feed_dict = {self.placeholder: self.value}
+        return self.tensor.eval(feed_dict, session)
 
 
 class TensorLayer(Layer):
@@ -739,47 +843,6 @@ class TensorLayer(Layer):
         raise AttributeError("Cannot call reuse_with on TensorLayer Layer: TensorLayer has no input layers")
 
 
-class SparseInput(Layer):
-    """ Sparse Input Layer.
-
-    Creates an op that depends on a `sparse_placeholder` to which one must feed a ``SparseTensorValue``.
-
-    Attributes:
-        placeholder: like all feedable layer, this has a placeholder attribute which one can (must) supply to feed_dict
-        tensor: as with all layers there's a tensor attribute, not necessarily equivalent to the placeholder one
-
-    Args:
-        n_units (int): the number of output units for this layer
-        batch_size (int): batch_size for the input, helps to define the shape for this sparse layer
-        dtype: the output type for the values in the ``SparseTensor`` that this layer outputs
-        name: name for the layer
-
-
-    Notes:
-        ``SparseTensorValues`` can be created with empty values, but this layer will require the number of values
-        to be the same as the number of indices. If this is not the case, an ``InvalidArgumentError`` will be thrown
-        when the `TensorFlow` graph is evaluated.
-    """
-
-    def __init__(self, n_units, batch_size=None, dtype=dtypes.float32, name="sparse_input"):
-        shape = [batch_size, n_units]
-        super().__init__(None, n_units, shape, dtype, name)
-
-        with layer_scope(self):
-            self.placeholder = array_ops.sparse_placeholder(dtype, self.shape, name)
-            n_indices = array_ops.shape(self.placeholder.indices)[0]
-            n_values = array_ops.shape(self.placeholder.values)[0]
-
-            valid_values = check_ops.assert_equal(n_indices, n_values, message="Invalid number of values")
-            with ops.control_dependencies([valid_values]):
-                values = array_ops.identity(self.placeholder.values)
-
-            self.tensor = SparseTensor(self.placeholder.indices, values, self.placeholder.dense_shape)
-
-    def reuse_with(self, *layers, name=None):
-        raise AttributeError("Cannot call reuse_with on SparseInput Layer: SparseInput has no input layers")
-
-
 class Linear(Layer):
     """ Linear Layer.
 
@@ -822,7 +885,7 @@ class Linear(Layer):
                  dtype=dtypes.float32,
                  name="linear", share_vars_with=None):
 
-        self.shared_weights = shared_weights
+        self.shared_weights: variables.Variable = shared_weights
         self.weight_init = weight_init
         self.bias = bias
         self.share_vars_with = share_vars_with
@@ -845,7 +908,8 @@ class Linear(Layer):
 
         # if weights are passed, check that their shape matches the layer shape
         if self.shared_weights is not None:
-            weight_shape = self.shared_weights.get_shape()
+            weight_shape: TensorShape = self.shared_weights.get_shape()
+
             if self.transpose_weights:
                 if not TensorShape([layer.n_units]).is_compatible_with(TensorShape([weight_shape[-1]])):
                     raise ValueError(
@@ -909,7 +973,7 @@ class Linear(Layer):
                                          b_is_sparse=self.sparse_weights)
 
             # y = xW + [b]
-            if self.bias:
+            if self.bias and self.n_units is not None:
                 self.bias = variable_scope.get_variable("b",
                                                         shape=[self.n_units],
                                                         dtype=self.dtype,
@@ -2068,7 +2132,7 @@ class Lookup(Layer):
                 # similar to the semantics of 1D dense tensor lookups
                 if len(input_tensor.get_shape().as_list()) == 1:
                     sp_batch_size = array_ops.shape(input_tensor.values)[0]
-                    sp_indices = transform.column_indices_to_matrix_indices(input_tensor.indices)
+                    sp_indices = transform.to_matrix_indices_2d(input_tensor.indices)
                     sp_batch_dim = math_ops.cast(array_ops.stack([sp_batch_size, sp_dim]), dtypes.int64)
                     input_tensor = SparseTensor(sp_indices, input_tensor.values, sp_batch_dim)
 
@@ -2409,15 +2473,15 @@ class Dropout(Layer):
             if layer.is_sparse():
                 # if input is sparse, noise_shape is not used
                 tensor = transform.sparse_dropout(sp_tensor=layer.tensor,
-                                            keep_prob=self.keep_prob,
-                                            scale=scale,
-                                            seed=seed)
+                                                  keep_prob=self.keep_prob,
+                                                  scale=scale,
+                                                  seed=seed)
             else:
                 tensor = transform.dropout(tensor=layer.tensor,
-                                     noise_shape=self.noise_shape,
-                                     keep_prob=self.keep_prob,
-                                     scale=scale,
-                                     seed=seed)
+                                           noise_shape=self.noise_shape,
+                                           keep_prob=self.keep_prob,
+                                           scale=scale,
+                                           seed=seed)
 
         self.tensor = tensor
 
@@ -3247,6 +3311,21 @@ class BatchNorm(Layer):
                          name=name)
 
 
+# register Layer as Tensor
+
+def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
+    if dtype is not None:
+        return math_ops.cast(layer.tensor, dtype, name=name)
+    else:
+        return identity(layer.tensor, name=name)
+
+
+ops.register_tensor_conversion_function(
+    base_type=Layer,
+    conversion_func=layer_to_tensor,
+    priority=100
+)
+
 __all__ = ["Input",
            "FC",
            "RNNCell",
@@ -3283,5 +3362,6 @@ __all__ = ["Input",
            "Reshape",
            "Transpose",
            "BatchNorm",
-           "Conv2D"
+           "Conv2D",
+           "VariableLayer"
            ]

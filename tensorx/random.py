@@ -1,11 +1,27 @@
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import check_ops, array_ops, random_ops, math_ops, sparse_ops
+from tensorflow.python.ops.nn import top_k
 from tensorflow.python.framework import ops, tensor_util, tensor_shape
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.transform import column_indices_to_matrix_indices, empty_sparse_tensor
+from tensorx.transform import to_matrix_indices, empty_sparse_tensor
 from tensorx.math import logit
+
+
+def choice(range_max, num_samples, batch_size=None, dtype=dtypes.int64):
+    if batch_size is None:
+        shape = [range_max]
+    else:
+        shape = [batch_size, range_max]
+    u1 = random_ops.random_uniform(shape, minval=0, maxval=1)
+    u2 = random_ops.random_uniform(shape, minval=0, maxval=1)
+    gumbel = -math_ops.log(-math_ops.log(u1))
+    dist = u2 + gumbel
+    _, indices = top_k(dist, k=num_samples)
+    if indices.dtype != dtype:
+        indices = math_ops.cast(indices, dtype)
+    return indices
 
 
 def _shape_tensor(shape, dtype=dtypes.int32):
@@ -173,7 +189,7 @@ def sparse_random_normal(dense_shape, density=0.1, mean=0.0, stddev=1, dtype=dty
     else:
         flat_indices = sample(range_max=dense_shape[1], num_sampled=num_noise, batch_size=dense_shape[0], unique=True,
                               seed=seed)
-        indices = column_indices_to_matrix_indices(flat_indices, dtype=dtypes.int64)
+        indices = to_matrix_indices(flat_indices, dtype=dtypes.int64)
 
         value_shape = tensor_shape.as_shape([dense_shape[0] * num_noise])
 
@@ -248,61 +264,62 @@ def sparse_random_mask(dim, batch_size, density=0.5, mask_values=[1], symmetrica
     Returns:
         A sparse tensor representing a random mask
     """
-    dim = ops.convert_to_tensor(dim)
-    dim = tensor_util.constant_value(dim)
-    if dim is None:
-        raise ValueError("could not determine the constant value of dim")
+    with ops.name_scope("sparse_random_mask"):
+        dim = ops.convert_to_tensor(dim)
+        dim = tensor_util.constant_value(dim)
+        if dim is None:
+            raise ValueError("could not determine the constant value of dim")
 
-    # total number of corrupted indices
-    num_values = len(mask_values)
-    num_corrupted = int(density * dim)
-    num_mask_values = num_corrupted // num_values * num_values
+        # total number of corrupted indices
+        num_values = len(mask_values)
+        num_corrupted = int(density * dim)
+        num_mask_values = num_corrupted // num_values * num_values
 
-    if num_mask_values == 0:
-        batch_size = math_ops.cast(batch_size, dtypes.int64)
-        dense_shape = array_ops.stack([batch_size, dim], axis=0)
+        if num_mask_values == 0:
+            batch_size = math_ops.cast(batch_size, dtypes.int64)
+            dense_shape = array_ops.stack([batch_size, dim], axis=0)
 
-        zero_sparse_tensor = empty_sparse_tensor(dense_shape)
+            zero_sparse_tensor = empty_sparse_tensor(dense_shape)
 
-        return zero_sparse_tensor
-    else:
-        # num corrupted indices per value
-        if not symmetrical:
-            mask_values = random_ops.random_shuffle(mask_values, seed)
-            extra_corrupted = num_corrupted - num_mask_values
+            return zero_sparse_tensor
+        else:
+            # num corrupted indices per value
+            if not symmetrical:
+                mask_values = random_ops.random_shuffle(mask_values, seed)
+                extra_corrupted = num_corrupted - num_mask_values
 
-        if not symmetrical:
-            num_mask_values = num_corrupted
+            if not symmetrical:
+                num_mask_values = num_corrupted
 
-        samples = sample(dim, num_mask_values, batch_size=batch_size, unique=True, seed=seed)
-        indices = column_indices_to_matrix_indices(samples, dtype=dtypes.int64)
+            samples = sample(dim, num_mask_values, batch_size=batch_size, unique=True, seed=seed)
+            indices = to_matrix_indices(samples, dtype=dtypes.int64)
 
-        value_tensors = []
-        for i in range(num_values):
-            num_vi = num_mask_values // num_values
-            # spread the extra to be corrupted by n mask_values
-            if not symmetrical and i < extra_corrupted:
-                num_vi = num_vi + 1
-            vi_shape = math_ops.cast([batch_size, num_vi], dtypes.int32)
-            vi_tensor = array_ops.fill(vi_shape, mask_values[i])
-            value_tensors.append(vi_tensor)
+            value_tensors = []
+            for i in range(num_values):
+                num_vi = num_mask_values // num_values
+                # spread the extra to be corrupted by n mask_values
+                if not symmetrical and i < extra_corrupted:
+                    num_vi = num_vi + 1
+                vi_shape = math_ops.cast([batch_size, num_vi], dtypes.int32)
+                vi_tensor = array_ops.fill(vi_shape, mask_values[i])
+                value_tensors.append(vi_tensor)
 
-        values = array_ops.concat(value_tensors, axis=-1)
-        values = array_ops.reshape(values, [-1])
+            values = array_ops.concat(value_tensors, axis=-1)
+            values = array_ops.reshape(values, [-1])
 
-        if values.dtype != dtype:
-            values = math_ops.cast(values, dtype)
+            if values.dtype != dtype:
+                values = math_ops.cast(values, dtype)
 
-        batch_size = math_ops.cast(batch_size, dtypes.int64)
-        dense_shape = array_ops.stack([batch_size, dim], axis=0)
+            batch_size = math_ops.cast(batch_size, dtypes.int64)
+            dense_shape = array_ops.stack([batch_size, dim], axis=0)
 
-        sp_tensor = SparseTensor(indices, values, dense_shape)
+            sp_tensor = SparseTensor(indices, values, dense_shape)
 
-        # the indices were generated at random so
-        sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
+            # the indices were generated at random so
+            sp_tensor = sparse_ops.sparse_reorder(sp_tensor)
 
-        # reconstruct the tensor because shape is turned into unknown with reorder
-        return SparseTensor(sp_tensor.indices, sp_tensor.values, dense_shape)
+            # reconstruct the tensor because shape is turned into unknown with reorder
+            return SparseTensor(sp_tensor.indices, sp_tensor.values, dense_shape)
 
 
 def salt_pepper_noise(dim, batch_size, density=0.5, salt_value=1, pepper_value=-1, seed=None, dtype=dtypes.float32):
@@ -405,4 +422,5 @@ __all__ = ["sample",
            "salt_pepper_noise",
            "sample_categorical_dist",
            "sample_sigmoid_from_logits",
-           "random_bernoulli"]
+           "random_bernoulli",
+           "choice"]

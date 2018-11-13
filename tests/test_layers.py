@@ -7,7 +7,7 @@ from tensorx.init import *
 from tensorx.layers import layers_to_list
 from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
-from tensorx.train import Model, ModelRunner
+from tensorflow.python.framework import tensor_util
 import math
 import os
 
@@ -15,6 +15,79 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class TestLayers(test_utils.TestCase):
+    def test_variable_layer(self):
+        input_layer = TensorLayer([[1]], n_units=1)
+        var_layer = VariableLayer(input_layer)
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            var_layer_init_value = self.eval(var_layer.variable)
+            var_value = self.eval(var_layer.tensor)
+            self.assertArrayNotEqual(var_layer_init_value, var_value)
+            self.assertArrayEqual(var_layer.tensor, var_layer.variable)
+
+    def test_variable_layer_dynamic_batch(self):
+        input_layer = Input(n_units=1)
+        var_layer = VariableLayer(input_layer)
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            var_layer_init_value = self.eval(var_layer.variable)
+            var_value = self.eval(var_layer.tensor, {input_layer.placeholder: [[1]]})
+            self.assertArrayNotEqual(var_layer_init_value, var_value)
+            self.assertArrayEqual(var_value, var_layer.variable)
+
+    def test_variable_layer_multiply_dynamic(self):
+        n_units = 3
+        input_layer = Input(n_units=n_units)
+
+        var_layer = VariableLayer(input_layer, resource=True)
+        # print(var_layer.variable.get_shape())
+
+        input_layer_2 = Input(n_units=n_units)
+
+        print(tensor_util.constant_value_as_shape(tf.shape(var_layer.variable)))
+        # ok this is probably calling tf.shape so I just need to figure what value this uses
+
+        mul = tf.matmul(input_layer_2, var_layer.variable, transpose_b=True)
+        print(mul.get_shape())
+
+        res = tf.nn.softmax(mul)
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            init_value = self.eval(var_layer.variable)
+            self.assertArrayEqual(init_value, np.zeros(shape=[0, n_units]))
+
+            val1 = np.ones([10, n_units]) * 2
+            self.eval(var_layer.tensor, {input_layer.placeholder: val1})
+
+            assign1 = self.eval(var_layer.variable)
+            self.assertArrayNotEqual(assign1, init_value)
+
+            val2 = np.ones([2, n_units]) * 2
+            result = self.eval(tf.shape(mul), {input_layer_2.placeholder: val2})
+            self.assertArrayEqual(result, [2, 10])
+
+            assign2 = self.eval(var_layer.variable)
+            # value didn't change because we used the variable value not the tensor
+            self.assertArrayEqual(assign2, assign1)
+
+            val3 = np.ones([5, n_units]) * 3
+            assign3 = self.eval(var_layer.tensor, {input_layer.placeholder: val3})
+            self.assertArrayNotEqual(assign3, assign2)
+            self.assertArrayEqual(assign3, var_layer.variable)
+
+    def test_convert_layer(self):
+        constant = [[2., 3.]]
+        layer = TensorLayer(tensor=constant, n_units=2)
+        tensor = tf.convert_to_tensor_or_sparse_tensor(layer)
+        with self.cached_session():
+            result = self.eval(tensor)
+            self.assertArrayEqual(result, constant)
 
     def test_compose(self):
         in1 = Input(1)
@@ -306,6 +379,32 @@ class TestLayers(test_utils.TestCase):
 
             self.assertRaises(ValueError, self.eval, in_layer.tensor, {in_layer.tensor: ones_wrong_shape})
 
+    def test_input_default_values(self):
+        in_layer = Input(n_units=1, value=[[2]], dtype=tf.float32)
+
+        with self.cached_session(use_gpu=True) as ss:
+            res1 = self.eval(in_layer.tensor, feed_dict={in_layer.placeholder: in_layer.value})
+            res2 = in_layer.eval()
+            res3 = in_layer.eval(session=ss, feed_dict={in_layer.placeholder: in_layer.value})
+
+            self.assertArrayEqual(res1, res2)
+            self.assertArrayEqual(res1, res3)
+
+    def test_input_default_sparse(self):
+        in_layer = Input(n_units=4, n_active=1, value=[[2], [3]], dtype=tf.float32)
+        with self.cached_session(use_gpu=True):
+            result = in_layer.eval()
+            self.assertArrayEqual([[0, 2], [1, 3]], result.indices)
+
+    def test_sparse_input_default_values(self):
+        sp_value = tf.SparseTensorValue(indices=[[0, 1], [1, 3]], values=[1., 2.], dense_shape=[2, 4])
+        in_layer = SparseInput(n_units=4, value=sp_value, dtype=tf.float32)
+
+        with self.cached_session(use_gpu=True):
+            result = in_layer.eval()
+            self.assertArrayEqual(result.indices, sp_value.indices)
+            self.assertArrayEqual(result.values, sp_value.values)
+
     def test_flat_sparse_input(self):
         """ Create a Sparse Input by providing
         a n_active parameter
@@ -409,6 +508,21 @@ class TestLayers(test_utils.TestCase):
             weights2 = tf.get_variable(shared_names[0])
 
             self.assertIs(weights1, weights2)
+
+    def test_linear_none_n_units(self):
+        in1 = TensorLayer([[2], [2]], 1)
+        w = VariableLayer(in1)
+        l1 = Linear(in1, n_units=None, shared_weights=w.tensor, transpose_weights=True)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            res1 = l1.eval()
+            res2 = l1.eval()
+            # the result should be the same because we
+            # call linear multiplication on tensor which saves the value of the input to the variable
+            # in this case it doesn't change, but WE DO assign it multiple times by using tensor
+            # instead of variable
+            self.assertArrayEqual(res1, res2)
 
     def test_linear_shared(self):
         in1 = TensorLayer([[-1.]], 1)
@@ -1238,7 +1352,7 @@ class TestLayers(test_utils.TestCase):
             after = self.eval(bn.moving_mean)
             self.assertArrayNotEqual(before, after)
 
-            self.assertEqual(bn.moving_mean, bn_inference.moving_mean)
+            self.assertArrayEqual(bn.moving_mean, bn_inference.moving_mean)
             before = self.eval(bn_inference.moving_mean)
             self.eval(bn_inference.tensor)
             after = self.eval(bn_inference.moving_mean)
@@ -1305,7 +1419,7 @@ class TestLayers(test_utils.TestCase):
             r1 = self.eval(bn.tensor, {x.placeholder: t1})
             mv1 = self.eval(bn.moving_mean)
 
-            r1_infer = self.eval(bn_infer.tensor,{x.placeholder: t1})
+            r1_infer = self.eval(bn_infer.tensor, {x.placeholder: t1})
 
             # moving average and variance are updated so they can't be the same
             self.assertArrayNotEqual(mv0, mv1)
@@ -1315,9 +1429,9 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayNotEqual(r0_infer, r1_infer)
 
             r2 = self.eval(bn.tensor, {x.placeholder: t2})
-            r2_infer = self.eval(bn_infer.tensor,{x.placeholder: t1})
+            r2_infer = self.eval(bn_infer.tensor, {x.placeholder: t1})
 
-            rs1 = self.eval(bns.tensor,{x.placeholder: t1})
+            rs1 = self.eval(bns.tensor, {x.placeholder: t1})
             r3_infer = self.eval(bn_infer.tensor, {x.placeholder: t1})
             rs2 = self.eval(bns.tensor, {x.placeholder: t2})
 

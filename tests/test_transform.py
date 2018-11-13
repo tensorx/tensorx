@@ -12,6 +12,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class TestTransform(test_utils.TestCase):
+
     def test_sparse_tile(self):
         n = 4
         sp = SparseTensorValue([[0, 0], [0, 1], [1, 2], [2, 3]], [1, 1, 2, 3], [3, 10])
@@ -94,16 +95,23 @@ class TestTransform(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             self.assertArrayEqual(result, expected)
 
-    def test_batch_to_matrix_indices(self):
+    def test_to_matrix_indices_2d(self):
+        flat_indices = [[0, 1], [1, 2]]
+        matrix_indices = transform.to_matrix_indices_2d(flat_indices)
+
+        with self.cached_session(use_gpu=True) as ss:
+            print(self.eval(matrix_indices))
+
+    def test_to_matrix_indices(self):
         data = [[0, 1, 3], [1, 2, 3]]
         const_data = array_ops.constant(data)
         ph = array_ops.placeholder(dtype=dtypes.int64, shape=[2, 3])
         ph_dy_batch = array_ops.placeholder(dtype=dtypes.int64, shape=[None, 3])
         expected = [[0, 0], [0, 1], [0, 3], [1, 1], [1, 2], [1, 3]]
 
-        const_indices = transform.column_indices_to_matrix_indices(const_data, dtypes.int64)
-        ph_indices = transform.column_indices_to_matrix_indices(ph, dtypes.int64)
-        ph_dy_batch_indices = transform.column_indices_to_matrix_indices(ph_dy_batch, dtypes.int64)
+        const_indices = transform.to_matrix_indices_2d(const_data, dtypes.int64)
+        ph_indices = transform.to_matrix_indices_2d(ph, dtypes.int64)
+        ph_dy_batch_indices = transform.to_matrix_indices_2d(ph_dy_batch, dtypes.int64)
 
         with self.cached_session(use_gpu=True):
             ph_indices = self.eval(ph_indices, {ph: data})
@@ -119,8 +127,8 @@ class TestTransform(test_utils.TestCase):
         expected1 = [[[0, 1], [1, 2]], [[0, 3], [1, 4]]]
         expected2 = [[[0, 1], [0, 2], [1, 3], [1, 4]], [[0, 5], [0, 6], [1, 7], [1, 8]]]
 
-        indices1 = transform.column_indices_to_matrix_indices(data1, dtypes.int64)
-        indices2 = transform.column_indices_to_matrix_indices(data2, dtypes.int64)
+        indices1 = transform.to_matrix_indices(data1, dtypes.int64)
+        indices2 = transform.to_matrix_indices(data2, dtypes.int64)
 
         with self.cached_session(use_gpu=True):
             self.assertArrayEqual(indices1, expected1)

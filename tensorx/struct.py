@@ -4,11 +4,16 @@ Includes sparse tables, dynamic variables, and related ops
 
 """
 from tensorx.utils import to_tensor_cast
-from tensorflow.python.framework import dtypes
-from tensorx.transform import sort_by_first, column_indices_to_matrix_indices
+from tensorflow.python.framework import dtypes, ops
+from tensorx.transform import sort_by_first, to_matrix_indices
 from tensorflow.python.framework.ops import name_scope
 from tensorflow.python.framework.sparse_tensor import SparseTensor
-from tensorflow.python.ops import array_ops, sparse_ops, math_ops
+from tensorflow.python.ops import array_ops, sparse_ops, math_ops, state_ops
+from tensorflow.python.ops.variables import Variable, VariableMetaclass
+from tensorflow.python.framework import tensor_util
+# import tensorflow as tf
+import six
+from tensorflow.python.training.checkpointable import base as checkpointable
 
 
 class IndexValueTable:
@@ -36,9 +41,8 @@ class IndexValueTable:
 
     def to_sparse_tensor(self, reorder=False):
         with name_scope("to_sparse"):
-
             # [[0,2],[0,4]] --> [[0,0],[0,2],[1,0],[1,4]]
-            indices = column_indices_to_matrix_indices(self.indices, dtype=dtypes.int64)
+            indices = to_matrix_indices(self.indices, dtype=dtypes.int64)
             values = array_ops.reshape(self.values, [-1])
 
             # num_rows = self.indices.get_shape().as_list()[0]

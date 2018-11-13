@@ -14,7 +14,7 @@ from tensorflow.python.ops import clip_ops
 from tensorx.utils import to_tensor_cast
 
 
-def identity(x):
+def identity(x, name=None):
     """ Returns a tensor with the same content as the input tensor.
 
     Args:
@@ -23,7 +23,7 @@ def identity(x):
     Returns:
         A tensor of the same shape, type and content of the input tensor.
     """
-    return array_ops.identity(x)
+    return array_ops.identity(x, name=name)
 
 
 def sigmoid(x):

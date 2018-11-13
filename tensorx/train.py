@@ -405,6 +405,7 @@ class Model:
                  eval_out_layers=None,
                  eval_tensors_in=None,
                  eval_tensors=None,
+                 update_in_layers=None,
                  name='Model'):
         self.name = name
         # run layers
@@ -448,6 +449,8 @@ class Model:
         self.eval_tensors_in = _as_list(eval_tensors_in)
         self.eval_tensors = _as_list(eval_tensors)
 
+        self.update_in_layers = _as_list(update_in_layers)
+
         # list layers from run, train, and eval
         self.run_layers = layers_to_list(self.run_out_layers)
         self.train_layers = layers_to_list(self.train_out_layers)
@@ -480,6 +483,9 @@ class Model:
 
     def feedable_train_tensors(self):
         return _get_feedable(self.train_loss_in)
+
+    def feedable_update(self):
+        return _get_feedable(self.update_in_layers)
 
     def __str__(self):
         lines = ["===== {name}/RUN =====".format(name=self.name)]
@@ -788,6 +794,15 @@ class ModelRunner:
         self.session.run(self.init_var_op)
         self._var_inited = (True, self.session)
 
+    def update_feed_dict(self):
+        feedable_update_inputs = self.model.feedable_update()
+        param_dict = {}
+        for update_in in feedable_update_inputs:
+            if update_in.value is not None:
+                param_dict[update_in.placeholder] = update_in.value
+            else:
+                raise ValueError("expected {p}: to have a default value, no value found".format(update_in.name))
+
     def run(self, *data, write_summaries=False):
         """ run the model (inference graph)
 
@@ -818,7 +833,8 @@ class ModelRunner:
         if self.train_called:
             update_op = self.model.update_state()
             if update_op is not None:
-                self.session.run(update_op)
+                feed_dict = self.update_feed_dict()
+                self.session.run(update_op, feed_dict=feed_dict)
 
         self.train_called = False
 
@@ -972,7 +988,7 @@ class ModelRunner:
 
         if n_targets != n_feedable_targets:
             raise ValueError(
-                "loss input data received {} != {} model expected loss inputs".format(n_feedable_targets, n_targets))
+                "loss input data received {} != {} model expected loss inputs".format(n_targets,n_feedable_targets))
 
         target_dict = {loss_input.placeholder: loss_input_data for loss_input, loss_input_data in
                        zip(feedable_loss_inputs, loss_input_data)}

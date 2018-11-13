@@ -91,6 +91,53 @@ class MyTestCase(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             self.assertAllClose(x.values, logit.values, rtol=1e-6)
 
+    def test_embedding_lookup_sparse_gradients(self):
+        opt = tf.train.GradientDescentOptimizer(learning_rate=0.5)
+
+        n = 4
+        dim = 10000
+        weight_dim = 3
+
+        sp1 = tf.SparseTensorValue([[0, 0], [1, 1], [2, 3]], [1., 2., -7.], [3, dim])
+        sp2 = tf.SparseTensorValue([[0, 0], [1, 2], [2, 2]], [0.5, 5., 2.], [3, dim])
+        sp1 = tf.convert_to_tensor_or_sparse_tensor(sp1)
+        sp2 = tf.convert_to_tensor_or_sparse_tensor(sp2)
+
+        tsp1 = transform.sparse_tile(sp1, n)
+
+        tsp2 = transform.sparse_tile(sp2, n)
+
+        weights = tf.get_variable("test_weights", shape=[dim, weight_dim])
+        init = tf.global_variables_initializer()
+
+        ids1 = transform.sparse_indices(sp1)
+        ids2 = transform.sparse_indices(sp2)
+
+        v1 = math.embedding_lookup_sparse(weights, ids1, sp1, combiner="sqrtn")
+        v2 = math.embedding_lookup_sparse(weights, ids2, sp2, combiner="sqrtn")
+
+        v1_o = tf.nn.embedding_lookup_sparse(weights, ids1, sp1, combiner="sqrtn")
+        v2_o = tf.nn.embedding_lookup_sparse(weights, ids2, sp2, combiner="sqrtn")
+
+        tv1 = math.embedding_lookup_sparse(weights, transform.sparse_indices(tsp1), tsp1, combiner="sqrtn")
+        tv2 = math.embedding_lookup_sparse(weights, transform.sparse_indices(tsp2), tsp2, combiner="sqrtn")
+
+        loss1 = v1 - v2
+        loss_tf = v1_o - v2_o
+        loss_tiled = tv1 - tv2
+
+        train1 = opt.minimize(loss1)
+        train2 = opt.minimize(loss_tf)
+        train3 = opt.minimize(loss_tiled)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.eval(train1)
+            self.eval(train2)
+            self.eval(train3)
+
+            self.assertArrayEqual(v1, v1_o)
+
 
 if __name__ == '__main__':
     unittest.main()

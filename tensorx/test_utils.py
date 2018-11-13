@@ -9,6 +9,7 @@ from tensorflow.python.framework import errors
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
 from tensorflow.python.util import compat
+from tensorflow.python.ops.variables import Variable
 import logging
 import numpy as np
 
@@ -48,7 +49,7 @@ class TestCase(unittest.TestCase):
         ops._default_graph_stack.reset()
         ops.reset_default_graph()
 
-    def eval(self, tensors, feed=None):
+    def eval(self, tensors, feed_dict=None):
         """Evaluates tensors and returns numpy values.
 
         Args:
@@ -63,30 +64,38 @@ class TestCase(unittest.TestCase):
             sess = ops.get_default_session()
             if sess is None:
                 with self.test_session() as sess:
-                    return sess.run(tensors, feed_dict=feed)
+                    return sess.run(tensors, feed_dict=feed_dict)
             else:
-                return sess.run(tensors, feed_dict=feed)
+                return sess.run(tensors, feed_dict=feed_dict)
+
+    def assertGreater(self, a, b, msg=None):
+        if isinstance(a, (Tensor, Variable)):
+            a = self.eval(a)
+        if isinstance(b, (Tensor, Variable)):
+            b = self.eval(b)
+
+        super().assertGreater(a, b, msg)
 
     def assertEqual(self, first, second, msg=None):
-        if isinstance(first, Tensor):
+        if isinstance(first, (Tensor, Variable)):
             first = self.eval(first)
-        if isinstance(second, Tensor):
+        if isinstance(second, (Tensor, Variable)):
             second = self.eval(second)
 
         super().assertEqual(first, second)
 
     def assertNotEqual(self, first, second, msg=None):
-        if isinstance(first, Tensor):
+        if isinstance(first, (Tensor, Variable)):
             first = self.eval(first)
-        if isinstance(second, Tensor):
+        if isinstance(second, (Tensor, Variable)):
             second = self.eval(second)
         super().assertNotEqual(first, second, msg)
 
     def assertAlmostEqual(self, first, second, places=None, msg=None,
                           delta=None):
-        if isinstance(first, Tensor):
+        if isinstance(first, (Tensor, Variable)):
             first = self.eval(first)
-        if isinstance(second, Tensor):
+        if isinstance(second, (Tensor, Variable)):
             second = self.eval(second)
 
         super().assertAlmostEqual(first, second, places, msg, delta)
@@ -109,9 +118,9 @@ class TestCase(unittest.TestCase):
             AssertionError: If actual and desired are not equal up to specified precision.
 
         """
-        if isinstance(actual, Tensor):
+        if isinstance(actual, (Tensor, Variable)):
             actual = self.eval(actual)
-        if isinstance(desired, Tensor):
+        if isinstance(desired, (Tensor, Variable)):
             desired = self.eval(desired)
 
         np.testing.assert_allclose(actual, desired, rtol=rtol, atol=atol, verbose=verbose)
@@ -132,17 +141,17 @@ class TestCase(unittest.TestCase):
 
 
         """
-        if isinstance(actual, Tensor):
+        if isinstance(actual, (Tensor, Variable)):
             actual = self.eval(actual)
-        if isinstance(desired, Tensor):
+        if isinstance(desired, (Tensor, Variable)):
             desired = self.eval(desired)
 
         np.testing.assert_array_equal(actual, desired, verbose=verbose)
 
     def assertArrayNotEqual(self, actual, desired):
-        if isinstance(actual, Tensor):
+        if isinstance(actual, (Tensor, Variable)):
             actual = self.eval(actual)
-        if isinstance(desired, Tensor):
+        if isinstance(desired, (Tensor, Variable)):
             desired = self.eval(desired)
 
         self.assertFalse(np.array_equal(actual, desired))

@@ -11,8 +11,11 @@ class TestVarExtend(test_utils.TestCase):
         var = tf.Variable(tf.zeros([1, 4], tf.float32), validate_shape=False)
         # setting the shape to None,dim, makes so that we don't have to adjust it later
         # we treat the var like a placeholder
-        var.set_shape([None, 4])
-        comp = tf.multiply(var, 2)
+        # var.set_shape([None, 4])
+        var_shaped = tf.reshape(var, [-1, 4])
+
+        #print(var_shaped.get_shape())
+        comp = tf.multiply(var_shaped, 2)
 
         new_row = tf.placeholder(shape=[1, 4], dtype=tf.float32)
 
@@ -24,8 +27,11 @@ class TestVarExtend(test_utils.TestCase):
             self.eval(tf.global_variables_initializer())
             shape = tf.shape(var)
             comp_shape = tf.shape(comp)
+            print(self.eval(comp_shape))
 
-            self.eval(extend, {new_row: [[1, 1, 1, 1]]})
+            result = self.eval(extend, {new_row: [[1, 1, 1, 1]]})
+
+            print(var.get_shape())
 
             self.assertEqual(shape[0], 2)
             self.assertEqual(comp_shape[0], 2)
