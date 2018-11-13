@@ -100,7 +100,7 @@ class TestTransform(test_utils.TestCase):
         matrix_indices = transform.to_matrix_indices_2d(flat_indices)
 
         with self.cached_session(use_gpu=True) as ss:
-            print(self.eval(matrix_indices))
+            self.eval(matrix_indices)
 
     def test_to_matrix_indices(self):
         data = [[0, 1, 3], [1, 2, 3]]

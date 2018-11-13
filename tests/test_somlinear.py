@@ -225,8 +225,6 @@ class MyTestCase(test_utils.TestCase):
             self.eval(deltas[0][0])
 
     def test_delta_computing(self):
-        tf.reset_default_graph()
-
         n_partitions = 4
         n_inputs = 3
         som_shape = [n_partitions]
@@ -304,7 +302,7 @@ class MyTestCase(test_utils.TestCase):
 
         with self.cached_session(use_gpu=True):
             self.eval(init)
-            self.assertEqual(learning_vars, som)
+            self.assertArrayEqual(learning_vars, som)
             self.assertArrayEqual(delta, delta_learner)
 
         dsom_learner.adapt_to([inputs])

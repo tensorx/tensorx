@@ -127,13 +127,13 @@ class MyTestCase(test_utils.TestCase):
         loss_tiled = tv1 - tv2
 
         train1 = opt.minimize(loss1)
-        train2 = opt.minimize(loss_tf)
+        #train2 = opt.minimize(loss_tf)
         train3 = opt.minimize(loss_tiled)
 
         with self.cached_session(use_gpu=True):
             self.eval(init)
             self.eval(train1)
-            self.eval(train2)
+            #self.eval(train2)
             self.eval(train3)
 
             self.assertArrayEqual(v1, v1_o)

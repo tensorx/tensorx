@@ -281,9 +281,9 @@ def nce_loss(labels,
 
 
 def sparse_cnce_loss(label_features,
-                     noise_features,
                      model_prediction,
                      weights,
+                     noise_features=None,
                      num_samples=1,
                      noise_ratio=0.1,
                      corrupt_labels=False,
@@ -322,12 +322,9 @@ def sparse_cnce_loss(label_features,
 
         tiled_label_features = txf.sparse_tile(label_features, num_samples)
 
-
-
         if noise_features is None:
             dim = label_features.get_shape().as_list()[-1]
             batch_size = array_ops.shape(tiled_label_features)[0]
-
 
             noise = tx_rnd.sparse_random_mask(dim=dim,
                                               batch_size=batch_size,
