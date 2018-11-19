@@ -1,5 +1,5 @@
 from tensorx import test_utils
-from tensorx.train import ModelRunner, Model, EvalStepDecayParam
+from tensorx.train import ModelRunner, Model, LayerGraph
 from tensorx.layers import Input, Linear, Activation, Add, TensorLayer
 
 from tensorx.activation import tanh, sigmoid
@@ -16,6 +16,69 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class ModelRunnerTest(test_utils.TestCase):
+
+    def test_graph(self):
+        data = [[1, 2]]
+
+        in1 = Input(2, name="in1")
+        in2 = Input(2, name="in2")
+
+        linear = Linear(in1, 1)
+        graph = LayerGraph(linear)
+
+        self.assertEqual(len(graph.dependencies[linear]), 1)
+        self.assertTrue(in1 in graph.dependencies[linear])
+
+        try:
+            LayerGraph(inputs=[in1, in2], outputs=linear)
+            self.fail("should have raised an exception: some inputs are not connected to anything")
+        except ValueError:
+            pass
+
+        try:
+            LayerGraph(inputs=[in2], outputs=linear)
+            self.fail("should have raised an error: inputs specified but dependencies are missing")
+        except ValueError:
+            pass
+
+        with self.cached_session(use_gpu=True) as session:
+            self.eval(tf.global_variables_initializer())
+            result = graph.eval(data, session=session)
+            self.assertTrue(len(result), 1)
+            self.assertTrue(np.shape(result), [1, 1])
+
+            result1 = graph.eval(data, session=session)
+            result2 = graph.eval(feed={in1: data}, session=session)
+
+            self.assertArrayEqual(result1, result2)
+
+            other_fetches = tf.constant(0)
+            result3 = graph.eval(data, other_fetches=other_fetches, session=session)
+
+            self.assertTrue(len(result3), 2)
+            self.assertEqual(result3[-1], 0)
+
+    def test_multioutput_graph(self):
+        data = [[1, 1]]
+
+        in1 = Input(2, name="in1")
+        in2 = Input(2, name="in2")
+
+        linear1 = Linear(in1, 1)
+        linear2 = Linear(Add(in1, in2), 1)
+
+        graph = LayerGraph(outputs=[linear1, linear2])
+
+        with self.cached_session(use_gpu=True) as session:
+            self.eval(tf.global_variables_initializer())
+            result1 = graph.eval(data, data, session=session)
+            self.assertEqual(len(result1), 2)
+
+            result2 = graph.eval(feed={in1: data, in2: data}, session=session)
+            self.assertEqual(len(result2), 2)
+
+            self.assertArrayEqual(result1, result2)
+
     def test_model_session(self):
         data = [[1]]
         inputs = Input(1)
@@ -130,10 +193,10 @@ class ModelRunnerTest(test_utils.TestCase):
             losses = binary_cross_entropy(labels.tensor, h.tensor)
 
             model = Model(input_layer, h,
-                          train_loss_tensors=losses,
-                          train_loss_in=labels,
-                          eval_tensors=losses,
-                          eval_tensors_in=labels)
+                          train_out_loss=losses,
+                          train_in_loss=labels,
+                          eval_out_score=losses,
+                          eval_in_score=labels)
             runner = ModelRunner(model)
 
             optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)

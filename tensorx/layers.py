@@ -8,23 +8,18 @@ from collections import deque
 
 from tensorflow.python.framework import ops, dtypes
 
-from tensorflow.python.framework.tensor_shape import TensorShape
-
 from tensorflow.python.framework.ops import Tensor, name_scope
-from tensorflow.python.ops import array_ops, check_ops, control_flow_ops, state_ops
+from tensorflow.python.ops import array_ops, control_flow_ops
 
-from tensorflow.python.ops import math_ops, script_ops
+from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import variables
-from tensorflow.python.ops import resource_variable_ops as res_variables
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.ops import variable_scope
-from tensorflow.python.ops import init_ops
 from tensorflow.python.framework.tensor_shape import TensorShape
 
-from tensorflow.python.ops.logging_ops import Print
 from tensorflow.python.ops import random_ops, sparse_ops, state_ops
 from tensorflow.python.ops.nn import bias_add, embedding_lookup, moments, convolution, batch_normalization
-from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
+from tensorflow.python.framework.sparse_tensor import SparseTensor
 from tensorflow.python.training import moving_averages
 
 from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
@@ -37,6 +32,8 @@ from tensorx.activation import sigmoid, tanh, identity
 from tensorx import math as mathx
 
 from contextlib import ExitStack
+
+from tensorx.utils import Graph
 
 
 def _validate_shape_type(x, shape, dtype=None):
@@ -121,27 +118,6 @@ class LayerScope:
 
 # alias for layer scopes
 layer_scope = LayerScope
-
-
-class Graph:
-    """ Simple append only graph"""
-
-    def __init__(self):
-        self.nodes = set()
-        self.edges_in = dict()
-        self.edges_out = dict()
-
-    def add_node(self, node):
-        if node not in self.nodes:
-            self.nodes.add(node)
-            self.edges_in[node] = []
-            self.edges_out[node] = []
-
-    def add_edge(self, node1, node2):
-        self.add_node(node1)
-        self.add_node(node2)
-        self.edges_out[node1].append(node2)
-        self.edges_in[node2].append(node1)
 
 
 def _get_subgraph(input_layers, output_layers):
@@ -385,7 +361,7 @@ class Layer:
         return WrapLayer(layer=self,
                          n_units=self.n_units,
                          wrap_fn=lambda tensor: tensor[item],
-                         name="{}_{}".format(self.name, item))
+                         name="{}_slice[{}]".format(self.name, item))
 
     def eval(self, feed_dict=None, session=None):
         return self.tensor.eval(feed_dict=feed_dict, session=session)
@@ -681,6 +657,111 @@ class Compose(Layer):
         inner_layers = [str(layer) for layer in self.layers]
         result = "{}\n \t{}".format(result, "\n\t".join(inner_layers))
         return result
+
+
+class Param(Layer):
+    """ Param
+
+    a special building block to pass scalar parameter to neural network models with support for default values
+
+    Args:
+        value: initial Parameter value, if None must be fed
+
+    """
+
+    def __init__(self, value=None, dtype=dtypes.float32, name="param"):
+        shape = [1]
+        super().__init__(input_layers=[], n_units=1, shape=shape, dtype=dtype, name=name)
+        self.value = value
+
+        with layer_scope(name):
+            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
+            self.tensor = self.placeholder
+
+    def reuse_with(self, *layers, name=None):
+        raise AttributeError("Cannot call reuse_with on Param")
+
+    def eval(self, feed_dict=None, session=None):
+        if feed_dict is not None:
+            if self.placeholder not in feed_dict:
+                raise ValueError("feed dict does not contain the placeholder in this Param")
+        elif self.value is not None:
+            feed_dict = {self.placeholder: self.value}
+        return self.tensor.eval(feed_dict, session)
+
+    def __str__(self):
+        return "{name}::{cname}({dtype})".format(name=self.name, cname=type(self).__name__, dtype=self.dtype)
+
+
+class DynamicParam(Param):
+    def __init__(self, value=None, dtype=dtypes.float32, update_fn=None, name="param_"):
+        super().__init__(value=value, dtype=dtype, name=name)
+        self.update_fn = update_fn
+
+    def update(self, *args, **kwargs):
+        if self.update_fn is not None:
+            self.value = self.update_fn(*args, **kwargs)
+
+
+class EvalStepDecayParam(DynamicParam):
+    """
+    Args:
+        value: initial value for the dynamic param
+        decay_threshold: float value representing the difference between evaluations necessary for the update to occur
+        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+        less_is_better: if True, evaluation is considered to improve if it decreases, else it is considered to improve
+        if it increases
+
+    Attributes:
+        eval_history: a list with the evaluation values passed through the update function
+        improvement_threshold: float value representing the difference between evaluations necessary for the update to occur
+        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+    """
+
+    def __init__(self, value,
+                 improvement_threshold=1.0,
+                 less_is_better=True,
+                 decay_rate=1.0,
+                 decay_threshold=1e-6,
+                 dtype=dtypes.float32,
+                 name="eval_step_decay_param"):
+        self.improvement_threshold = improvement_threshold
+        self.decay_rate = decay_rate
+        self.decay_threshold = decay_threshold
+        self.less_is_better = less_is_better
+        self.eval_history = []
+
+        def update_fn(evaluation):
+            self.eval_history.append(evaluation)
+            value = self.value
+            if len(self.eval_history) > 1:
+                if self.eval_improvement() <= self.improvement_threshold:
+                    value = max(value * self.decay_rate, self.decay_threshold)
+            return value
+
+        super().__init__(value=value, dtype=dtype, update_fn=update_fn, name=name)
+
+    def eval_improvement(self):
+        if len(self.eval_history) > 1:
+            improvement = self.eval_history[-2] - self.eval_history[-1]
+            if not self.less_is_better:
+                improvement = -1 * improvement
+            return improvement
+        else:
+            return 0
+
+    def update(self, evaluation):
+        """ update.
+
+        Updates the parameter value. It only makes changes to the parameter after then second update.
+        The decay decays is only applied if the current evaluation did not improve more than the `eval_threshold`.
+
+        Args:
+            evaluation: a float with the current evaluation value
+        """
+        super().update(evaluation)
 
 
 class Input(Layer):

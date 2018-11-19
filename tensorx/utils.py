@@ -1,7 +1,7 @@
-from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops, array_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
+from tensorflow.python.framework import sparse_tensor
 
 
 def to_tensor_cast(x, dtype=None):
@@ -47,3 +47,49 @@ def complete_shape(tensor, dtype=None):
         shape = to_tensor_cast(shape, dtype)
 
     return shape
+
+
+def as_list(elems):
+    """ Returns a list from one or multiple elements.
+
+    if one element is passed, returns a list with one element,
+    if a list or tuple of elements is passed, returns a list with the elements
+
+    Note: we exclude SparseTensorValue because it is a named tuple
+    and we want to feed the whole object as a single data sample if needed
+
+    Args:
+        elems: one element, a tuple of elements or a list of elements
+
+    Returns:
+        a :obj:`list` with the elements in elems
+    """
+    if elems is None:
+        elems = []
+    elif isinstance(elems, (list, tuple)) and not isinstance(elems, (
+            sparse_tensor.SparseTensorValue, sparse_tensor.SparseTensor)):
+        elems = list(elems)
+    else:
+        elems = [elems]
+    return elems
+
+
+class Graph:
+    """ Simple append only graph"""
+
+    def __init__(self):
+        self.nodes = set()
+        self.edges_in = dict()
+        self.edges_out = dict()
+
+    def add_node(self, node):
+        if node not in self.nodes:
+            self.nodes.add(node)
+            self.edges_in[node] = []
+            self.edges_out[node] = []
+
+    def add_edge(self, node1, node2):
+        self.add_node(node1)
+        self.add_node(node2)
+        self.edges_out[node1].append(node2)
+        self.edges_in[node2].append(node1)
