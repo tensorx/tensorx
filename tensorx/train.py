@@ -447,38 +447,7 @@ class Model:
         else:
             self.update_graph = None
 
-    def has_vars(self):
-        return (len(self.run_vars) != 0
-                or len(self.train_vars) != 0
-                or len(self.eval_vars) != 0)
-
-    def update_state(self):
-        """ Updates the model state before evaluation or inference
-
-        If the model train has been called and we call eval or run, this is called before
-        any one of those graphs are run.
-
-        Use case:
-            Useful to update state variables the inference or evaluation steps might depend upon and we want
-            to update only once, and not every time run or eval are called.
-        """
-        return None
-
-
-class ModelRunner:
-    """ Model Runner
-
-    A model runner takes a model container and facilitates its training and session manager.
-
-    Properties:
-        inputs: a single instance or :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
-        outputs: a single instance or :obj:`list` of :class:`Layer` with the outputs for the model
-
-
-    """
-
-    def __init__(self, model: Model):
-        self.model = model
+        # model running init
         self.session = None
 
         # var inited = ([true|false], session)
@@ -509,8 +478,24 @@ class ModelRunner:
         self.eval_steps = 0
 
         self.train_graph: LayerGraph = None
-
         self.train_called = False
+
+    def has_vars(self):
+        return (len(self.run_vars) != 0
+                or len(self.train_vars) != 0
+                or len(self.eval_vars) != 0)
+
+    def update_state(self):
+        """ Updates the model state before evaluation or inference
+
+        If the model train has been called and we call eval or run, this is called before
+        any one of those graphs are run.
+
+        Use case:
+            Useful to update state variables the inference or evaluation steps might depend upon and we want
+            to update only once, and not every time run or eval are called.
+        """
+        return None
 
     def set_log_dir(self, log_dir=None):
         self.log_dir = log_dir
@@ -583,7 +568,7 @@ class ModelRunner:
 
         """
 
-        if not (self.model.has_vars() or save_graph):
+        if not (self.has_vars() or save_graph):
             raise ValueError("The model has no variables to save and save_graph was set to False: Nothing to save")
 
         if self.session is None:
@@ -596,7 +581,7 @@ class ModelRunner:
             meta_path = "{model_path}.meta".format(model_path=model_path)
             export_meta_graph(meta_path)
 
-        if self.model.has_vars():
+        if self.has_vars():
             self.saver.save(self.session, model_path, step, write_meta_graph=False, write_state=write_state)
 
     def load_model(self, logdir=None, model_name="model.ckpt", global_step=None, load_graph=False):
@@ -629,7 +614,7 @@ class ModelRunner:
             meta_path = "{model_path}.meta".format(model_path=model_path)
             self.saver = import_meta_graph(meta_path)
 
-        if self.model.has_vars():
+        if self.has_vars():
             self.saver.restore(self.session, model_path)
         # we don't need to init vars after loading a model
         self._set_vars_inited()
@@ -743,10 +728,10 @@ class ModelRunner:
         self.optimizer_params = as_list(params)
         self.var_list = var_list
 
-        if len(self.model.train_out_loss) > 1:
-            self.loss_layer = Merge(self.model.train_out_loss, merge_fn=math_ops.reduce_mean)
+        if len(self.train_out_loss) > 1:
+            self.loss_layer = Merge(self.train_out_loss, merge_fn=math_ops.reduce_mean)
         else:
-            self.loss_layer = self.model.train_out_loss[0]
+            self.loss_layer = self.train_out_loss[0]
 
         def train_step(loss):
             if gradient_op is not None:
@@ -768,22 +753,22 @@ class ModelRunner:
 
         self.train_step = WrapLayer(self.loss_layer, n_units=1, wrap_fn=train_step)
 
-        self.train_graph = LayerGraph(inputs=self.model.train_graph.input_layers + self.optimizer_params,
-                                      ouputs=self.model.train_out_layers + [self.train_step])
+        self.train_graph = LayerGraph(inputs=self.train_graph.input_layers + self.optimizer_params,
+                                      ouputs=self.train_out_layers + [self.train_step])
 
-    def run(self, *data, write_summaries=False):
+    def run(self, *data, feed=None, write_summaries=False):
         """ run the model (inference graph)
         """
         if self.session is None:
             self.set_session()
 
-        if not self.vars_inited() and self.model.has_vars():
+        if not self.vars_inited() and self.has_vars():
             self.init_vars()
 
         # make sure state is up to date before calling run
         if self.train_called:
-            if self.model.update_graph is not None:
-                g: LayerGraph = self.model.update_graph
+            if self.update_graph is not None:
+                g: LayerGraph = self.update_graph
                 g.eval(use_defaults=True, session=self.session)
         self.train_called = False
 
@@ -792,12 +777,13 @@ class ModelRunner:
             other_fetches = [summary.merge_all()]
 
         if self.runtime_stats:
-            result = self.model.run_graph.eval(*data,
-                                               other_fetches=other_fetches,
-                                               use_defaults=True,
-                                               session=self.session,
-                                               options=self.run_options,
-                                               run_metadata=self.run_metadata)
+            result = self.run_graph.eval(*data,
+                                         other_fetches=other_fetches,
+                                         use_defaults=True,
+                                         feed=feed,
+                                         session=self.session,
+                                         options=self.run_options,
+                                         run_metadata=self.run_metadata)
 
             if self.log_dir is None:
                 self.set_log_dir()
@@ -805,10 +791,11 @@ class ModelRunner:
             self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_steps + 1),
                                              global_step=self.run_steps + 1)
         else:
-            result = self.model.run_graph.eval(*data,
-                                               other_fetches=other_fetches,
-                                               use_defaults=True,
-                                               session=self.session)
+            result = self.run_graph.eval(*data,
+                                         feed=feed,
+                                         other_fetches=other_fetches,
+                                         use_defaults=True,
+                                         session=self.session)
 
         if write_summaries:
             result, logs = result[0:-1], result[-1]
@@ -817,7 +804,7 @@ class ModelRunner:
         self.run_steps += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
-        if len(self.model.run_out_layers) == 1:
+        if len(self.run_out_layers) == 1:
             result = result[0]
         return result
 
@@ -837,6 +824,7 @@ class ModelRunner:
             You need to run :func:`config` before calling `train`.
 
         Args:
+            feed_dict:
             write_summaries:
             output_loss:
             optimizer_params: values to be fed to the feedable ``Params`` specified in ``config_optimizer``
@@ -903,101 +891,68 @@ class ModelRunner:
         if output_loss:
             return other[0]
 
-    def eval(self, data=None, eval_input_data=None, write_summaries=False):
+    def eval(self, data=None, labels=None, feed=None, write_summaries=False):
         """ Evaluates the model on the given data.
 
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
 
         Args:
             data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
-            eval_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to the evaluation ops.
+            labels: a :obj:`list` of NumPy `ndarray` with the data to be fed to the evaluation ops.
         """
 
         if self.session is None:
             self.set_session()
 
-        if not self.vars_inited():
+        if not self.vars_inited() and self.has_vars():
             self.init_vars()
 
-        # make sure state is up to date before calling eval
+            # make sure state is up to date before calling run
         if self.train_called:
-            update_op = self.model.update_state()
-            if update_op is not None:
-                self.session.run(update_op)
+            if self.update_graph is not None:
+                g: LayerGraph = self.update_graph
+                g.eval(use_defaults=True, session=self.session)
         self.train_called = False
 
         data = as_list(data)
+        labels = as_list(labels)
 
-        feedable_inputs = self.model.feedable_eval()
-        n_data = len(data)
-
-        feed_dict1 = self.get_self_feed(feedable_inputs)  # self feed first
-        missing_inputs = [feedable for feedable in feedable_inputs if feedable.placeholder not in feed_dict1]
-
-        # for missing in missing_inputs:
-        #    print(missing.value)
-
-        if n_data != len(missing_inputs):
-            raise ValueError(
-                "data items received {} != {} model "
-                "feedable inputs: missing\n {}".format(n_data, len(missing_inputs),
-                                                       "\n".join(map(str, missing_inputs))))
-
-        # fill up the missing values
-        feed_dict1_fill = {feedable_in.placeholder: data for feedable_in, data in zip(missing_inputs, data)}
-        feed_dict1.update(feed_dict1_fill)
-
-        eval_input_data = as_list(eval_input_data)
-        feedable_eval_inputs = self.model.feedable_eval_tensors()
-        n_targets = len(eval_input_data)
-
-        feed_dict2 = self.get_self_feed(feedable_eval_inputs)  # self feed first
-        missing_inputs = [feedable for feedable in feedable_eval_inputs if feedable.placeholder not in feed_dict2]
-
-        # for missing in missing_inputs:
-        #    print(missing.value)
-
-        if n_targets != len(missing_inputs):
-            raise ValueError(
-                "data items received {} != {} model "
-                "feedable inputs: missing\n {}".format(n_data, len(missing_inputs),
-                                                       "\n".join(map(str, missing_inputs))))
-
-        # fill up the missing values
-        feed_dict2_fill = {feedable_in.placeholder: data for feedable_in, data in zip(missing_inputs, eval_input_data)}
-        feed_dict2.update(feed_dict2_fill)
-
-        feed_dict1.update(feed_dict2)
-
-        fetches = self.model.eval_out_score
-
-        # write logs
+        other_fetches = None
         if write_summaries:
-            fetches = [summary.merge_all()] + fetches
+            other_fetches = [summary.merge_all()]
 
         if self.runtime_stats:
-            result = self.session.run(fetches, feed_dict1, options=self.run_options,
-                                      run_metadata=self.run_metadata)
+            result = self.eval_graph.eval(data + labels,
+                                          other_fetches=other_fetches,
+                                          use_defaults=True,
+                                          feed=feed,
+                                          session=self.session,
+                                          options=self.run_options,
+                                          run_metadata=self.run_metadata)
+
             if self.log_dir is None:
                 self.set_log_dir()
             self.set_log_writer()
-            self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_step + 1),
-                                             global_step=self.eval_step + 1)
+            self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_steps + 1),
+                                             global_step=self.eval_steps + 1)
         else:
-            result = self.session.run(fetches, feed_dict1)
+            result = self.run_graph.eval(data + labels,
+                                         feed=feed,
+                                         other_fetches=other_fetches,
+                                         use_defaults=True,
+                                         session=self.session)
 
         if write_summaries:
-            logs, result = result[0], result[1:]
-            self.log_writer.add_summary(logs, self.eval_step + 1)
+            result, logs = result[0:-1], result[-1]
+            self.log_writer.add_summary(logs, self.eval_steps + 1)
 
-        self.eval_step += 1
+        self.eval_steps += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
-        if len(self.model.eval_out_score) == 1:
+        if len(self.eval_out_layers) == 1:
             result = result[0]
         return result
 
 
 __all__ = ["Model",
-           "ModelRunner",
            "LayerGraph"]
