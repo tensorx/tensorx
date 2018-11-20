@@ -272,6 +272,10 @@ class LayerGraph:
              run_metadata=None):
         """ Evaluates the current graph on the given inputs
 
+        if input_values are used and Inputs have values != None, these are not overwritten
+        if a feed dictionary with layer-->data is passed, only the missing inputs are possibly
+        fed with their default values.
+
         Args:
             other_fetches: runs other tensors or ops that might not be included in the graph
             use_defaults: automatically fill the default values if input layer .value attribute is not None
