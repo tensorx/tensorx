@@ -1,16 +1,12 @@
-from tensorx import test_utils
-from tensorx.train import ModelRunner, Model, LayerGraph
-from tensorx.layers import Input, Linear, Activation, Add, TensorLayer
-
-from tensorx.activation import tanh, sigmoid
-from tensorx.loss import binary_cross_entropy
-from tensorx import init
-
 import numpy as np
+import os
 import tensorflow as tf
 
-import os
-import glob
+from tensorx import test_utils
+from tensorx.activation import tanh, sigmoid
+from tensorx.layers import Input, Linear, Activation, Add
+from tensorx.loss import binary_cross_entropy
+from tensorx.train import ModelRunner, Model, LayerGraph
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -58,8 +54,26 @@ class ModelRunnerTest(test_utils.TestCase):
             self.assertTrue(len(result3), 2)
             self.assertEqual(result3[-1], 0)
 
-    def test_multioutput_graph(self):
+    def test_feed_defaults(self):
+        data = [[1, 2]]
+
+        in1 = Input(2, name="in1")
+        in2 = Input(2, name="in2")
+
+        out = Add(in1, in2)
+        graph = LayerGraph(out)
+
+        in1.value = np.array(data)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            result = graph.eval(feed={in2: [[2, 1]]})
+
+            self.assertArrayEqual(result, [[3, 3]])
+
+    def test_multi_output_graph(self):
         data = [[1, 1]]
+        data2 = [[2, 1]]
 
         in1 = Input(2, name="in1")
         in2 = Input(2, name="in2")
@@ -78,6 +92,25 @@ class ModelRunnerTest(test_utils.TestCase):
             self.assertEqual(len(result2), 2)
 
             self.assertArrayEqual(result1, result2)
+
+            # testing target output and defaults without feed
+            # does not override default
+            in2.value = data
+            result3 = graph.eval(data, data2,
+                                 target_outputs=linear2,
+                                 # feed={in1: data,in2: data},
+                                 session=session)
+            self.assertArrayEqual(result3, result2[-1])
+            in2.value = None
+
+            # fills in1 in2 by the same order
+            result4 = graph.eval(data, data2,
+                                 target_outputs=linear2,
+                                 # feed={in1: data,in2: data},
+                                 session=session)
+
+            # not the same because we use data2
+            self.assertArrayNotEqual(result4, result3)
 
     def test_model_session(self):
         data = [[1]]
@@ -143,6 +176,17 @@ class ModelRunnerTest(test_utils.TestCase):
         runner.run(data)
         self.assertEqual(runner.session, session5)
         tf.reset_default_graph()
+
+    def test_model_graphs(self):
+        data = [[1, 1]]
+
+        in1 = Input(2, name="in1")
+        in2 = Input(2, name="in2")
+
+        linear1 = Linear(in1, 1)
+        linear2 = Linear(Add(in1, in2), 1)
+
+        Model(run_in_layers=[in1, in2], run_out_layers=[linear1, linear2])
 
     def test_model_var_init(self):
         inputs = Input(1)

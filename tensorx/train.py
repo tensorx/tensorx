@@ -230,6 +230,7 @@ class LayerGraph:
 
         self.graph = graph
         self.dependencies = dependencies
+        self.layers = layers_to_list(self.output_layers)
 
         all_dependencies = set()
         for dep in self.dependencies.values():
@@ -244,18 +245,21 @@ class LayerGraph:
         if len(self.input_layers) == 0:
             self.input_layers = list(all_dependencies)
 
-    def missing_dependencies(self, inputs):
+    def missing_dependencies(self, inputs, outputs=None) -> dict:
         """ given a list of input layers, checks if any input dependency is missing from the graph
 
         Args:
+            outputs: the outputs for which we want the missing input dependencies
             inputs: a list of input layers that are dependencies to output nodes in this graph
 
         Returns:
             a dictionary with missing dependencies for each output in this graph
 
         """
+        if outputs is None:
+            outputs = self.output_layers
         missing_dep = {}
-        for output in self.output_layers:
+        for output in outputs:
             for dep in self.dependencies[output]:
                 if dep not in inputs:
                     if output not in missing_dep:
@@ -287,14 +291,24 @@ class LayerGraph:
         if session is None:
             session: Session = ops.get_default_session()
 
+        target_outputs = as_list(target_outputs)
+        if len(target_outputs) > 0:
+            invalid_out = [to for to in target_outputs if to not in self.output_layers]
+            if len(invalid_out) != 0:
+                raise ValueError("Invalid target outputs. outputs not in the graph:\n"
+                                 "{outs}".format(outs="\n".join(map(str, invalid_out))))
+            output_layers = target_outputs
+        else:
+            output_layers = self.output_layers
+
         other_fetches = as_list(other_fetches)
 
         if feed is None:
             if len(input_values) != len(self.input_layers):
-                ValueError("number of input values ({n_input_values}) does "
-                           "not match number of graph input layers "
-                           "({n_input_layers})".format(n_input_values=len(input_values),
-                                                       n_input_layers=len(self.input_layers)))
+                raise ValueError("number of input values ({n_input_values}) does "
+                                 "not match number of graph input layers "
+                                 "({n_input_layers})".format(n_input_values=len(input_values),
+                                                             n_input_layers=len(self.input_layers)))
 
             feed = {}
             if use_defaults:
@@ -316,8 +330,24 @@ class LayerGraph:
 
             feed.update(required_feed)
         else:
-            inputs_fed = feed.keys()
-            missing_dependencies = self.missing_dependencies(inputs_fed)
+            inputs_fed = set(feed.keys())
+
+            missing_dependencies = self.missing_dependencies(inputs_fed, output_layers)
+            if use_defaults:
+                new_missing_dep = {}
+                default_feed = {}
+                for out_layer, in_layers in missing_dependencies.items():
+                    for in_layer in in_layers:
+                        if in_layer.value is not None:
+                            default_feed[in_layer] = in_layer.value
+                        else:
+                            if out_layer not in new_missing_dep:
+                                new_missing_dep[out_layer] = {in_layer}
+                            else:
+                                new_missing_dep[out_layer].add(in_layer)
+                missing_dependencies = new_missing_dep
+                feed.update(default_feed)
+
             if len(missing_dependencies) > 0:
                 dep_str = [str(o) + "<---[{}]".format(",".join(map(str, i))) for o, i in missing_dependencies.items()]
                 raise ValueError("Could not create graph: \n Missing input dependencies:"
@@ -325,11 +355,11 @@ class LayerGraph:
 
             feed = {layer.tensor: data for layer, data in feed.items()}
 
-        fetches = [out_layer.tensor for out_layer in self.output_layers] + other_fetches
+        fetches = [out_layer.tensor for out_layer in output_layers] + other_fetches
         result = session.run(fetches=fetches, feed_dict=feed, options=options,
                              run_metadata=run_metadata)
 
-        if len(self.output_layers) == 1 and len(other_fetches) == 0:
+        if len(output_layers) == 1 and len(other_fetches) == 0:
             result = result[0]
 
         return result
@@ -363,17 +393,17 @@ class Model:
     """
 
     def __init__(self,
-                 run_in_layers,
                  run_out_layers,
-                 train_in_layers,
-                 train_in_loss,
-                 train_out_layers,
-                 train_out_loss,
-                 eval_in_layers,
-                 eval_in_score,
-                 eval_out_layers,
-                 eval_out_score,
-                 update_in_layers,
+                 run_in_layers=None,
+                 train_in_layers=None,
+                 train_in_loss=None,
+                 train_out_layers=None,
+                 train_out_loss=None,
+                 eval_in_layers=None,
+                 eval_in_score=None,
+                 eval_out_layers=None,
+                 eval_out_score=None,
+                 update_in_layers=None,
                  name='Model'):
         self.name = name
         # run layers
@@ -394,19 +424,18 @@ class Model:
         # this can be a set of params with default values
         self.update_in_layers = as_list(update_in_layers)
 
-        # find variables in the model
-        self.run_vars = {var for layer in self.run_layers for var in layer.variable_names}
-        self.train_vars = {var for layer in self.train_layers for var in layer.variable_names}
-        self.eval_vars = {var for layer in self.eval_layers for var in layer.variable_names}
-
-        self.run_graph: LayerGraph = LayerGraph(inputs=self.model.run_in_layers,
-                                                outputs=self.model.run_out_layers)
+        self.run_graph: LayerGraph = LayerGraph(inputs=self.run_in_layers,
+                                                outputs=self.run_out_layers)
 
         self.train_graph: LayerGraph = LayerGraph(inputs=self.train_in_layers + self.train_in_loss,
                                                   outputs=self.train_out_layers + self.train_out_loss)
 
         self.eval_graph: LayerGraph = LayerGraph(inputs=self.eval_in_layers + self.eval_in_score,
                                                  outputs=self.eval_out_layers + self.eval_out_score)
+
+        self.run_vars = {var for layer in self.run_graph.layers for var in layer.variable_names}
+        self.train_vars = {var for layer in self.train_graph.layers for var in layer.variable_names}
+        self.eval_vars = {var for layer in self.eval_graph.layers for var in layer.variable_names}
 
         update_layer = self.update_state()
         if update_layer is not None:
