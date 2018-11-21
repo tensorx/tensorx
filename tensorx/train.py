@@ -203,16 +203,18 @@ class LayerGraph:
         dependencies = {}
         graph = Graph()
         for output in self.output_layers:
-            dependencies[output] = set()
+            dependencies[output] = []
 
         def build_graph(current_layer, origin_layer):
             in_layers = current_layer.input_layers
-            if len(in_layers) == 0:
-                dependencies[origin_layer].add(current_layer)
+            if len(in_layers) == 0 and hasattr(current_layer, "placeholder"):
+                if current_layer not in dependencies[origin_layer]:
+                    dependencies[origin_layer].append(current_layer)
             else:
                 for in_layer in in_layers:
                     graph.add_edge(in_layer, current_layer)
-                    build_graph(in_layer, origin_layer)
+                    if len(in_layers) != 0:
+                        build_graph(in_layer, origin_layer)
 
         missing_dep = {}
         for output in self.output_layers:
@@ -220,8 +222,9 @@ class LayerGraph:
             for dependency in dependencies[output]:
                 if dependency not in self.input_layers and len(self.input_layers) != 0:
                     if output not in missing_dep:
-                        missing_dep[output] = set()
-                    missing_dep[output].add(dependency)
+                        missing_dep[output] = []
+                    if dependency not in missing_dep[output]:
+                        missing_dep[output].append(dependency)
 
         if len(missing_dep) > 0:
             raise ValueError("Could not create graph: \n Missing input dependencies:"
@@ -267,8 +270,8 @@ class LayerGraph:
                     missing_dep[output].add(dep)
         return missing_dep
 
-    def eval(self, *input_values, other_fetches=None, target_outputs=None,
-             feed=None, use_defaults=True, session=None, options=None,
+    def eval(self, feed=None, other_fetches=None, target_outputs=None,
+             use_defaults=True, session=None, options=None,
              run_metadata=None):
         """ Evaluates the current graph on the given inputs
 
@@ -292,6 +295,9 @@ class LayerGraph:
             the result of the graph evaluation
 
         """
+        if not isinstance(feed, dict):
+            raise TypeError("feed must be a dictionary from inputs to values")
+
         if session is None:
             session: Session = ops.get_default_session()
 
@@ -302,28 +308,34 @@ class LayerGraph:
                 raise ValueError("Invalid target outputs. outputs not in the graph:\n"
                                  "{outs}".format(outs="\n".join(map(str, invalid_out))))
             output_layers = target_outputs
+            input_layers = {dep for target_out in output_layers for dep in self.dependencies[target_out]}
         else:
             output_layers = self.output_layers
+            input_layers = self.input_layers
 
         other_fetches = as_list(other_fetches)
 
+        """
         if feed is None:
-            if len(input_values) != len(self.input_layers):
+            if len(input_values) != len(input_layers):
                 raise ValueError("number of input values ({n_input_values}) does "
                                  "not match number of graph input layers "
                                  "({n_input_layers})".format(n_input_values=len(input_values),
-                                                             n_input_layers=len(self.input_layers)))
+                                                             n_input_layers=len(input_layers)))
 
             feed = {}
             if use_defaults:
-                default_feedable = [feedable for feedable in self.input_layers if feedable.value is not None]
+                default_feedable = [feedable for feedable in input_layers if feedable.value is not None]
             else:
                 default_feedable = []
 
             if use_defaults:
-                required_feedable = [feedable for feedable in self.input_layers if feedable.value is None]
+                required_feedable = [feedable for feedable in input_layers if feedable.value is None]
+                print("inputs")
+                print(list(map(str, required_feedable)))
+                print(input_values)
             else:
-                required_feedable = self.input_layers
+                required_feedable = input_layers
 
             if use_defaults:
                 default_feed = {f_layer.placeholder: f_layer.value for f_layer in default_feedable}
@@ -333,31 +345,33 @@ class LayerGraph:
                              zip(required_feedable, input_values)}
 
             feed.update(required_feed)
+            print(feed)
         else:
-            inputs_fed = set(feed.keys())
+        """
+        inputs_fed = set(feed.keys())
 
-            missing_dependencies = self.missing_dependencies(inputs_fed, output_layers)
-            if use_defaults:
-                new_missing_dep = {}
-                default_feed = {}
-                for out_layer, in_layers in missing_dependencies.items():
-                    for in_layer in in_layers:
-                        if in_layer.value is not None:
-                            default_feed[in_layer] = in_layer.value
+        missing_dependencies = self.missing_dependencies(inputs_fed, output_layers)
+        if use_defaults:
+            new_missing_dep = {}
+            default_feed = {}
+            for out_layer, in_layers in missing_dependencies.items():
+                for in_layer in in_layers:
+                    if in_layer.value is not None:
+                        default_feed[in_layer] = in_layer.value
+                    else:
+                        if out_layer not in new_missing_dep:
+                            new_missing_dep[out_layer] = {in_layer}
                         else:
-                            if out_layer not in new_missing_dep:
-                                new_missing_dep[out_layer] = {in_layer}
-                            else:
-                                new_missing_dep[out_layer].add(in_layer)
-                missing_dependencies = new_missing_dep
-                feed.update(default_feed)
+                            new_missing_dep[out_layer].add(in_layer)
+            missing_dependencies = new_missing_dep
+            feed.update(default_feed)
 
-            if len(missing_dependencies) > 0:
-                dep_str = [str(o) + "<---[{}]".format(",".join(map(str, i))) for o, i in missing_dependencies.items()]
-                raise ValueError("Could not create graph: \n Missing input dependencies:"
-                                 "\n {missing}".format(missing="\n".join(dep_str)))
+        if len(missing_dependencies) > 0:
+            dep_str = [str(o) + "<---[{}]".format(",".join(map(str, i))) for o, i in missing_dependencies.items()]
+            raise ValueError("Could not create graph: \n Missing input dependencies:"
+                             "\n {missing}".format(missing="\n".join(dep_str)))
 
-            feed = {layer.tensor: data for layer, data in feed.items()}
+        feed = {layer.tensor: data for layer, data in feed.items()}
 
         fetches = [out_layer.tensor for out_layer in output_layers] + other_fetches
         result = session.run(fetches=fetches, feed_dict=feed, options=options,
@@ -431,14 +445,14 @@ class Model:
         self.run_graph: LayerGraph = LayerGraph(inputs=self.run_in_layers,
                                                 outputs=self.run_out_layers)
 
-        self.train_graph: LayerGraph = LayerGraph(inputs=self.train_in_layers + self.train_in_loss,
-                                                  outputs=self.train_out_layers + self.train_out_loss)
+        # self.train_graph: LayerGraph = LayerGraph(inputs=self.train_in_layers + self.train_in_loss,
+        #                                          outputs=self.train_out_layers + self.train_out_loss)
 
         self.eval_graph: LayerGraph = LayerGraph(inputs=self.eval_in_layers + self.eval_in_score,
                                                  outputs=self.eval_out_layers + self.eval_out_score)
 
         self.run_vars = {var for layer in self.run_graph.layers for var in layer.variable_names}
-        self.train_vars = {var for layer in self.train_graph.layers for var in layer.variable_names}
+        self.train_vars = []
         self.eval_vars = {var for layer in self.eval_graph.layers for var in layer.variable_names}
 
         update_layer = self.update_state()
@@ -462,7 +476,7 @@ class Model:
 
         # op for model saving and restoring
 
-        if self.model.has_vars():
+        if self.has_vars():
             self.saver = Saver()
         self.init_var_op = None
 
@@ -753,10 +767,15 @@ class Model:
 
         self.train_step = WrapLayer(self.loss_layer, n_units=1, wrap_fn=train_step)
 
-        self.train_graph = LayerGraph(inputs=self.train_graph.input_layers + self.optimizer_params,
-                                      ouputs=self.train_out_layers + [self.train_step])
+        self.train_graph = LayerGraph(inputs=self.train_in_layers +
+                                             self.train_in_loss +
+                                             self.optimizer_params,
+                                      outputs=self.train_out_layers +
+                                              [self.train_step])
 
-    def run(self, *data, feed=None, write_summaries=False):
+        self.train_vars = {var for layer in self.train_graph.layers for var in layer.variable_names}
+
+    def run(self, feed, write_summaries=False):
         """ run the model (inference graph)
         """
         if self.session is None:
@@ -777,10 +796,9 @@ class Model:
             other_fetches = [summary.merge_all()]
 
         if self.runtime_stats:
-            result = self.run_graph.eval(*data,
+            result = self.run_graph.eval(feed=feed,
                                          other_fetches=other_fetches,
                                          use_defaults=True,
-                                         feed=feed,
                                          session=self.session,
                                          options=self.run_options,
                                          run_metadata=self.run_metadata)
@@ -791,8 +809,7 @@ class Model:
             self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_steps + 1),
                                              global_step=self.run_steps + 1)
         else:
-            result = self.run_graph.eval(*data,
-                                         feed=feed,
+            result = self.run_graph.eval(feed=feed,
                                          other_fetches=other_fetches,
                                          use_defaults=True,
                                          session=self.session)
@@ -808,9 +825,7 @@ class Model:
             result = result[0]
         return result
 
-    def train(self, model_input_data=None,
-              loss_input_data=None,
-              feed_dict=None,
+    def train(self, feed_dict,
               output_loss=False,
               write_summaries=False):
         """ Trains the model on the given data.
@@ -850,36 +865,30 @@ class Model:
         if write_summaries:
             other_fetches.append(summary.merge_all())
 
-        inputs = []
-        if model_input_data is not None:
-            inputs += as_list(model_input_data)
-        if loss_input_data is not None:
-            inputs += as_list(loss_input_data)
-
         # RUNTIME STATISTICS such as compute time, memory etc
         if self.runtime_stats:
             if self.log_dir is None:
                 self.set_log_dir()
             self.set_log_writer()
 
-            results = self.train_graph.eval(*inputs,
-                                            other_fetches=other_fetches,
-                                            feed=feed_dict,
-                                            use_defaults=True,
-                                            session=self.session,
-                                            options=self.run_options,
-                                            run_metadata=self.run_metadata)
+            results = self.train_graph.eval(
+                other_fetches=other_fetches,
+                feed=feed_dict,
+                use_defaults=True,
+                session=self.session,
+                options=self.run_options,
+                run_metadata=self.run_metadata)
 
             self.log_writer.add_run_metadata(self.run_metadata,
                                              tag="train step {}".format(self.train_steps + 1),
                                              global_step=self.train_steps + 1)
 
         else:
-            results = self.train_graph.eval(*inputs,
-                                            other_fetches=other_fetches,
-                                            feed=feed_dict,
-                                            use_defaults=True,
-                                            session=self.session)
+            results = self.train_graph.eval(
+                other_fetches=other_fetches,
+                feed=feed_dict,
+                use_defaults=True,
+                session=self.session)
 
         if write_summaries:
             result, other = results[0:-len(other_fetches)], results[-len(other_fetches):]
@@ -891,14 +900,14 @@ class Model:
         if output_loss:
             return other[0]
 
-    def eval(self, data=None, labels=None, feed=None, write_summaries=False):
+    def eval(self, feed, write_summaries=False):
         """ Evaluates the model on the given data.
 
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
 
         Args:
-            data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
-            labels: a :obj:`list` of NumPy `ndarray` with the data to be fed to the evaluation ops.
+            feed (dict): dictionary with eval graph dependencies layer: value
+            write_summaries:
         """
 
         if self.session is None:
@@ -914,21 +923,18 @@ class Model:
                 g.eval(use_defaults=True, session=self.session)
         self.train_called = False
 
-        data = as_list(data)
-        labels = as_list(labels)
-
         other_fetches = None
         if write_summaries:
             other_fetches = [summary.merge_all()]
 
         if self.runtime_stats:
-            result = self.eval_graph.eval(data + labels,
-                                          other_fetches=other_fetches,
-                                          use_defaults=True,
-                                          feed=feed,
-                                          session=self.session,
-                                          options=self.run_options,
-                                          run_metadata=self.run_metadata)
+            result = self.eval_graph.eval(
+                other_fetches=other_fetches,
+                use_defaults=True,
+                feed=feed,
+                session=self.session,
+                options=self.run_options,
+                run_metadata=self.run_metadata)
 
             if self.log_dir is None:
                 self.set_log_dir()
@@ -936,11 +942,11 @@ class Model:
             self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_steps + 1),
                                              global_step=self.eval_steps + 1)
         else:
-            result = self.run_graph.eval(data + labels,
-                                         feed=feed,
-                                         other_fetches=other_fetches,
-                                         use_defaults=True,
-                                         session=self.session)
+            result = self.run_graph.eval(
+                feed=feed,
+                other_fetches=other_fetches,
+                use_defaults=True,
+                session=self.session)
 
         if write_summaries:
             result, logs = result[0:-1], result[-1]

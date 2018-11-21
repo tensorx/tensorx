@@ -59,6 +59,7 @@ def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
         See ``tf.nn.sigmoid_cross_entropy_with_logits``.
 
     Args:
+        name: function name
         labels: ground truth, correct values
         logits: a tensor with the unscaled log probabilities used to predict the labels with sigmoid(logits)
 
@@ -67,10 +68,10 @@ def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
         ``Tensor``: a float ``Tensor``.
 
     """
-    return sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
+    return sigmoid_cross_entropy_with_logits(labels=labels, logits=logits, name=name)
 
 
-def categorical_cross_entropy(labels, logits, dim=-1):
+def categorical_cross_entropy(labels, logits, dim=-1, name="categorical_cross_entropy"):
     """ Categorical Cross entropy
 
     Measures the probability error in discrete classification tasks in which the classes are mutually exclusive.
@@ -91,7 +92,7 @@ def categorical_cross_entropy(labels, logits, dim=-1):
         ``Tensor``: a float ``Tensor``.
 
     """
-    return softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits, dim=dim)
+    return softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits, dim=dim, name=name)
 
 
 def binary_hinge(labels, logits, weights=1.0):

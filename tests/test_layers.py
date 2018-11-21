@@ -3,6 +3,8 @@ import tensorflow as tf
 import numpy as np
 from tensorx.layers import *
 from tensorx.init import *
+from tensorx.loss import *
+from tensorx.train import LayerGraph
 
 from tensorx.layers import layers_to_list
 from tensorx.activation import *
@@ -15,6 +17,30 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class TestLayers(test_utils.TestCase):
+
+    def test_fn_layer(self):
+        in1 = Input(1)
+        in2 = Input(1)
+        in3 = TensorLayer(tf.constant([[2.]]))
+
+        txfn = FnLayer(in1, in2, tensor_fn=binary_cross_entropy)
+        txfn2 = txfn.reuse_with(in1, in3)
+
+        graph = LayerGraph(outputs=[txfn, txfn2])
+
+        with self.cached_session(use_gpu=True):
+            data1 = [[0.23]]
+            data2 = [[2.]]
+            result = graph.eval({in1: data1, in2: data1}, target_outputs=txfn)
+            result2 = self.eval(binary_cross_entropy(data1, data1))
+            result3 = graph.eval({in1: data1, in2: data2}, target_outputs=txfn)
+
+            self.assertArrayEqual(result, result2)
+            self.assertArrayNotEqual(result, result3)
+
+            result4 = graph.eval({in1: data1}, target_outputs=txfn2)
+            self.assertArrayEqual(result4, result3)
+
     def test_variable_layer(self):
         input_layer = TensorLayer([[1]], n_units=1)
         var_layer = VariableLayer(input_layer)
@@ -912,10 +938,11 @@ class TestLayers(test_utils.TestCase):
         """
 
         input1 = TensorLayer(np.array([1, 1, 1, 1]), 4)
-        input1_act = Activation(input1, fn=lambda x: tf.identity(x))
-
         input2 = TensorLayer(np.array([0, 1, 0, 1]), 4)
 
+        input1_act = Activation(input1, fn=lambda x: tf.identity(x))
+
+        # since there's an attribute forward wrap_fn cannot be fn internally if other layers use that attribute
         wrap1 = WrapLayer(input1_act, n_units=input1_act.n_units, wrap_fn=lambda x: tf.multiply(x, 2), attr_fwd="fn")
         wrap2 = WrapLayer(wrap1, n_units=wrap1.n_units, wrap_fn=lambda x: tf.multiply(x, 2))
 

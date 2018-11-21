@@ -4,9 +4,9 @@ import tensorflow as tf
 
 from tensorx import test_utils
 from tensorx.activation import tanh, sigmoid
-from tensorx.layers import Input, Linear, Activation, Add
+from tensorx.layers import Input, Linear, Activation, Add, FnLayer, EvalStepDecayParam
 from tensorx.loss import binary_cross_entropy
-from tensorx.train import ModelRunner, Model, LayerGraph
+from tensorx.train import Model, LayerGraph
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -14,7 +14,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 class ModelRunnerTest(test_utils.TestCase):
 
     def test_graph(self):
-        data = [[1, 2]]
+        data = [[1., 2.]]
 
         in1 = Input(2, name="in1")
         in2 = Input(2, name="in2")
@@ -39,20 +39,18 @@ class ModelRunnerTest(test_utils.TestCase):
 
         with self.cached_session(use_gpu=True) as session:
             self.eval(tf.global_variables_initializer())
-            result = graph.eval(data, session=session)
-            self.assertTrue(len(result), 1)
-            self.assertTrue(np.shape(result), [1, 1])
-
-            result1 = graph.eval(data, session=session)
-            result2 = graph.eval(feed={in1: data}, session=session)
-
-            self.assertArrayEqual(result1, result2)
+            w = self.eval(tf.matmul(data, linear.weights))
+            result1 = graph.eval(feed={in1: data}, session=session)
 
             other_fetches = tf.constant(0)
-            result3 = graph.eval(data, other_fetches=other_fetches, session=session)
+            result2 = graph.eval(feed={in1: data},
+                                 other_fetches=other_fetches,
+                                 session=session)
 
-            self.assertTrue(len(result3), 2)
-            self.assertEqual(result3[-1], 0)
+            self.assertTrue(len(result2), 2)
+            self.assertEqual(result2[-1], 0)
+            self.assertArrayEqual(result2[0], w)
+            self.assertArrayEqual(result1, w)
 
     def test_feed_defaults(self):
         data = [[1, 2]]
@@ -85,32 +83,28 @@ class ModelRunnerTest(test_utils.TestCase):
 
         with self.cached_session(use_gpu=True) as session:
             self.eval(tf.global_variables_initializer())
-            result1 = graph.eval(data, data, session=session)
+
+            result1 = graph.eval(feed={in1: data, in2: data2}, session=session)
             self.assertEqual(len(result1), 2)
-
-            result2 = graph.eval(feed={in1: data, in2: data}, session=session)
-            self.assertEqual(len(result2), 2)
-
-            self.assertArrayEqual(result1, result2)
 
             # testing target output and defaults without feed
             # does not override default
-            in2.value = data
-            result3 = graph.eval(data, data2,
+            in2.value = data2
+            result2 = graph.eval(feed={in1: data, in1: data},
                                  target_outputs=linear2,
                                  # feed={in1: data,in2: data},
                                  session=session)
-            self.assertArrayEqual(result3, result2[-1])
+            self.assertArrayEqual(result2, result1[-1])
             in2.value = None
 
             # fills in1 in2 by the same order
-            result4 = graph.eval(data, data2,
+            result4 = graph.eval(feed={in1: data, in2: data},
                                  target_outputs=linear2,
                                  # feed={in1: data,in2: data},
                                  session=session)
 
             # not the same because we use data2
-            self.assertArrayNotEqual(result4, result3)
+            self.assertArrayNotEqual(result4, result2)
 
     def test_model_session(self):
         data = [[1]]
@@ -118,68 +112,65 @@ class ModelRunnerTest(test_utils.TestCase):
         # feed = {inputs.placeholder: data}
         linear = Linear(inputs, 1)
         model = Model(run_in_layers=inputs, run_out_layers=linear)
-        runner = ModelRunner(model)
 
         # runner.set_session()
 
         # creates a new session or uses the default session
-        self.assertIsNone(runner.session)
-        self.assertFalse(runner.vars_inited())
+        self.assertIsNone(model.session)
+        self.assertFalse(model.vars_inited())
 
-        runner.run(data)
+        model.run({inputs: data})
 
-        self.assertIsNotNone(runner.session)
-        self.assertTrue(runner.vars_inited())
+        self.assertIsNotNone(model.session)
+        self.assertTrue(model.vars_inited())
 
         # consecutive runs do not change the session
-        session1 = runner.session
-        result1 = runner.run(data)
+        session1 = model.session
+        result1 = model.run({inputs: data})
         # weights1 = session1.run(linear.weights, {inputs.tensor: data})
-        self.assertEqual(runner.session, session1)
+        self.assertEqual(model.session, session1)
 
         with tf.Session() as new_session:
             # this creates a new session
-            session2 = runner.set_session()
-            self.assertIsNotNone(runner.session)
+            session2 = model.set_session()
+            self.assertIsNotNone(model.session)
             self.assertNotEqual(session1, session2)
             self.assertEqual(session2, new_session)
             # setting a new session resets the variables
-            self.assertFalse(runner.vars_inited())
+            self.assertFalse(model.vars_inited())
 
             # different sessions init the variables again
-            result2 = runner.run(data)
+            result2 = model.run({inputs: data})
 
             self.assertFalse(np.array_equal(result1, result2))
 
-            runner.set_session()
+            model.set_session()
             # explicitly initialise variables with the new session
-            runner.init_vars()
-            self.assertTrue(runner.vars_inited())
-            result31 = runner.run(data)
+            model.init_vars()
+            self.assertTrue(model.vars_inited())
+            result31 = model.run({inputs: data})
             # if the session doesn't change and variables are not re-initialised, the result should be the same
-            result32 = runner.run(data)
-            runner.init_vars()
-            result33 = runner.run(data)
+            result32 = model.run({inputs: data})
+            model.init_vars()
+            result33 = model.run({inputs: data})
             self.assertTrue(np.array_equal(result31, result32))
             self.assertFalse(np.array_equal(result31, result33))
 
             # to use the model in a new session, either call reset or model.set_session(session)
-            runner.reset_session()
+            model.reset_session()
 
         with tf.Session() as session4:
-            runner.run(data)
-            self.assertEqual(runner.session, session4)
+            model.run({inputs: data})
+            self.assertEqual(model.session, session4)
 
-        runner.reset_session()
-        self.assertIsNone(runner.session)
+        model.reset_session()
+        self.assertIsNone(model.session)
         session5 = tf.InteractiveSession()
-        runner.run(data)
-        self.assertEqual(runner.session, session5)
+        model.run({inputs: data})
+        self.assertEqual(model.session, session5)
         tf.reset_default_graph()
 
     def test_model_graphs(self):
-        data = [[1, 1]]
-
         in1 = Input(2, name="in1")
         in2 = Input(2, name="in2")
 
@@ -192,19 +183,18 @@ class ModelRunnerTest(test_utils.TestCase):
         inputs = Input(1)
         linear = Linear(inputs, 2)
         model = Model(run_in_layers=inputs, run_out_layers=linear)
-        runner = ModelRunner(model)
 
         with tf.Session() as session1:
             self.assertFalse(session1.run(tf.is_variable_initialized(linear.bias)))
-            runner.init_vars()
+            model.init_vars()
             self.assertTrue(session1.run(tf.is_variable_initialized(linear.bias)))
-            runner.run([[1.]])
+            model.run({inputs:[[1.]]})
 
         # if reset is not called, init vars tries to use session1
-        runner.reset_session()
+        model.reset_session()
         session2 = tf.Session()
-        runner.set_session(session2)
-        runner.init_vars()
+        model.set_session(session2)
+        model.init_vars()
         self.assertTrue(session2.run(tf.is_variable_initialized(linear.bias)))
 
         session2.close()
@@ -217,12 +207,11 @@ class ModelRunnerTest(test_utils.TestCase):
             logits = Linear(h, 4)
             out = Activation(logits, fn=sigmoid)
 
-            model = Model(inputs, out)
-            runner = ModelRunner(model)
+            model = Model(run_in_layers=inputs, run_out_layers=out)
 
             data1 = [[1, -1, 1, -1]]
 
-            result = runner.run(data1)
+            result = model.run({inputs:data1})
             self.assertIsInstance(result, np.ndarray)
             self.assertTrue(np.ndim(result), 2)
 
@@ -234,37 +223,39 @@ class ModelRunnerTest(test_utils.TestCase):
 
             # configure training
             labels = Input(2, name="y_")
-            losses = binary_cross_entropy(labels.tensor, h.tensor)
+            losses = FnLayer(labels, h, tensor_fn=binary_cross_entropy)
 
-            model = Model(input_layer, h,
+            model = Model(run_in_layers=input_layer,
+                          run_out_layers=h,
+                          train_in_layers=input_layer,
                           train_out_loss=losses,
                           train_in_loss=labels,
+                          eval_in_layers=input_layer,
                           eval_out_score=losses,
                           eval_in_score=labels)
-            runner = ModelRunner(model)
 
             optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)
-            runner.config_optimizer(optimiser)
+            model.config_optimizer(optimiser)
 
             data = np.array([[1, 1, 1, 1]])
             target = np.array([[1.0, 0.0]])
 
             # session = runner.session
             # weights = session.run(linear.weights)
-            runner.init_vars()
-            weights1 = runner.session.run(linear.weights)
+            model.init_vars()
+            weights1 = model.session.run(linear.weights)
 
             for i in range(10):
-                runner.train(data, target)
+                model.train({input_layer: data, labels: target})
 
-            weights2 = runner.session.run(linear.weights)
+            weights2 = model.session.run(linear.weights)
 
             self.assertFalse(np.array_equal(weights1, weights2))
 
     def test_eval_step_decay_param(self):
         v1 = 4
         decay_rate = 0.5
-        param = EvalStepDecayParam(v1,
+        param = EvalStepDecayParam(value=v1,
                                    decay_rate=decay_rate,
                                    improvement_threshold=1.0,
                                    less_is_better=True)

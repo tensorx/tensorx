@@ -302,7 +302,7 @@ class Layer:
 
         Prevents the setting of tensor to anything other than Tensor or Sparse Tensor
         """
-        if not isinstance(tensor, (Tensor, SparseTensor, variables.Variable)):
+        if not isinstance(tensor, (Tensor, SparseTensor, variables.Variable, ops.Operation)):
             raise TypeError(
                 "tensor can only be set to Tensor or SparseTensor: {} found ".format(type(self.tensor)))
         self._tensor = tensor
@@ -361,7 +361,7 @@ class Layer:
         return WrapLayer(layer=self,
                          n_units=self.n_units,
                          wrap_fn=lambda tensor: tensor[item],
-                         name="{}_slice[{}]".format(self.name, item))
+                         name="{}_slice_{}".format(self.name, item))
 
     def eval(self, feed_dict=None, session=None):
         return self.tensor.eval(feed_dict=feed_dict, session=session)
@@ -428,8 +428,8 @@ class WrapLayer(Layer):
             tensor = self.wrap_fn(layer.tensor)
 
         self.tensor = tensor
-        self.dtype = tensor.dtype
-        self.shape = tensor.get_shape()
+        self.dtype = tensor.dtype if not isinstance(tensor, ops.Operation) else None
+        self.shape = tensor.get_shape() if not isinstance(tensor, ops.Operation) else None
 
     def reuse_with(self, *layers, name=None):
         """ Reuse with a different input layer
@@ -674,7 +674,7 @@ class Param(Layer):
         super().__init__(input_layers=[], n_units=1, shape=shape, dtype=dtype, name=name)
         self.value = value
 
-        with layer_scope(name):
+        with layer_scope(self, name=name):
             self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
             self.tensor = self.placeholder
 
@@ -922,6 +922,69 @@ class TensorLayer(Layer):
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on TensorLayer Layer: TensorLayer has no input layers")
+
+
+class FnLayer(Layer):
+    """ Custom Fn Layer
+
+    Attributes:
+        tensor: the tensor to be wrapped by this layer
+        var_list: if vars are involved in the output tensor, they can be specified here
+        and will be listed in variable_names and variables
+        n_units: number of units for this layer,
+        batch_size: Optional batch size for this layer
+
+    Creates a layer from a given tensor that one can then integrate with other layers
+    """
+
+    def __init__(self, *layers, tensor_fn, n_units=None, shape=None, var_list=None, dtype=None, name="tensor_input"):
+        self.tensor_fn = tensor_fn
+        self.var_list = var_list
+
+        with layer_scope(self, name=name):
+            tensors = [layer.tensor for layer in layers]
+            tensor = tensor_fn(*tensors)
+            if dtype is not None and tensor.dtype != dtype and not isinstance(tensor, ops.Operation):
+                tensor = math_ops.cast(tensor, dtype)
+            dtype = tensor.dtype if not isinstance(tensor, ops.Operation) else None
+
+        if shape is None and not isinstance(tensor, ops.Operation):
+            shape = tensor.get_shape().as_list()
+
+            if shape[-1] is None and n_units is not None:
+                shape[-1] = n_units
+
+            if all(dim is None for dim in shape):
+                raise ValueError("dynamic shape couldn't be determined: provided shape can't be none")
+
+        if n_units is None and not isinstance(tensor, ops.Operation):
+            n_units = shape[-1]
+            if n_units is None:
+                raise ValueError("number of units could not be determined from tensor")
+
+        if shape[-1] != n_units and not isinstance(tensor, ops.Operation):
+            raise ValueError("tensor shape [...,n_units={}] does not match n_units={}".format(shape[-1], n_units))
+
+        if var_list is not None:
+            for var in var_list:
+                self._add_variable(var)
+
+        super().__init__(input_layers=layers,
+                         n_units=n_units,
+                         shape=shape,
+                         dtype=dtype,
+                         name=name)
+
+        self.tensor = tensor
+
+    def reuse_with(self, *layers, name=None):
+        return FnLayer(*layers,
+                       tensor_fn=self.tensor_fn,
+                       n_units=self.n_units,
+                       shape=self.shape,
+                       var_list=self.var_list,
+                       dtype=self.dtype,
+                       name=self.name)
 
 
 class Linear(Layer):
@@ -3444,5 +3507,6 @@ __all__ = ["Input",
            "Transpose",
            "BatchNorm",
            "Conv2D",
-           "VariableLayer"
+           "VariableLayer",
+           "FnLayer"
            ]
