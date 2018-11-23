@@ -7,7 +7,6 @@ import itertools
 from collections import deque
 
 from tensorflow.python.framework import ops, dtypes
-
 from tensorflow.python.framework.ops import Tensor, name_scope
 from tensorflow.python.ops import array_ops, control_flow_ops
 
@@ -937,7 +936,7 @@ class FnLayer(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, *layers, tensor_fn, n_units=None, shape=None, var_list=None, dtype=None, name="tensor_input"):
+    def __init__(self, *layers, tensor_fn, n_units=None, shape=None, var_list=None, dtype=None, name="fn_layer"):
         self.tensor_fn = tensor_fn
         self.var_list = var_list
 
@@ -950,20 +949,18 @@ class FnLayer(Layer):
 
         if shape is None and not isinstance(tensor, ops.Operation):
             shape = tensor.get_shape().as_list()
-
-            if shape[-1] is None and n_units is not None:
+            if len(shape) == 0:
+                shape = [None, n_units]
+            elif shape[-1] is None and n_units is not None:
                 shape[-1] = n_units
 
-            if all(dim is None for dim in shape):
-                raise ValueError("dynamic shape couldn't be determined: provided shape can't be none")
+        if all(dim is None for dim in shape):
+            raise ValueError("dynamic shape couldn't be determined: provided shape can't be none")
 
         if n_units is None and not isinstance(tensor, ops.Operation):
             n_units = shape[-1]
             if n_units is None:
                 raise ValueError("number of units could not be determined from tensor")
-
-        if shape[-1] != n_units and not isinstance(tensor, ops.Operation):
-            raise ValueError("tensor shape [...,n_units={}] does not match n_units={}".format(shape[-1], n_units))
 
         if var_list is not None:
             for var in var_list:
@@ -2171,7 +2168,7 @@ class Lookup(Layer):
                  shared_bias=None,
                  shared_weights=None,
                  dtype=dtypes.float32,
-                 name="seq_lookup",
+                 name="lookup",
                  share_vars_with=None,
                  batch_padding=True
                  ):
@@ -2375,11 +2372,11 @@ class Lookup(Layer):
         n_units = self.n_units * self.seq_size
 
         return WrapLayer(self, n_units, wrap_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
-                         attr_fwd=["weights", "bias", "seq_size"])
+                         attr_fwd=["weights", "bias", "seq_size"], name="concat_features")
 
     def as_seq(self):
         return WrapLayer(self, self.n_units, lambda x: array_ops.transpose(x, [1, 0, 2]),
-                         attr_fwd=["weights", "bias", "seq_size"])
+                         attr_fwd=["weights", "bias", "seq_size"], name="as_sequence")
 
     def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.

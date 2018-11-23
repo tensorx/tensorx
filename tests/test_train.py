@@ -44,7 +44,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
             other_fetches = tf.constant(0)
             result2 = graph.eval(feed={in1: data},
-                                 other_fetches=other_fetches,
+                                 other_tensors=other_fetches,
                                  session=session)
 
             self.assertTrue(len(result2), 2)
@@ -217,12 +217,12 @@ class ModelRunnerTest(test_utils.TestCase):
 
     def test_model_train(self):
         with self.cached_session(use_gpu=True):
-            input_layer = Input(4, name="x")
+            input_layer = Input(4, name="inputs")
             linear = Linear(input_layer, 2)
             h = Activation(linear, fn=sigmoid)
 
             # configure training
-            labels = Input(2, name="y_")
+            labels = Input(2, name="labels")
             losses = FnLayer(labels, h, tensor_fn=binary_cross_entropy)
 
             model = Model(run_in_layers=input_layer,

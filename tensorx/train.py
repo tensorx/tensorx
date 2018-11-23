@@ -184,11 +184,13 @@ def _get_feedable(inputs):
 
 
 class LayerGraph:
-    def __init__(self, outputs, inputs=None):
+    def __init__(self, outputs, inputs=None, other_tensors=None):
         """ Creates a self-contained graph that can be evaluated by feeding data to the
         graph inputs.
 
         Args:
+            other_tensors (List[Tensor]): if supplied these are runned along with the rest of the graph in eval
+            AFTER the fetches from the outputs
             inputs: a list of lists of inputs (a Input, SparseInput Layers or Param instance) for each output node
 
             outputs: a list of Layers with the outputs of the graphs
@@ -197,6 +199,7 @@ class LayerGraph:
             Value Error: if the graph is not well defined: the outputs are not connected to the
             specified inputs
         """
+        self.other_tensors = as_list(other_tensors)
         self.input_layers = set(as_list(inputs))
         self.output_layers = as_list(outputs)
 
@@ -270,7 +273,7 @@ class LayerGraph:
                     missing_dep[output].add(dep)
         return missing_dep
 
-    def eval(self, feed=None, other_fetches=None, target_outputs=None,
+    def eval(self, feed=None, other_tensors=None, target_outputs=None,
              use_defaults=True, session=None, options=None,
              run_metadata=None):
         """ Evaluates the current graph on the given inputs
@@ -280,7 +283,7 @@ class LayerGraph:
         fed with their default values.
 
         Args:
-            other_fetches: runs other tensors or ops that might not be included in the graph
+            other_tensors: runs other tensors or ops that might not be included in the graph
             use_defaults: automatically fill the default values if input layer .value attribute is not None
             input_values: data to be fed, else it tries to match the input values with all self.input_lauyers
             feed: a feed dictionary from Input Layers or Parameters to values, if None, matches the
@@ -302,18 +305,18 @@ class LayerGraph:
             session: Session = ops.get_default_session()
 
         target_outputs = as_list(target_outputs)
+
+        output_layers = self.output_layers
+        # input_layers = self.input_layers
+        other_tensors = self.other_tensors + as_list(other_tensors)
+
         if len(target_outputs) > 0:
             invalid_out = [to for to in target_outputs if to not in self.output_layers]
             if len(invalid_out) != 0:
                 raise ValueError("Invalid target outputs. outputs not in the graph:\n"
                                  "{outs}".format(outs="\n".join(map(str, invalid_out))))
             output_layers = target_outputs
-            input_layers = {dep for target_out in output_layers for dep in self.dependencies[target_out]}
-        else:
-            output_layers = self.output_layers
-            input_layers = self.input_layers
-
-        other_fetches = as_list(other_fetches)
+            # input_layers = {dep for target_out in output_layers for dep in self.dependencies[target_out]}
 
         """
         if feed is None:
@@ -373,11 +376,11 @@ class LayerGraph:
 
         feed = {layer.tensor: data for layer, data in feed.items()}
 
-        fetches = [out_layer.tensor for out_layer in output_layers] + other_fetches
+        fetches = [out_layer.tensor for out_layer in output_layers] + other_tensors
         result = session.run(fetches=fetches, feed_dict=feed, options=options,
                              run_metadata=run_metadata)
 
-        if len(output_layers) == 1 and len(other_fetches) == 0:
+        if len(output_layers) == 1 and len(other_tensors) == 0:
             result = result[0]
 
         return result
@@ -765,13 +768,12 @@ class Model:
 
             return train_step
 
-        self.train_step = WrapLayer(self.loss_layer, n_units=1, wrap_fn=train_step)
+        self.train_step = train_step(
+            self.loss_layer.tensor)  # WrapLayer(self.loss_layer, n_units=1, wrap_fn=train_step)
 
-        self.train_graph = LayerGraph(inputs=self.train_in_layers +
-                                             self.train_in_loss +
-                                             self.optimizer_params,
-                                      outputs=self.train_out_layers +
-                                              [self.train_step])
+        self.train_graph = LayerGraph(inputs=self.train_in_layers + self.train_in_loss + self.optimizer_params,
+                                      outputs=self.train_out_layers + [self.loss_layer],
+                                      other_tensors=self.train_step)
 
         self.train_vars = {var for layer in self.train_graph.layers for var in layer.variable_names}
 
@@ -797,7 +799,7 @@ class Model:
 
         if self.runtime_stats:
             result = self.run_graph.eval(feed=feed,
-                                         other_fetches=other_fetches,
+                                         other_tensors=other_fetches,
                                          use_defaults=True,
                                          session=self.session,
                                          options=self.run_options,
@@ -810,7 +812,7 @@ class Model:
                                              global_step=self.run_steps + 1)
         else:
             result = self.run_graph.eval(feed=feed,
-                                         other_fetches=other_fetches,
+                                         other_tensors=other_fetches,
                                          use_defaults=True,
                                          session=self.session)
 
@@ -872,7 +874,7 @@ class Model:
             self.set_log_writer()
 
             results = self.train_graph.eval(
-                other_fetches=other_fetches,
+                other_tensors=other_fetches,
                 feed=feed_dict,
                 use_defaults=True,
                 session=self.session,
@@ -885,13 +887,14 @@ class Model:
 
         else:
             results = self.train_graph.eval(
-                other_fetches=other_fetches,
+                other_tensors=other_fetches,
                 feed=feed_dict,
                 use_defaults=True,
                 session=self.session)
 
+        result, other = results[0:-len(other_fetches)], results[-len(other_fetches):]
+
         if write_summaries:
-            result, other = results[0:-len(other_fetches)], results[-len(other_fetches):]
             logs = other[-1]
             self.log_writer.add_summary(logs, self.train_steps + 1)
 
@@ -929,7 +932,7 @@ class Model:
 
         if self.runtime_stats:
             result = self.eval_graph.eval(
-                other_fetches=other_fetches,
+                other_tensors=other_fetches,
                 use_defaults=True,
                 feed=feed,
                 session=self.session,
@@ -944,7 +947,7 @@ class Model:
         else:
             result = self.run_graph.eval(
                 feed=feed,
-                other_fetches=other_fetches,
+                other_tensors=other_fetches,
                 use_defaults=True,
                 session=self.session)
 
