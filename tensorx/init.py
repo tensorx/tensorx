@@ -89,7 +89,7 @@ def orthogonal_init(gain=1.0, seed=None, dtype=dt.float32):
     return init_ops.orthogonal_initializer(gain, seed, dtype)
 
 
-class HeNormal(init_ops.Initializer):
+def he_normal_init(seed=None):
     """ ReLU Weight Initialisation [1].
 
 
@@ -106,28 +106,8 @@ class HeNormal(init_ops.Initializer):
         References:
             [1] (He, Rang, Zhen and Sun 2015), "Delving Deep into Rectifiers:Surpassing Human-Level Performance on
             ImageNet Classification".
-
-        Args:
-
-            dtype: TensorFlow dtype
     """
+    return init_ops.he_normal(seed=seed)
 
-    def __init__(self, dtype=dt.float32):
-        self.dtype = dt.as_dtype(dtype)
-
-    def __call__(self, shape, dtype=None, partition_info=None):
-        if dtype is None:
-            dtype = self.dtype
-
-        [fan_in, fan_out] = shape
-        mu = 0
-        sigma = math_ops.sqrt(2.0 / fan_in)
-        return random_ops.random_normal((fan_in, fan_out), mu, sigma, dtype)
-
-    def get_config(self):
-        return {"dtype": self.dtype.name}
-
-
-he_normal_init = HeNormal
 
 __all__ = ["zero_init", "ones_init", "random_normal", "random_uniform", "he_normal_init", "xavier_init"]

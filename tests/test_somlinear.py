@@ -161,7 +161,7 @@ class MyTestCase(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             self.eval(init)
 
-            dense_gauss_neighbourhood = tf.sparse_tensor_to_dense(sp_gauss_neighbourhood)
+            dense_gauss_neighbourhood = tf.sparse.to_dense(sp_gauss_neighbourhood)
             self.assertArrayEqual(dense_gauss_neighbourhood, gauss_neighbourhood)
 
         # print("dynamic gauss dist clipped\n", gauss_neighbourhood.eval())
@@ -276,7 +276,7 @@ class MyTestCase(test_utils.TestCase):
 
         # delta x - som
         if isinstance(inputs, tf.SparseTensor):
-            inputs = tf.sparse_tensor_to_dense(inputs)
+            inputs = tf.sparse.to_dense(inputs)
         delta = tf.expand_dims(inputs, 1) - som
         # print("shape delta x - som ", tf.shape(delta).eval())
         # print("in \n", inputs.eval())

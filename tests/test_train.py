@@ -111,7 +111,7 @@ class ModelRunnerTest(test_utils.TestCase):
         inputs = Input(1)
         # feed = {inputs.placeholder: data}
         linear = Linear(inputs, 1)
-        model = Model(run_in_layers=inputs, run_out_layers=linear)
+        model = Model(run_inputs=inputs, run_outputs=linear)
 
         # runner.set_session()
 
@@ -177,18 +177,18 @@ class ModelRunnerTest(test_utils.TestCase):
         linear1 = Linear(in1, 1)
         linear2 = Linear(Add(in1, in2), 1)
 
-        Model(run_in_layers=[in1, in2], run_out_layers=[linear1, linear2])
+        Model(run_inputs=[in1, in2], run_outputs=[linear1, linear2])
 
     def test_model_var_init(self):
         inputs = Input(1)
         linear = Linear(inputs, 2)
-        model = Model(run_in_layers=inputs, run_out_layers=linear)
+        model = Model(run_inputs=inputs, run_outputs=linear)
 
         with tf.Session() as session1:
             self.assertFalse(session1.run(tf.is_variable_initialized(linear.bias)))
             model.init_vars()
             self.assertTrue(session1.run(tf.is_variable_initialized(linear.bias)))
-            model.run({inputs:[[1.]]})
+            model.run({inputs: [[1.]]})
 
         # if reset is not called, init vars tries to use session1
         model.reset_session()
@@ -207,11 +207,11 @@ class ModelRunnerTest(test_utils.TestCase):
             logits = Linear(h, 4)
             out = Activation(logits, fn=sigmoid)
 
-            model = Model(run_in_layers=inputs, run_out_layers=out)
+            model = Model(run_inputs=inputs, run_outputs=out)
 
             data1 = [[1, -1, 1, -1]]
 
-            result = model.run({inputs:data1})
+            result = model.run({inputs: data1})
             self.assertIsInstance(result, np.ndarray)
             self.assertTrue(np.ndim(result), 2)
 
@@ -223,16 +223,14 @@ class ModelRunnerTest(test_utils.TestCase):
 
             # configure training
             labels = Input(2, name="labels")
-            losses = FnLayer(labels, h, tensor_fn=binary_cross_entropy)
+            losses = FnLayer(labels, h, apply_fn=binary_cross_entropy)
 
-            model = Model(run_in_layers=input_layer,
-                          run_out_layers=h,
-                          train_in_layers=input_layer,
-                          train_out_loss=losses,
-                          train_in_loss=labels,
-                          eval_in_layers=input_layer,
-                          eval_out_score=losses,
-                          eval_in_score=labels)
+            model = Model(run_inputs=input_layer,
+                          run_outputs=h,
+                          train_inputs=[input_layer, labels],
+                          train_loss=losses,
+                          eval_inputs=[input_layer, labels],
+                          eval_score=losses)
 
             optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)
             model.config_optimizer(optimiser)

@@ -3,16 +3,17 @@
 This module contains metrics or distance functions defining a distance between each pair of elements of a set.
 
 """
-from tensorflow.python.ops import math_ops, array_ops, linalg_ops, clip_ops, sparse_ops
+from tensorflow.python.ops import math_ops, array_ops, linalg_ops, clip_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.ops import Tensor
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
+from tensorflow.python.framework.sparse_tensor import SparseTensor
 
-from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot, dot
+from tensorx.math import sparse_l2_norm, batch_sparse_dot, sparse_dot
 from tensorx.utils import to_tensor_cast
 
 import tensorx.transform as txf
+from tensorflow import sparse
 
 from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
 
@@ -311,9 +312,9 @@ def batch_manhattan_distance(tensor1, tensor2, keepdims=False):
     tensor2 = convert_to_tensor_or_sparse_tensor(tensor2)
 
     if isinstance(tensor1, SparseTensor):
-        tensor1 = sparse_ops.sparse_tensor_to_dense(tensor1)
+        tensor1 = sparse.to_dense(tensor1)
     if isinstance(tensor2, SparseTensor):
-        tensor2 = sparse_ops.sparse_tensor_to_dense(tensor2)
+        tensor2 = sparse.to_dense(tensor2)
 
     tensor1 = array_ops.expand_dims(tensor1, 1)
     abs_diff = math_ops.abs(math_ops.subtract(tensor1, tensor2))

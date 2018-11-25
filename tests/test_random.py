@@ -110,14 +110,14 @@ class TestRandom(test_utils.TestCase):
                                             density=density,
                                             mask_values=mask_values,
                                             symmetrical=False)
-        dense_mask = tf.sparse_tensor_to_dense(sp_mask)
+        dense_mask = tf.sparse.to_dense(sp_mask)
 
         sp_symmetrical_mask = random.sparse_random_mask(dim=dim,
                                                         batch_size=batch_size,
                                                         density=density,
                                                         mask_values=mask_values,
                                                         symmetrical=True)
-        dense_symmetrical_mask = tf.sparse_tensor_to_dense(sp_symmetrical_mask)
+        dense_symmetrical_mask = tf.sparse.to_dense(sp_symmetrical_mask)
 
         density = 0.5
         mask_values = [1, -1, 2, -2]
@@ -126,7 +126,7 @@ class TestRandom(test_utils.TestCase):
                                             density=density,
                                             mask_values=mask_values,
                                             symmetrical=False)
-        dense_mask_multiple_values = tf.sparse_tensor_to_dense(sp_mask)
+        dense_mask_multiple_values = tf.sparse.to_dense(sp_mask)
 
         with self.cached_session(use_gpu=True):
             self.assertNotEqual(tf.reduce_sum(dense_mask), 0.0)

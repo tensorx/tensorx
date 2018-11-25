@@ -184,11 +184,13 @@ def _get_feedable(inputs):
 
 
 class LayerGraph:
-    def __init__(self, outputs, inputs=None, other_tensors=None):
+    def __init__(self, outputs, inputs=None, other_tensors=None, other_inputs=None):
         """ Creates a self-contained graph that can be evaluated by feeding data to the
         graph inputs.
 
         Args:
+            other_inputs (object): other inputs are just added to the graph possibly
+            to feed other tensors graph, but depdendencies are not checked.
             other_tensors (List[Tensor]): if supplied these are runned along with the rest of the graph in eval
             AFTER the fetches from the outputs
             inputs: a list of lists of inputs (a Input, SparseInput Layers or Param instance) for each output node
@@ -200,6 +202,7 @@ class LayerGraph:
             specified inputs
         """
         self.other_tensors = as_list(other_tensors)
+        self.other_inputs = as_list(other_inputs)
         self.input_layers = set(as_list(inputs))
         self.output_layers = as_list(outputs)
 
@@ -311,7 +314,7 @@ class LayerGraph:
         other_tensors = self.other_tensors + as_list(other_tensors)
 
         if len(target_outputs) > 0:
-            invalid_out = [to for to in target_outputs if to not in self.output_layers]
+            invalid_out = [target for target in target_outputs if target not in self.output_layers]
             if len(invalid_out) != 0:
                 raise ValueError("Invalid target outputs. outputs not in the graph:\n"
                                  "{outs}".format(outs="\n".join(map(str, invalid_out))))
@@ -354,6 +357,7 @@ class LayerGraph:
         inputs_fed = set(feed.keys())
 
         missing_dependencies = self.missing_dependencies(inputs_fed, output_layers)
+        missing_others = set()
         if use_defaults:
             new_missing_dep = {}
             default_feed = {}
@@ -366,12 +370,24 @@ class LayerGraph:
                             new_missing_dep[out_layer] = {in_layer}
                         else:
                             new_missing_dep[out_layer].add(in_layer)
+
+            # feed other inputs (not connected to the graph necessarily)
+            for in_layer in self.other_inputs:
+                if in_layer.value is not None:
+                    default_feed[in_layer] = in_layer.value
+                else:
+                    missing_others.add(in_layer)
             missing_dependencies = new_missing_dep
             feed.update(default_feed)
 
+        if len(missing_others) > 0:
+            dep_str = [str(missing) for missing in missing_others]
+            raise ValueError("Could not run eval, missing other_inputs without default"
+                             "values: \n {dep}".format("\n".join(dep_str)))
+
         if len(missing_dependencies) > 0:
             dep_str = [str(o) + "<---[{}]".format(",".join(map(str, i))) for o, i in missing_dependencies.items()]
-            raise ValueError("Could not create graph: \n Missing input dependencies:"
+            raise ValueError("Could not evaluate graph: \n Missing input dependencies:"
                              "\n {missing}".format(missing="\n".join(dep_str)))
 
         feed = {layer.tensor: data for layer, data in feed.items()}
@@ -389,78 +405,55 @@ class LayerGraph:
 class Model:
     """ Model.
 
-    # TODO add support for learners, if the model contains layers that are trainable without using optimisers like SGD
-
     A `Model` is a container for tensorx graph. It stores the endpoints (input-output) of a model
-    and facilitates its visualisation and manipulation.
+    and facilitates training, inference, and evaluation
 
-    Note:
-        The basic idea is to show that both loss and eval could be implemented in child Models,
-        the default being these to be set to []. It also provides access to inputs, outputs and
-        layers which is a list of existing `Layer` instances in the model
-
-    TODO change this documentation accordingly
     Args:
-        run_input: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
-        run_output: a :obj:`list` of :class:`Layer` or `Tensor` with the outputs for the model
-        train_inputs: a :obj:`list` of :class:`Input` or :class:`SparseInput` with the inputs for the model
-        eval_tensors: a single eval tensor or list of tensors
 
-    Attributes:
-        loss_tensors: a :obj:`list` of `Tensor` instances with loss functions for the model
-        eval_out_score: a :obj:`list` of `Tensor` instances with evaluation functions for the model
-        name: a :obj:`str` with the name for this model
-        variables: set of all the variables in the model
     """
 
     def __init__(self,
-                 run_out_layers,
-                 run_in_layers=None,
-                 train_in_layers=None,
-                 train_in_loss=None,
-                 train_out_layers=None,
-                 train_out_loss=None,
-                 eval_in_layers=None,
-                 eval_in_score=None,
-                 eval_out_layers=None,
-                 eval_out_score=None,
-                 update_in_layers=None,
+                 run_outputs,
+                 run_inputs=None,
+                 train_inputs=None,
+                 train_outputs=None,
+                 train_loss=None,
+                 eval_inputs=None,
+                 eval_outputs=None,
+                 eval_score=None,
+                 update_inputs=None,
+                 update_ops=None,
                  name='Model'):
         self.name = name
         # run layers
 
-        self.run_in_layers = as_list(run_in_layers)
-        self.run_out_layers = as_list(run_out_layers)
+        self.run_inputs = as_list(run_inputs)
+        self.run_outputs = as_list(run_outputs)
 
-        self.train_in_layers = as_list(train_in_layers)
-        self.train_in_loss = as_list(train_in_loss)
-        self.train_out_layers = as_list(train_out_layers)
-        self.train_out_loss = as_list(train_out_loss)
+        self.train_inputs = as_list(train_inputs)
+        self.train_outputs = as_list(train_outputs)
+        self.train_loss = as_list(train_loss)
 
-        self.eval_in_layers = as_list(eval_in_layers)
-        self.eval_in_score = as_list(eval_in_score)
-        self.eval_out_layers = as_list(eval_out_layers)
-        self.eval_out_score = as_list(eval_out_score)
+        self.eval_inputs = as_list(eval_inputs)
+        self.eval_outputs = as_list(eval_outputs)
+        self.eval_score = as_list(eval_score)
 
         # this can be a set of params with default values
-        self.update_in_layers = as_list(update_in_layers)
+        self.update_inputs = as_list(update_inputs)
+        self.update_ops = as_list(update_ops)
 
-        self.run_graph: LayerGraph = LayerGraph(inputs=self.run_in_layers,
-                                                outputs=self.run_out_layers)
+        self.run_graph: LayerGraph = LayerGraph(inputs=self.run_inputs,
+                                                outputs=self.run_outputs)
 
-        # self.train_graph: LayerGraph = LayerGraph(inputs=self.train_in_layers + self.train_in_loss,
-        #                                          outputs=self.train_out_layers + self.train_out_loss)
-
-        self.eval_graph: LayerGraph = LayerGraph(inputs=self.eval_in_layers + self.eval_in_score,
-                                                 outputs=self.eval_out_layers + self.eval_out_score)
+        self.eval_graph: LayerGraph = LayerGraph(inputs=self.eval_inputs,
+                                                 outputs=self.eval_outputs + self.eval_score)
 
         self.run_vars = {var for layer in self.run_graph.layers for var in layer.variable_names}
         self.train_vars = []
         self.eval_vars = {var for layer in self.eval_graph.layers for var in layer.variable_names}
 
-        update_layer = self.update_state()
-        if update_layer is not None:
-            self.update_graph: LayerGraph = LayerGraph(inputs=self.update_in_layers, outputs=update_layer)
+        if len(self.update_ops) > 0:
+            self.update_graph: LayerGraph = LayerGraph(inputs=self.update_inputs, outputs=self.update_ops)
         else:
             self.update_graph = None
 
@@ -473,7 +466,7 @@ class Model:
         # properties for training
         self.optimizer = None
         self.optimizer_params = []
-        self.loss_layer = None
+        self.joint_loss = None
         self.var_list = None
         self.train_step = None
 
@@ -501,18 +494,6 @@ class Model:
         return (len(self.run_vars) != 0
                 or len(self.train_vars) != 0
                 or len(self.eval_vars) != 0)
-
-    def update_state(self):
-        """ Updates the model state before evaluation or inference
-
-        If the model train has been called and we call eval or run, this is called before
-        any one of those graphs are run.
-
-        Use case:
-            Useful to update state variables the inference or evaluation steps might depend upon and we want
-            to update only once, and not every time run or eval are called.
-        """
-        return None
 
     def set_log_dir(self, log_dir=None):
         self.log_dir = log_dir
@@ -711,11 +692,10 @@ class Model:
         self.session.run(self.init_var_op)
         self._var_inited = (True, self.session)
 
-    def config_optimizer(self, optimizer, params=None, gradient_op=None, global_gradient_op=False, var_list=None):
+    def config_optimizer(self, optimizer, optimizer_params=None, gradient_op=None, global_gradient_op=False,
+                         var_list=None):
         """ Configures the model for training
 
-        # TODO add support for other Variable Learners (for SOMs or Free-energy minimisation)
-        # TODO add support for gradient monitoring (might be useful to monitor the model)
         # the idea is to add an op that can be applied to the gradients and output in the training method
 
 
@@ -736,21 +716,23 @@ class Model:
             var_list: list o variables modified by the optimizer, if None, the optimizer is applied to
             all variables marked as trainable.
             gradient_op : gradient op is to be applied to each gradient.
-            params: a :obj:`list` or single `Param` to be used with the optimizer, the feedable
+            optimizer_params: a :obj:`list` or single `Param` to be used with the optimizer, the feedable
             parameters should be fed by the same order in the train method
 
             optimizer: the tensorflow optimiser used to train the model
         """
         self.optimizer = optimizer
-        self.optimizer_params = as_list(params)
+        self.optimizer_params = as_list(optimizer_params)
         self.var_list = var_list
 
-        if len(self.train_out_loss) > 1:
-            self.loss_layer = Merge(self.train_out_loss, merge_fn=math_ops.reduce_mean)
+        if len(self.train_loss) == 0:
+            raise ValueError("Cannot add an optimizer: this model has no loss functions")
+        elif len(self.train_loss) == 1:
+            self.joint_loss = self.train_loss[0]
         else:
-            self.loss_layer = self.train_out_loss[0]
+            self.joint_loss = Mean(*self.train_loss)
 
-        def train_step(loss):
+        def minimize(loss):
             if gradient_op is not None:
                 grads_vars = self.optimizer.compute_gradients(loss, var_list=self.var_list)
                 gradients, variables = zip(*grads_vars)
@@ -768,11 +750,11 @@ class Model:
 
             return train_step
 
-        self.train_step = train_step(
-            self.loss_layer.tensor)  # WrapLayer(self.loss_layer, n_units=1, wrap_fn=train_step)
+        self.train_step = minimize(self.joint_loss.tensor)
 
-        self.train_graph = LayerGraph(inputs=self.train_in_layers + self.train_in_loss + self.optimizer_params,
-                                      outputs=self.train_out_layers + [self.loss_layer],
+        self.train_graph = LayerGraph(inputs=self.train_inputs,
+                                      outputs=self.train_outputs + [self.joint_loss],
+                                      other_inputs=self.optimizer_params,
                                       other_tensors=self.train_step)
 
         self.train_vars = {var for layer in self.train_graph.layers for var in layer.variable_names}
@@ -823,12 +805,11 @@ class Model:
         self.run_steps += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
-        if len(self.run_out_layers) == 1:
+        if len(self.run_outputs) == 1:
             result = result[0]
         return result
 
     def train(self, feed_dict,
-              output_loss=False,
               write_summaries=False):
         """ Trains the model on the given data.
 
@@ -860,12 +841,10 @@ class Model:
             raise AttributeError("ModelRunner has no train graph, call configure_optimizer before train")
 
         other_fetches = []
-        if output_loss:
-            other_fetches.append(self.loss_layer.tensor)
 
         # write logs
         if write_summaries:
-            other_fetches.append(summary.merge_all())
+            other_fetches = [summary.merge_all()]
 
         # RUNTIME STATISTICS such as compute time, memory etc
         if self.runtime_stats:
@@ -874,6 +853,7 @@ class Model:
             self.set_log_writer()
 
             results = self.train_graph.eval(
+                target_outputs=self.joint_loss,
                 other_tensors=other_fetches,
                 feed=feed_dict,
                 use_defaults=True,
@@ -887,12 +867,13 @@ class Model:
 
         else:
             results = self.train_graph.eval(
+                target_outputs=self.joint_loss,
                 other_tensors=other_fetches,
                 feed=feed_dict,
                 use_defaults=True,
                 session=self.session)
 
-        result, other = results[0:-len(other_fetches)], results[-len(other_fetches):]
+        result, other = results[0], results[1:]
 
         if write_summaries:
             logs = other[-1]
@@ -900,8 +881,7 @@ class Model:
 
         self.train_steps += 1
 
-        if output_loss:
-            return other[0]
+        return result
 
     def eval(self, feed, write_summaries=False):
         """ Evaluates the model on the given data.
@@ -932,6 +912,7 @@ class Model:
 
         if self.runtime_stats:
             result = self.eval_graph.eval(
+                target_outputs=self.eval_score,
                 other_tensors=other_fetches,
                 use_defaults=True,
                 feed=feed,
@@ -945,7 +926,8 @@ class Model:
             self.log_writer.add_run_metadata(self.run_metadata, tag="eval step {}".format(self.eval_steps + 1),
                                              global_step=self.eval_steps + 1)
         else:
-            result = self.run_graph.eval(
+            result = self.eval_graph.eval(
+                target_outputs=self.eval_score,
                 feed=feed,
                 other_tensors=other_fetches,
                 use_defaults=True,
@@ -957,9 +939,6 @@ class Model:
 
         self.eval_steps += 1
 
-        # for convenience if we have a single output layer return the result, not a list of results
-        if len(self.eval_out_layers) == 1:
-            result = result[0]
         return result
 
 

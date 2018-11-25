@@ -9,6 +9,7 @@ from tensorx.train import Learner
 from tensorx import transform
 from tensorx import metrics
 from tensorx.math import gaussian
+from tensorflow import sparse
 
 
 class DSOMLearner(Learner):
@@ -66,7 +67,7 @@ class DSOMLearner(Learner):
 
         # delta x - som
         if isinstance(data, SparseTensor):
-            inputs = sparse_ops.sparse_tensor_to_dense(data)
+            data = sparse.to_dense(data)
         delta = array_ops.expand_dims(data, 1) - codebook
         delta = array_ops.expand_dims(lr, -1) * delta
 

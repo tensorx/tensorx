@@ -2,17 +2,17 @@
 
 Utilities to create, convert between, and combine tensors
 """
-from tensorflow.python.framework import tensor_shape, tensor_util
-from tensorflow.python.eager import context
-from tensorflow.contrib.layers.python.ops import sparse_ops
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn, gen_data_flow_ops
-from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
-
 import numbers
 
 import numpy as np
+from tensorflow import sparse
+from tensorflow.contrib.layers.python.ops import sparse_ops
+from tensorflow.python.eager import context
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import ops
+from tensorflow.python.framework import tensor_shape, tensor_util
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
+from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn
 
 from tensorx.utils import to_tensor_cast, complete_shape
 
@@ -27,7 +27,7 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
     Note:
         ``shape = [10]``
 
-        ``empty = tf.sparse_tensor_to_dense(transform.empty_sparse_tensor(shape))``
+        ``empty = tf.parse.to_dense(transform.empty_sparse_tensor(shape))``
 
         is equivalent to:
 
@@ -451,8 +451,8 @@ def dense_put(tensor, sp_updates, name="dense_put"):
         markers = array_ops.ones(shape=array_ops.shape(sp_updates.values))
         sparse_marker_tensor = SparseTensor(indices=sp_updates.indices, values=markers,
                                             dense_shape=sp_updates.dense_shape)
-        dense_update_marker = sparse_ops.sparse_tensor_to_dense(sparse_marker_tensor)
-        dense_updates = sparse_ops.sparse_tensor_to_dense(sp_updates)
+        dense_update_marker = sparse.to_dense(sparse_marker_tensor)
+        dense_updates = sparse.to_dense(sp_updates)
 
         new_tensor = array_ops.where(math_ops.not_equal(dense_update_marker, 0),
                                      dense_updates, tensor)

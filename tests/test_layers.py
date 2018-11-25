@@ -5,11 +5,10 @@ from tensorx.layers import *
 from tensorx.init import *
 from tensorx.loss import *
 from tensorx.train import LayerGraph
-
 from tensorx.layers import layers_to_list
 from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
-from tensorflow.python.framework import tensor_util
+from tensorflow import sparse
 import math
 import os
 
@@ -17,13 +16,23 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class TestLayers(test_utils.TestCase):
+    def test_var_scope(self):
+        linear = Linear([[1]], 2)
+        linear2 = linear.reuse_with([[2]])
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            self.assertArrayEqual(linear.variables, linear2.variables)
+            result1 = linear.eval()
+            result2 = linear2.eval()
+
+            self.assertArrayEqual(result2, result1 * 2)
 
     def test_fn_layer(self):
         in1 = Input(1)
         in2 = Input(1)
         in3 = TensorLayer(tf.constant([[2.]]))
 
-        txfn = FnLayer(in1, in2, tensor_fn=binary_cross_entropy)
+        txfn = FnLayer(in1, in2, apply_fn=binary_cross_entropy)
         txfn2 = txfn.reuse_with(in1, in3)
 
         graph = LayerGraph(outputs=[txfn, txfn2])
@@ -53,6 +62,13 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayNotEqual(var_layer_init_value, var_value)
             self.assertArrayEqual(var_layer.tensor, var_layer.variable)
 
+    def test_standalone_variable_layer(self):
+        var_layer = VariableLayer(shape=[10])
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            value = var_layer.eval()
+            self.assertArrayEqual(np.zeros([10]), value)
+
     def test_variable_layer_dynamic_batch(self):
         input_layer = Input(n_units=1)
         var_layer = VariableLayer(input_layer)
@@ -74,11 +90,11 @@ class TestLayers(test_utils.TestCase):
 
         input_layer_2 = Input(n_units=n_units)
 
-        print(tensor_util.constant_value_as_shape(tf.shape(var_layer.variable)))
+        # print(tensor_util.constant_value_as_shape(tf.shape(var_layer.variable)))
         # ok this is probably calling tf.shape so I just need to figure what value this uses
 
         mul = tf.matmul(input_layer_2, var_layer.variable, transpose_b=True)
-        print(mul.get_shape())
+        # print(mul.get_shape())
 
         res = tf.nn.softmax(mul)
 
@@ -140,7 +156,7 @@ class TestLayers(test_utils.TestCase):
         in1 = Input(1)
         in2 = TensorLayer([[1.]], 1)
 
-        l1 = Linear(in1, 4, bias=True)
+        l1 = Linear(in1, 4, add_bias=True)
         l2 = Activation(l1, relu)
 
         comp = Compose(l1, l2)
@@ -148,6 +164,8 @@ class TestLayers(test_utils.TestCase):
 
         fn1 = FC(in1, 4, fn=relu, share_vars_with=l1)
         fn2 = fn1.reuse_with(in2, name="fn2")
+        fn3 = fn2.reuse_with(in2, name="fn3")
+        fn4 = FC(in2, 4, fn=relu, shared_weights=l1.weights, bias_init=random_uniform(-1, 1))
 
         init = tf.global_variables_initializer()
 
@@ -165,7 +183,12 @@ class TestLayers(test_utils.TestCase):
 
             res_fn1 = self.eval(fn1.tensor, feed)
             res_fn2 = self.eval(fn2.tensor)
+            res_fn3 = self.eval(fn3.tensor)
+            res_fn4 = self.eval(fn4.tensor)
+
             self.assertArrayEqual(res_fn1, res_fn2)
+            self.assertArrayEqual(res_fn2, res_fn3)
+            self.assertArrayNotEqual(res_fn4, res_fn2)
 
     def test_compose_merge(self):
         in1 = Input(1)
@@ -369,7 +392,7 @@ class TestLayers(test_utils.TestCase):
         in2 = TensorLayer([[1.]], 1)
         in3 = TensorLayer([[-1.]], 1)
 
-        layer1 = Linear(in1, 2, bias=True)
+        layer1 = Linear(in1, 2, add_bias=True)
 
         layer2 = layer1.reuse_with(in2)
         layer3 = layer2.reuse_with(in3)
@@ -454,7 +477,7 @@ class TestLayers(test_utils.TestCase):
         sp_input = SparseInput(n_units=4)
 
         with self.cached_session(use_gpu=True):
-            result = self.eval(tf.sparse_tensor_to_dense(sp_input.tensor), {sp_input.placeholder: sp_data})
+            result = self.eval(sparse.to_dense(sp_input.tensor), {sp_input.placeholder: sp_data})
             self.assertArrayEqual(result[tuple(sp_data.indices)], [1, 1])
             self.assertArrayEqual(result.shape, dense_shape)
 
@@ -472,8 +495,8 @@ class TestLayers(test_utils.TestCase):
         self.assertTrue(sparse_input.is_sparse())
 
         with self.cached_session(use_gpu=True):
-            result_tensor = self.eval(tf.sparse_tensor_to_dense(tensor_input.tensor))
-            result_sparse = self.eval(tf.sparse_tensor_to_dense(sparse_input.tensor), {sparse_input.tensor: sp_data})
+            result_tensor = self.eval(sparse.to_dense(tensor_input.tensor))
+            result_sparse = self.eval(sparse.to_dense(sparse_input.tensor), {sparse_input.tensor: sp_data})
 
             self.assertArrayEqual(result_tensor, result_sparse)
 
@@ -515,9 +538,9 @@ class TestLayers(test_utils.TestCase):
 
     def test_linear_variable_names(self):
         inputs = TensorLayer([[1]], 1, dtype=tf.float32)
-        layer = Linear(inputs, 10, bias=True)
-        layer2 = Linear(inputs, 10, bias=True)
-        layer_shared = Linear(inputs, 10, shared_weights=layer.weights, bias=True)
+        layer = Linear(inputs, 10, add_bias=True, name="layer1")
+        layer2 = Linear(inputs, 10, add_bias=True, name="layer2")
+        layer_shared = Linear(inputs, 10, shared_weights=layer.weights, add_bias=True, name="layer3")
 
         var_names = layer.variable_names
         var_names_2 = layer2.variable_names
@@ -529,11 +552,14 @@ class TestLayers(test_utils.TestCase):
         self.assertNotEqual(var_names[1], var_names_2[1])
         self.assertNotEqual(var_names[1], shared_names[1])
 
-        with tf.variable_scope("", reuse=True):
-            weights1 = tf.get_variable("linear/w")
-            weights2 = tf.get_variable(shared_names[0])
+        with self.cached_session():
+            with tf.variable_scope("", reuse=True):
+                weights1 = layer.weights
+                weights2 = layer_shared.weights
 
-            self.assertIs(weights1, weights2)
+                self.assertIs(weights1, weights2)
+
+                # print(tf.trainable_variables())
 
     def test_linear_none_n_units(self):
         in1 = TensorLayer([[2], [2]], 1)
@@ -554,9 +580,9 @@ class TestLayers(test_utils.TestCase):
         in1 = TensorLayer([[-1.]], 1)
         in2 = TensorLayer([[2.]], 1)
 
-        l1 = Linear(in1, 1, weight_init=ones_init(), bias=True)
+        l1 = Linear(in1, 1, weight_init=ones_init(), add_bias=True)
         l2 = l1.reuse_with(in2, name="shared")
-        l3 = Linear(in1, 1, weight_init=ones_init(), shared_weights=l1.weights, bias=True)
+        l3 = Linear(in1, 1, weight_init=ones_init(), shared_weights=l1.weights, add_bias=True)
         l4 = l3.reuse_with(in2)
 
         init = tf.global_variables_initializer()
@@ -1092,7 +1118,7 @@ class TestLayers(test_utils.TestCase):
         features = Lookup(inputs, seq_size, lookup_shape=[vocab_size, n_features]).as_concat()
         sp_features = ToSparse(features)
 
-        gate_w = Linear(features, seq_size, bias=True)
+        gate_w = Linear(features, n_units=seq_size, add_bias=True)
         gate1 = Gate(features, gate_w)
         gate2 = gate1.reuse_with(sp_features)
 
@@ -1120,7 +1146,7 @@ class TestLayers(test_utils.TestCase):
 
         sp_features1 = ToSparse(features1)
 
-        gate_w = Linear(features1, seq_size, bias=True)
+        gate_w = Linear(features1, seq_size, add_bias=True)
         coupled_gate = CoupledGate(features1, features2, gate_w)
 
         coupled_gate2 = coupled_gate.reuse_with(sp_features1, features2)

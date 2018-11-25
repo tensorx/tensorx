@@ -2,11 +2,11 @@
 """
 from tensorx import transform, test_utils
 from tensorflow.python.framework.sparse_tensor import *
-from tensorflow.python.ops.sparse_ops import sparse_tensor_to_dense
 from tensorflow.python.ops import array_ops, math_ops
 from tensorflow.python.framework import dtypes
 import os
 import numpy as np
+from tensorflow import sparse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -79,7 +79,7 @@ class TestTransform(test_utils.TestCase):
     def test_empty_sparse_tensor(self):
         dense_shape = [2, 2]
         empty = transform.empty_sparse_tensor(dense_shape)
-        dense_empty = sparse_tensor_to_dense(empty)
+        dense_empty = sparse.to_dense(empty)
         zeros = array_ops.zeros(dense_shape)
         all_zero = math_ops.reduce_all(math_ops.equal(zeros, dense_empty))
 
@@ -140,7 +140,7 @@ class TestTransform(test_utils.TestCase):
         expected = array_ops.constant([[3., 0], [0.2, 0.]])
 
         result = transform.sparse_put(tensor, sp_values)
-        result = sparse_tensor_to_dense(result)
+        result = sparse.to_dense(result)
 
         with self.cached_session(use_gpu=True):
             self.assertArrayEqual(result, expected)
@@ -170,8 +170,8 @@ class TestTransform(test_utils.TestCase):
         expected = SparseTensorValue(indices=indices, values=[1, 1], dense_shape=dense_shape)
 
         fill = transform.sparse_ones(indices, dense_shape, dtypes.float32)
-        fill_dense = sparse_tensor_to_dense(fill)
-        expected_dense = sparse_tensor_to_dense(expected)
+        fill_dense = sparse.to_dense(fill)
+        expected_dense = sparse.to_dense(expected)
         expected_dense = math_ops.cast(expected_dense, dtypes.float32)
 
         with self.cached_session(use_gpu=True):
@@ -203,7 +203,7 @@ class TestTransform(test_utils.TestCase):
         shape = [2, 3]
         data_zero = array_ops.zeros(shape)
         sparse_tensor = transform.to_sparse(data_zero)
-        dense = sparse_tensor_to_dense(sparse_tensor)
+        dense = sparse.to_dense(sparse_tensor)
         num_indices = array_ops.shape(sparse_tensor.indices)[0]
 
         with self.cached_session(use_gpu=True):
@@ -218,7 +218,7 @@ class TestTransform(test_utils.TestCase):
                           [0, 1, 1, 1]]
 
         sp_one_hot = transform.sparse_one_hot(x, num_cols)
-        dense1 = sparse_tensor_to_dense(sp_one_hot)
+        dense1 = sparse.to_dense(sp_one_hot)
         dense2 = transform.dense_one_hot(x, num_cols)
 
         with self.cached_session(use_gpu=True):
@@ -265,7 +265,7 @@ class TestTransform(test_utils.TestCase):
         indices = np.array([[0, 1], [2, 0]], dtype=np.int64)
 
         gather_sp = transform.gather_sparse(sp, indices)
-        gather = sparse_tensor_to_dense(gather_sp)
+        gather = sparse.to_dense(gather_sp)
         expected = [[1, 0, 1],
                     [0, 0, 2],
                     [3, 0, 3],

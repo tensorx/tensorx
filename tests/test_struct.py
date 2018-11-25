@@ -19,7 +19,7 @@ class TestStruct(test_utils.TestCase):
         table = tx.IndexValueTable.from_list(i, v, 6)
 
         sp_tensor = table.to_sparse_tensor()
-        result = tf.sparse_tensor_to_dense(sp_tensor)
+        result = tf.sparse.to_dense(sp_tensor)
 
         with self.cached_session(use_gpu=True):
             self.assertArrayEqual(result, expected)

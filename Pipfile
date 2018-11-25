@@ -4,7 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-tensorflow = ">=1.7"
+#tensorflow = ">=1.12"
+tensorflow = {path = "/home/davex32/build/tensorflow_pkg/tensorflow-1.12.0-cp36-cp36m-linux_x86_64.whl"}
 
 [dev-packages]
 
