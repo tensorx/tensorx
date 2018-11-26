@@ -11,12 +11,12 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 """
 
 import os
+from pygraphviz import AGraph
 from abc import ABCMeta, abstractmethod
 from tensorx.utils import as_list
 from tensorflow.python.summary.writer.writer import FileWriter
 from tensorflow.python.client.session import Session, InteractiveSession
-from tensorflow.python.framework import ops, sparse_tensor
-from tensorflow.python.framework.ops import dtypes
+from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops, math_ops, control_flow_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
@@ -211,7 +211,8 @@ class LayerGraph:
         for output in self.output_layers:
             dependencies[output] = []
 
-        def build_graph(current_layer, origin_layer):
+        """
+        def build_graph(current_layer, origin_layer, to_visit):
             in_layers = current_layer.input_layers
             if len(in_layers) == 0 and hasattr(current_layer, "placeholder"):
                 if current_layer not in dependencies[origin_layer]:
@@ -219,12 +220,28 @@ class LayerGraph:
             else:
                 for in_layer in in_layers:
                     graph.add_edge(in_layer, current_layer)
-                    if len(in_layers) != 0:
+                    if in_layer not in visited:
                         build_graph(in_layer, origin_layer)
+        """
+        visited = set()
+
+        def build_graph(output_layer):
+            to_visit = [output_layer]
+            while to_visit:
+                current_layer = to_visit.pop(0)
+                if current_layer not in visited:
+                    visited.add(current_layer)
+                    if len(current_layer.input_layers) == 0 and hasattr(current_layer, "placeholder"):
+                        if current_layer not in dependencies[output_layer]:
+                            dependencies[output_layer].append(current_layer)
+                    for input_layer in current_layer.input_layers:
+                        graph.add_edge(input_layer, current_layer)
+                        if input_layer not in visited and input_layer not in to_visit:
+                            to_visit.append(input_layer)
 
         missing_dep = {}
         for output in self.output_layers:
-            build_graph(output, output)
+            build_graph(output)
             for dependency in dependencies[output]:
                 if dependency not in self.input_layers and len(self.input_layers) != 0:
                     if output not in missing_dep:
@@ -239,7 +256,7 @@ class LayerGraph:
 
         self.graph = graph
         self.dependencies = dependencies
-        self.layers = layers_to_list(self.output_layers)
+        self.layers = visited
 
         all_dependencies = set()
         for dep in self.dependencies.values():
@@ -393,13 +410,27 @@ class LayerGraph:
         feed = {layer.tensor: data for layer, data in feed.items()}
 
         fetches = [out_layer.tensor for out_layer in output_layers] + other_tensors
-        result = session.run(fetches=fetches, feed_dict=feed, options=options,
+        result = session.run(fetches=fetches,
+                             feed_dict=feed,
+                             options=options,
                              run_metadata=run_metadata)
 
         if len(output_layers) == 1 and len(other_tensors) == 0:
             result = result[0]
 
         return result
+
+    def draw(self, path="layer_graph.pdf"):
+        dg = AGraph(directed=True)
+
+        for node in self.graph.nodes:
+            dg.add_node(node.name)
+        for node in self.graph.nodes:
+            for other_node in self.graph.edges_out[node]:
+                dg.add_edge(node.name, other_node.name)
+
+        dg.layout(prog="dot")
+        dg.draw(path=path)
 
 
 class Model:
@@ -753,7 +784,7 @@ class Model:
         self.train_step = minimize(self.joint_loss.tensor)
 
         self.train_graph = LayerGraph(inputs=self.train_inputs,
-                                      outputs=self.train_outputs + [self.joint_loss],
+                                      outputs=self.joint_loss,
                                       other_inputs=self.optimizer_params,
                                       other_tensors=self.train_step)
 
@@ -841,10 +872,8 @@ class Model:
             raise AttributeError("ModelRunner has no train graph, call configure_optimizer before train")
 
         other_fetches = []
-
-        # write logs
         if write_summaries:
-            other_fetches = [summary.merge_all()]
+            other_fetches = as_list(summary.merge_all())
 
         # RUNTIME STATISTICS such as compute time, memory etc
         if self.runtime_stats:
@@ -875,7 +904,7 @@ class Model:
 
         result, other = results[0], results[1:]
 
-        if write_summaries:
+        if write_summaries and len(other_fetches) > 0:
             logs = other[-1]
             self.log_writer.add_summary(logs, self.train_steps + 1)
 
@@ -908,7 +937,7 @@ class Model:
 
         other_fetches = None
         if write_summaries:
-            other_fetches = [summary.merge_all()]
+            other_fetches = as_list(summary.merge_all())
 
         if self.runtime_stats:
             result = self.eval_graph.eval(
@@ -933,7 +962,7 @@ class Model:
                 use_defaults=True,
                 session=self.session)
 
-        if write_summaries:
+        if write_summaries and len(other_fetches) > 0:
             result, logs = result[0:-1], result[-1]
             self.log_writer.add_summary(logs, self.eval_steps + 1)
 

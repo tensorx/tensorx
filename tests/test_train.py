@@ -7,6 +7,7 @@ from tensorx.activation import tanh, sigmoid
 from tensorx.layers import Input, Linear, Activation, Add, FnLayer, EvalStepDecayParam
 from tensorx.loss import binary_cross_entropy
 from tensorx.train import Model, LayerGraph
+from pygraphviz import AGraph
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -21,6 +22,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
         linear = Linear(in1, 1)
         graph = LayerGraph(linear)
+        # graph.draw("test.pdf")
 
         self.assertEqual(len(graph.dependencies[linear]), 1)
         self.assertTrue(in1 in graph.dependencies[linear])

@@ -165,7 +165,7 @@ class TestLayers(test_utils.TestCase):
         fn1 = FC(in1, 4, fn=relu, share_vars_with=l1)
         fn2 = fn1.reuse_with(in2, name="fn2")
         fn3 = fn2.reuse_with(in2, name="fn3")
-        fn4 = FC(in2, 4, fn=relu, shared_weights=l1.weights, bias_init=random_uniform(-1, 1))
+        fn4 = FC(in2, 4, fn=relu, shared_weights=l1.weights, bias_init=tf.initializers.constant(value=34))
 
         init = tf.global_variables_initializer()
 
@@ -276,7 +276,7 @@ class TestLayers(test_utils.TestCase):
         init = tf.global_variables_initializer()
 
         self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
-        self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
+        self.assertSequenceEqual(conv_layer.output_shape, (batch_size, seq_size, num_filters))
 
         with self.cached_session(use_gpu=True):
             self.eval(init)
@@ -317,7 +317,7 @@ class TestLayers(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             self.eval(init)
             self.assertSequenceEqual(conv_layer.filter_shape, (filter_size, input_dim, num_filters))
-            self.assertSequenceEqual(conv_layer.shape, (batch_size, seq_size, num_filters))
+            self.assertSequenceEqual(conv_layer.output_shape, (batch_size, seq_size, num_filters))
             self.assertArrayEqual(conv, conv_layer.tensor)
 
     def test_conv2d(self):
@@ -885,7 +885,7 @@ class TestLayers(test_utils.TestCase):
         """
         l11 = Input(1, name="in1")
         l12 = Input(1, name="in2")
-        l121 = WrapLayer(l12, l12.n_units, wrap_fn=lambda x: tf.identity(x))
+        l121 = WrapLayer(l12, n_units=l12.n_units, wrap_fn=lambda x: tf.identity(x))
         l2 = Add(l11, l121)
 
         l3 = Linear(l2, 1)
@@ -912,7 +912,7 @@ class TestLayers(test_utils.TestCase):
         data = np.random.uniform(-1, 1, [1, 4])
 
         input_layer = Input(4)
-        wrap_layer = WrapLayer(input_layer, 4, lambda layer: tf.multiply(layer, 2))
+        wrap_layer = WrapLayer(input_layer, n_units=4, wrap_fn=lambda layer: tf.multiply(layer, 2))
         self.assertIs(input_layer.placeholder, wrap_layer.placeholder)
 
         with self.cached_session(use_gpu=True):
@@ -1296,7 +1296,7 @@ class TestLayers(test_utils.TestCase):
 
     def test_reshape(self):
         v = np.array([[[1], [2]], [[3], [4]]])
-        x = TensorLayer(v, n_units=1)
+        x = TensorLayer(v)
 
         fl = Reshape(x, [-1, 2])
         fl2 = fl.reuse_with(x)
@@ -1308,13 +1308,16 @@ class TestLayers(test_utils.TestCase):
         v = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
         x = TensorLayer(v, n_units=2)
         fl = Flatten(x)
-        self.assertSequenceEqual(fl.shape, [2, 6])
-        rs = Reshape(fl, x.shape)
+
+        rs = Reshape(x, [2, -1])
         fl2 = fl.reuse_with(x)
 
         with self.cached_session(use_gpu=True):
-            self.assertArrayEqual(x.tensor, rs.tensor)
+            self.assertArrayEqual(fl.tensor, rs.tensor)
             self.assertArrayEqual(fl.tensor, fl2.tensor)
+
+            self.assertArrayEqual(x.shape, [2])
+            self.assertSequenceEqual(fl.shape, [2, 6])
 
     def test_batch_norm(self):
 
@@ -1322,7 +1325,7 @@ class TestLayers(test_utils.TestCase):
         x = TensorLayer(v, n_units=4, dtype=tf.float32)
         xs = ToSparse(x)
 
-        inputs_shape = x.shape
+        inputs_shape = v.shape
         axis = list(range(len(inputs_shape) - 1))
         params_shape = inputs_shape[-1:]
 
