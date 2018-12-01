@@ -1838,7 +1838,15 @@ class RNNCell(Layer):
                 name: name for the RNN cell
         """
 
-    def __init__(self, layer, n_units,
+    @staticmethod
+    def zero_state(input_layer, n_units):
+        input_batch = array_ops.shape(input_layer.tensor)[0]
+        zero_state = array_ops.zeros([input_batch, n_units])
+        return TensorLayer(zero_state, n_units)
+
+    def __init__(self,
+                 layer,
+                 n_units,
                  previous_state=None,
                  activation=tanh,
                  use_bias=True,
@@ -1858,9 +1866,7 @@ class RNNCell(Layer):
                 raise ValueError(
                     "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
         else:
-            input_batch = array_ops.shape(layer.tensor)[0]
-            zero_state = array_ops.zeros([input_batch, n_units])
-            previous_state = TensorLayer(zero_state, n_units)
+            previous_state = RNNCell.zero_state(layer, n_units)
 
         self.previous_state = previous_state
 
@@ -2024,6 +2030,84 @@ class GRUCell(Layer):
             share_state_with=share_state_with,
             name=name
         )
+
+
+class LSTM(Layer):
+    def __init__(self,
+                 seq_layer,
+                 seq_size,
+                 n_units,
+                 candidate_activation=tanh,
+                 output_activation=tanh,
+                 init=xavier_init(),
+                 recurrent_init=xavier_init(),
+                 share_vars_with=None,
+                 name="lstm"):
+
+        self.candidate_activation = candidate_activation
+        self.output_activation = output_activation
+        self.init = init
+        self.recurrent_init = recurrent_init
+        self.share_vars_with = share_vars_with
+        self.seq_size = seq_size
+        self.cells = []
+
+        super().__init__(input_layers=seq_layer,
+                         n_units=n_units,
+                         shape=[seq_layer.n_units, n_units],
+                         dtype=dtypes.float32,
+                         name=name)
+
+        self.tensor = self._build_graph(seq_layer)
+
+    def _build_graph(self, seq_layer):
+        with layer_scope(self):
+            input0 = seq_layer[0]
+
+            if self.share_vars_with is not None:
+                cell: LSTMCell = self.share_vars_with.cells[0]
+                previous_state = cell.previous_state
+                cell = cell.reuse_with(input_layer=seq_layer[0],
+                                       previous_state=previous_state,
+                                       memory_state=previous_state)
+            else:
+                previous_state = LSTMCell.zero_state(input0, self.n_units)
+                cell = LSTMCell(input0,
+                                n_units=self.n_units,
+                                previous_state=previous_state,
+                                memory_state=previous_state,
+                                candidate_activation=self.candidate_activation,
+                                output_activation=self.output_activation,
+                                init=self.init,
+                                recurrent_init=self.recurrent_init,
+                                name="lstm_0")
+
+            self.cells = [cell]
+
+            for i in range(1, self.seq_size):
+                input_i = seq_layer[i]
+                previous_cell = self.cells[i - 1]
+                current_cell = previous_cell.reuse_with(input_layer=input_i,
+                                                        previous_state=previous_cell,
+                                                        memory_state=previous_cell.memory_state,
+                                                        name="lstm_{}".format(i))
+                self.cells.append(current_cell)
+
+            return array_ops.stack(self.cells)
+
+    def reuse_with(self, seq_layer, name=None):
+        if name is None:
+            name = self.name
+
+        return LSTM(seq_layer,
+                    seq_size=self.seq_size,
+                    n_units=self.n_units,
+                    candidate_activation=self.candidate_activation,
+                    output_activation=self.output_activation,
+                    init=self.init,
+                    recurrent_init=self.recurrent_init,
+                    share_vars_with=self,
+                    name=name)
 
 
 class LSTMCell(Layer):
@@ -3531,6 +3615,7 @@ __all__ = ["Input",
            "RNNCell",
            "GRUCell",
            "LSTMCell",
+           "LSTM",
            "Gate",
            "CoupledGate",
            "Compose",

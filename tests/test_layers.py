@@ -5,7 +5,6 @@ from tensorx.layers import *
 from tensorx.init import *
 from tensorx.loss import *
 from tensorx.train import LayerGraph
-from tensorx.layers import layers_to_list
 from tensorx.activation import *
 from tensorx.transform import sparse_tensor_value_one_hot
 from tensorflow import sparse
@@ -896,17 +895,15 @@ class TestLayers(test_utils.TestCase):
 
         l5 = ToSparse(l41)
 
-        outs = [l5, l42]
-        layers = layers_to_list(outs, l3)
-        # for layer in layers:
-        #    print(layer)
+        g1 = Module(l3, l5)
+        g2 = Module(l3, l42)
 
-        self.assertEqual(len(layers), 6)
-        self.assertEqual(layers[0], l3)
-        self.assertEqual(layers[-1], l5)
-        self.assertIn(l12, layers)
-        self.assertNotIn(l2, layers)
-        self.assertNotIn(l11, layers)
+        all_layers = set(g1.graph.nodes).union(g2.graph.nodes)
+
+        self.assertEqual(len(all_layers), 6)
+        self.assertIn(l12, all_layers)
+        self.assertNotIn(l2, all_layers)
+        self.assertNotIn(l11, all_layers)
 
     def test_wrap_layer(self):
         data = np.random.uniform(-1, 1, [1, 4])
@@ -1217,6 +1214,25 @@ class TestLayers(test_utils.TestCase):
             self.assertEqual((batch_size, n_hidden), np.shape(res1))
             self.assertArrayEqual(res1, res3)
             self.assertArrayNotEqual(res1, res2)
+
+    def test_lstm_layer(self):
+        n_features = 10
+        embed_size = 4
+        lstm_size = 5
+        seq_size = 3
+        batch_size = 2
+
+        inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size)
+        lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
+        seq = lookup.as_seq()
+
+        lstm = LSTM(seq, seq_size=3, n_units=lstm_size)
+        lstm2 = lstm.reuse_with(seq)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+
+            self.assertArrayEqual(lstm.tensor, lstm2.tensor)
 
     def test_gru_cell(self):
         n_inputs = 4
