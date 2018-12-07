@@ -655,6 +655,24 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(result1, expected)
             self.assertArrayEqual(result2, expected)
 
+    def test_dropout_reuse(self):
+
+        x = TensorLayer(np.ones(shape=[2, 4]), dtype=tf.float32)
+
+        drop1 = Dropout(x, keep_prob=0.5)
+        drop2 = Dropout(x, keep_prob=0.5)
+        drop3 = drop1.reuse_with(x)
+
+        with self.cached_session(use_gpu=True):
+            # self.assertArrayEqual(drop1.dropout_mask, drop3.dropout_mask)
+            d1, d2, d3 = self.eval([drop1.tensor, drop2.tensor, drop3.tensor])
+
+            self.assertIs(drop1.random_state, drop3.random_state)
+            self.assertIsNot(drop1.random_state, drop2.random_state)
+
+            self.assertArrayEqual(d1, d3)
+            self.assertArrayNotEqual(d1, d2)
+
     def test_dropout_layer(self):
         dim = 100
         keep_prob = 0.5
@@ -738,6 +756,24 @@ class TestLayers(test_utils.TestCase):
             self.eval(init)
 
             w, d = self.eval([lookup.weights, dropped.tensor])
+
+    def test_dropout_reuse(self):
+        x1 = TensorLayer(np.ones(shape=[2, 4]) * 2, dtype=tf.float32)
+        x2 = TensorLayer(np.ones(shape=[2, 4]), dtype=tf.float32)
+
+        zone1 = ZoneOut(x2, x1, keep_prob=0.5)
+        zone2 = ZoneOut(x2, x1, keep_prob=0.5)
+        zone3 = zone1.reuse_with(x2, x1)
+
+        with self.cached_session(use_gpu=True):
+            # self.assertArrayEqual(drop1.dropout_mask, drop3.dropout_mask)
+            d1, d2, d3 = self.eval([zone1.tensor, zone2.tensor, zone3.tensor])
+
+            self.assertIs(zone1.mask, zone3.mask)
+            self.assertIsNot(zone1.mask, zone2.mask)
+
+            self.assertArrayEqual(d1, d3)
+            self.assertArrayNotEqual(d1, d2)
 
     def test_zoneout_layer(self):
         dim = 100
@@ -1222,7 +1258,7 @@ class TestLayers(test_utils.TestCase):
         seq_size = 3
         batch_size = 2
 
-        inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size)
+        inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
         seq = lookup.as_seq()
 

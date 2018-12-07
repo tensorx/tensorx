@@ -901,7 +901,7 @@ class TensorLayer(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, tensor, n_units=None, var_list=None, dtype=None, name="tensor_input"):
+    def __init__(self, tensor, n_units=None, var_list=None, dtype=None, name="tensor_layer"):
         try:
             tensor = tx_utils.to_tensor_cast(tensor, dtype)
         except ValueError:
@@ -2171,6 +2171,7 @@ class LSTMCell(Layer):
 
     def _build_graph(self, layer, previous_state):
         with layer_scope(self):
+            # create new weights
             if self.share_state_with is None:
                 # forget gate linear
                 self.w_f = Linear(layer, self.n_units, add_bias=True, name="w_f")
@@ -2714,11 +2715,13 @@ class Dropout(Layer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.1, scale=True, noise_shape=None, seed=None, name="dropout"):
+    def __init__(self, layer, keep_prob=0.1, scale=True, noise_shape=None, random_state=None, seed=None,
+                 name="dropout"):
         self.seed = seed
         self.keep_prob = keep_prob
         self.scale = scale
         self.noise_shape = noise_shape
+        self.random_state = random_state
 
         super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name)
 
@@ -2726,28 +2729,50 @@ class Dropout(Layer):
             input_shape = array_ops.shape(layer.tensor)
             self.noise_shape = [input_shape[axis] if dim is None else dim for axis, dim in enumerate(self.noise_shape)]
 
+        if self.random_state is not None:
+            self.random_state = tx_utils.to_tensor_cast(random_state)
+
         with layer_scope(self):
+
             if layer.is_sparse():
                 # if input is sparse, noise_shape is not used
-                tensor = transform.sparse_dropout(sp_tensor=layer.tensor,
+                tensor, state = transform.sparse_dropout(sp_tensor=layer.tensor,
+                                                         random_mask=self.random_state,
+                                                         keep_prob=self.keep_prob,
+                                                         scale=scale,
+                                                         return_state=True,
+                                                         seed=seed)
+
+            else:
+                tensor, state = transform.dropout(tensor=layer.tensor,
+                                                  noise_shape=self.noise_shape,
+                                                  random_mask=self.random_state,
                                                   keep_prob=self.keep_prob,
                                                   scale=scale,
+                                                  return_state=True,
                                                   seed=seed)
-            else:
-                tensor = transform.dropout(tensor=layer.tensor,
-                                           noise_shape=self.noise_shape,
-                                           keep_prob=self.keep_prob,
-                                           scale=scale,
-                                           seed=seed)
+
+            if self.random_state is None:
+                self.random_state = state
+
+            # if self.dropout_mask is None:
+            #    self.dropout_mask = variables.Variable(trainable=False, initial_value=mask, name="dropout_mask")
+            #    self.update_state = self.dropout_mask.assign(mask)
+            #    with ops.control_dependencies([self.update_state]):
+            #        tensor = array_ops.identity(tensor)
 
         self.tensor = tensor
 
-    def reuse_with(self, layer, name=None):
+    def reuse_with(self, layer, name=None, share_state=True):
         if name is None:
             name = self.name
+
+        random_state = self.random_state if share_state else None
+
         return Dropout(layer,
                        keep_prob=self.keep_prob,
                        noise_shape=self.noise_shape,
+                       random_state=random_state,
                        scale=self.scale,
                        seed=self.seed,
                        name=name)
@@ -2770,38 +2795,48 @@ class ZoneOut(Layer):
         keep_prob: a scalar float with the probability that each element is kept.
     """
 
-    def __init__(self, current_layer, previous_layer, keep_prob=0.1, seed=None, name="zoneout"):
+    def __init__(self, layer, previous_layer, keep_prob=0.1, seed=None, mask=None, name="zoneout"):
         self.seed = seed
         self.keep_prob = keep_prob
-        self.current_layer = current_layer
+        self.layer = layer
         self.previous_layer = previous_layer
+        self.mask = mask
 
-        if previous_layer.n_units != current_layer.n_units:
+        if previous_layer.n_units != layer.n_units:
             raise ValueError("Can only apply zoneout to layers with the same n_units")
 
-        n_units = current_layer.n_units
-        super().__init__(input_layers=[current_layer, previous_layer],
+        n_units = layer.n_units
+        super().__init__(input_layers=[layer, previous_layer],
                          n_units=n_units,
                          shape=[n_units, n_units],
-                         dtype=current_layer.dtype,
+                         dtype=layer.dtype,
                          name=name)
 
         with layer_scope(self):
-            mask_shape = array_ops.stack([array_ops.shape(current_layer.tensor)[0], self.n_units])
-            mask = random_bernoulli(mask_shape, prob=self.keep_prob, seed=seed)
-            mask = TensorLayer(mask, n_units=self.n_units, dtype=current_layer.dtype)
+            if self.mask is None:
+                mask_shape = array_ops.stack([array_ops.shape(layer.tensor)[0], self.n_units])
+                mask = random_bernoulli(mask_shape, prob=self.keep_prob, seed=seed)
+                self.mask = mask
 
-            gate = CoupledGate(layer1=current_layer,
+            mask = TensorLayer(mask, n_units=self.n_units, dtype=layer.dtype)
+            gate = CoupledGate(layer1=layer,
                                layer2=previous_layer,
                                gate_input=mask,
                                gate_fn=identity,
                                name="zoneout_gate")
         self.tensor = gate.tensor
 
-    def reuse_with(self, current_layer, previous_layer, name=None):
+    def reuse_with(self, current_layer, previous_layer, name=None, share_mask=True):
         if name is None:
             name = self.name
-        return ZoneOut(current_layer, previous_layer, keep_prob=self.keep_prob, seed=self.seed, name=name)
+
+        mask = self.mask if share_mask else None
+        return ZoneOut(current_layer,
+                       previous_layer,
+                       keep_prob=self.keep_prob,
+                       seed=self.seed,
+                       mask=mask,
+                       name=name)
 
 
 class GaussianNoise(Layer):

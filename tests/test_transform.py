@@ -60,6 +60,24 @@ class TestTransform(test_utils.TestCase):
                                 desired=expected_avg,
                                 atol=1e-2)
 
+    def test_dropout_random_tensor(self):
+        n = 10000
+        b = 4
+        x = array_ops.ones([b, n])
+        keep_prob = 0.5
+
+        mask = np.random.uniform(size=x.shape)
+
+        drop_x = transform.dropout(x, keep_prob=keep_prob, random_mask=mask, scale=True)
+
+        actual_avg = math_ops.reduce_mean(drop_x)
+        expected_avg = math_ops.mean(x, axis=-1)
+
+        with self.cached_session(use_gpu=True):
+            self.assertAllClose(actual=actual_avg,
+                                desired=expected_avg,
+                                atol=1e-2)
+
     def test_dropout_unscaled(self):
         n = 10000
         b = 10

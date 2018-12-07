@@ -481,7 +481,14 @@ def _get_noise_shape(x, noise_shape):
     return noise_shape
 
 
-def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name="dropout"):
+def dropout(tensor,
+            noise_shape=None,
+            random_mask=None,
+            keep_prob=0.1,
+            scale=True,
+            seed=None,
+            return_state=False,
+            name="dropout"):
     """ dropout
 
     With probability `keep_prob`, outputs the input element, otherwise outputs `0`. If scale == True, the
@@ -496,6 +503,8 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
     kept independently and each row and column will be kept or not kept together.
 
     Args:
+        return_state: if true, returns (value, mask used)
+        random_mask: a tensor used to create the random bernoulli mask with keep[
         tensor: A floating point tensor.
         keep_prob: A scalar `Tensor` with the same type as x. The probability that each element is kept.
         scale: A 1-D `Tensor` of type `int32`, representing the shape for randomly generated keep/drop flags.
@@ -510,6 +519,9 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
     """
     with ops.name_scope(name, "dropout", [tensor]):
         tensor = ops.convert_to_tensor(tensor, name="x")
+        if random_mask is not None:
+            random_mask = to_tensor_cast(random_mask, tensor.dtype)
+
         if not tensor.dtype.is_floating:
             try:
                 tensor = math_ops.cast(tensor, dtypes.float32)
@@ -522,11 +534,17 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
 
         # Early return if nothing needs to be dropped.
         if isinstance(keep_prob, float) and keep_prob == 1:
-            return tensor
+            if return_state:
+                return tensor, None
+            else:
+                return tensor
         if context.executing_eagerly():
             if isinstance(keep_prob, ops.EagerTensor):
                 if keep_prob.numpy() == 1:
-                    return tensor
+                    if return_state:
+                        return tensor, None
+                    else:
+                        return tensor
         else:
             keep_prob = ops.convert_to_tensor(
                 keep_prob, dtype=tensor.dtype, name="keep_prob")
@@ -534,22 +552,34 @@ def dropout(tensor, noise_shape=None, keep_prob=0.1, scale=True, seed=None, name
 
             # Do nothing if we know keep_prob == 1
             if tensor_util.constant_value(keep_prob) == 1:
-                return tensor
+                if return_state:
+                    return tensor, None
+                else:
+                    return tensor
 
+        if random_mask is not None and tensor.get_shape() != random_mask.get_shape():
+            raise ValueError("invalid random_tensor, must have shape {}: shape is {} instead".format(noise_shape,
+
+                                                                                                     random_mask.get_shape()))
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
         # uniform [keep_prob, 1.0 + keep_prob)
-        random_tensor = keep_prob
-        random_tensor += random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+        if random_mask is None:
+            random_mask = random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+        mask = keep_prob + random_mask
         # 0. if [keep_prob, 1.0) and 1. if [1.0, 1.0 + keep_prob)
-        binary_tensor = math_ops.floor(random_tensor)
+        binary_tensor = math_ops.floor(mask)
         if scale:
             ret = math_ops.div(tensor, keep_prob) * binary_tensor
         else:
             ret = tensor * binary_tensor
         if not context.executing_eagerly():
             ret.set_shape(tensor.get_shape())
-        return ret
+
+        if return_state:
+            return ret, random_mask
+        else:
+            return ret
 
 
 def zoneout(tensor, zoneout_tensor, noise_shape=None, keep_prob=0.1, seed=None, name="dropout"):
@@ -598,7 +628,13 @@ def zoneout(tensor, zoneout_tensor, noise_shape=None, keep_prob=0.1, seed=None, 
         return ret
 
 
-def sparse_dropout(sp_tensor, keep_prob=0.2, scale=True, seed=None, name="sparse_dropout"):
+def sparse_dropout(sp_tensor,
+                   keep_prob=0.2,
+                   scale=True,
+                   seed=None,
+                   random_mask=None,
+                   return_state=False,
+                   name="sparse_dropout"):
     """Performs a dropout on a ``SparseTensor``.
 
     With probability `keep_prob`, outputs the input element scaled up by
@@ -606,6 +642,8 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, scale=True, seed=None, name="sparse
     sum is unchanged.
 
     Args:
+        random_mask: a mask to be applied to the values of this tensor
+        return_mask: if true returns the mask used to perform dropout (result,mask)
         sp_tensor: a ``SparseTensor`` on which the dropout is performed.
         keep_prob: A scalar `Tensor` with the same type as x. The probability
         that each element is kept.
@@ -628,14 +666,27 @@ def sparse_dropout(sp_tensor, keep_prob=0.2, scale=True, seed=None, name="sparse
                                           dtype=sp_tensor.dtype,
                                           name="keep_prob")
 
-        drop_values = dropout(tensor=sp_tensor.values, keep_prob=keep_prob, scale=scale, seed=seed)
+        drop_values = dropout(tensor=sp_tensor.values,
+                              random_mask=random_mask,
+                              keep_prob=keep_prob,
+                              scale=scale,
+                              return_state=return_state,
+                              seed=seed)
+
+        if return_state is not None:
+            drop_values, state = drop_values
+
         not_zero = math_ops.not_equal(drop_values, 0)
 
         values = array_ops.boolean_mask(drop_values, not_zero)
         indices = array_ops.boolean_mask(sp_tensor.indices, not_zero)
 
         new_tensor = SparseTensor(indices, values, dense_shape)
-        return new_tensor
+
+        if return_state is not None:
+            return new_tensor, state
+        else:
+            return new_tensor
 
 
 def sparse_ones(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse_ones"):
@@ -976,7 +1027,7 @@ def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
         if ascending:
             sorted_tensor1 = array_ops.reverse(sorted_tensor1, axis=[-1])
             sorted_tensor1_indices = array_ops.reverse(sorted_tensor1_indices, axis=[-1])
-        sorted_tensor1_indices = to_matrix_indices_2d(sorted_tensor1_indices,sort_indices=False)
+        sorted_tensor1_indices = to_matrix_indices_2d(sorted_tensor1_indices, sort_indices=False)
 
         sorted_values = array_ops.gather_nd(tensor2, sorted_tensor1_indices)
         sorted_values = array_ops.reshape(sorted_values, array_ops.shape(tensor2))
