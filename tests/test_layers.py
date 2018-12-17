@@ -10,6 +10,7 @@ from tensorx.transform import sparse_tensor_value_one_hot
 from tensorflow import sparse
 import math
 import os
+from functools import partial
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -61,12 +62,68 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayNotEqual(var_layer_init_value, var_value)
             self.assertArrayEqual(var_layer.tensor, var_layer.variable)
 
+    def test_variable_layer_reuse(self):
+        input_layer = TensorLayer([[1]], n_units=1, dtype=tf.float32)
+        input_layer2 = TensorLayer([[1], [2]], n_units=1, dtype=tf.float32)
+        var1 = VariableLayer(var_shape=[1, 1])
+
+        var2 = var1.reuse_with(input_layer)
+
+        var3 = var1.reuse_with(input_layer2)
+
+        init = tf.global_variables_initializer()
+
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            r1, r2 = self.eval([var1.tensor, var2.tensor])
+            r3 = self.eval(var1.tensor)
+            r4 = self.eval(var3.tensor)
+            self.assertArrayEqual(r2, r3)
+            self.assertNotEqual(r1, r2)
+            # since the variable batch dimension is dynamic its shape will be different
+            self.assertArrayNotEqual(np.shape(r3), np.shape(r4))
+
     def test_standalone_variable_layer(self):
-        var_layer = VariableLayer(shape=[10])
+        var_layer = VariableLayer(var_shape=[10])
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
             value = var_layer.eval()
             self.assertArrayEqual(np.zeros([10]), value)
+
+    def test_variable_layer_broadcasting(self):
+        layer1 = TensorLayer([[1], [1]], dtype=tf.float32)
+
+        var1 = VariableLayer(n_units=layer1.n_units)
+        var2 = var1.reuse_with(layer1)
+
+        linear1 = Linear(var1, n_units=2)
+        linear2 = Linear(layer1, n_units=2)
+
+        add1 = Add(var1, layer1)
+        add2 = Add(linear1, linear2)
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            in1 = self.eval(layer1.tensor)
+            r1 = self.eval(var1.tensor)
+            l1 = self.eval(linear1.tensor)
+            r5 = self.eval(add2.tensor)
+            r2 = self.eval(add1.tensor)
+            r3 = self.eval(var2.tensor)
+            r4 = self.eval(add1.tensor)
+            l2 = self.eval(linear1.tensor)
+            r6 = self.eval(add2.tensor)
+
+            self.assertEqual(np.shape(l1)[0], 1)
+            self.assertEqual(np.shape(r1)[0], 1)
+            self.assertEqual(np.shape(r5)[0], np.shape(in1)[0])
+            self.assertEqual(np.shape(r2)[0], 2)
+            self.assertEqual(np.shape(r3)[0], 2)
+
+            self.assertEqual(np.shape(r4)[0], np.shape(r2)[0])
+            self.assertNotEqual(np.shape(l1)[0], np.shape(l2)[0])
+            self.assertEqual(np.shape(r5), np.shape(r6))
 
     def test_variable_layer_dynamic_batch(self):
         input_layer = Input(n_units=1)
@@ -535,6 +592,31 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(y1_output, y2_output)
             self.assertArrayEqual(y2_output, y3_output)
 
+    def test_linear_dropconnect(self):
+
+        inputs = TensorLayer(np.ones([4, 6]), dtype=tf.float32)
+        inputs2 = TensorLayer(np.ones([4, 6]), dtype=tf.float32)
+
+        layer = Linear(inputs, 6)
+        drop = DropConnect(layer, keep_prob=0.5)
+        drop2 = drop.reuse_with(inputs2)
+
+        drop3 = DropConnect(layer, keep_prob=0.5)
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            w, b, drop_w, drop_b = self.eval(tensors=[layer.weights, layer.bias, drop.weights, drop.bias])
+            self.assertArrayEqual(w[np.nonzero(drop_w)], drop_w[np.nonzero(drop_w)])
+            self.assertArrayEqual(b[np.nonzero(drop_b)], b[np.nonzero(drop_b)])
+
+            out_drop, out_drop2, out_drop3 = self.eval(tensors=[drop.tensor, drop2.tensor, drop3.tensor])
+            self.assertArrayEqual(out_drop, out_drop2, out_drop3)
+            self.assertArrayNotEqual(out_drop, out_drop3)
+
+            inner_drop, inner_drop2 = self.eval(tensors=[drop.inner_layer.tensor, drop3.inner_layer.tensor])
+            self.assertArrayEqual(inner_drop, inner_drop2)
+
     def test_linear_variable_names(self):
         inputs = TensorLayer([[1]], 1, dtype=tf.float32)
         layer = Linear(inputs, 10, add_bias=True, name="layer1")
@@ -655,13 +737,14 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(result1, expected)
             self.assertArrayEqual(result2, expected)
 
-    def test_dropout_reuse(self):
+    def test_reuse_dropout(self):
+        x1 = TensorLayer(np.ones(shape=[2, 4]), dtype=tf.float32)
 
-        x = TensorLayer(np.ones(shape=[2, 4]), dtype=tf.float32)
+        x2 = Activation(x1)
 
-        drop1 = Dropout(x, keep_prob=0.5)
-        drop2 = Dropout(x, keep_prob=0.5)
-        drop3 = drop1.reuse_with(x)
+        drop1 = Dropout(x2, keep_prob=0.5)
+        drop2 = Dropout(x2, keep_prob=0.5)
+        drop3 = drop1.reuse_with(x1)
 
         with self.cached_session(use_gpu=True):
             # self.assertArrayEqual(drop1.dropout_mask, drop3.dropout_mask)
@@ -1220,6 +1303,39 @@ class TestLayers(test_utils.TestCase):
             self.assertEqual((batch_size, n_hidden), np.shape(res1))
             self.assertArrayEqual(res1, res3)
             self.assertArrayNotEqual(res1, res2)
+
+    def test_rnn_cell_drop(self):
+
+        n_hidden = 4
+        inputs1 = TensorLayer(np.ones([2, 4]), dtype=tf.float32)
+        inputs2 = TensorLayer(np.ones([2, 4]), dtype=tf.float32)
+
+        rnn1 = RNNCell(inputs1, n_hidden,
+                       u_regularizer=partial(DropConnect, keep_prob=0.5),
+                       w_regularizer=partial(Dropout, keep_prob=0.5),
+                       regularized=True
+                       )
+        rnn2 = rnn1.reuse_with(inputs2, previous_state=rnn1)
+        rnn3 = rnn1.reuse_with(inputs2, previous_state=rnn1)
+        rnn4 = rnn1.reuse_with(inputs2, previous_state=None, regularized=False)
+        rnn5 = rnn4.reuse_with(inputs2, previous_state=None, regularized=True)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+
+            r1, r2, r3, r4 = self.eval([rnn1.tensor, rnn2.tensor, rnn3.tensor, rnn4.tensor])
+            mask1, mask2 = self.eval([rnn1.w.random_state, rnn2.w.random_state])
+
+            self.assertArrayEqual(mask1, mask2)
+            self.assertArrayNotEqual(r1, r2)
+            self.assertArrayEqual(r2, r3)
+            self.assertArrayNotEqual(r2, r4)
+
+            self.assertTrue(isinstance(rnn1.w, ViewLayer))
+            self.assertTrue(isinstance(rnn2.w, ViewLayer))
+            self.assertTrue(isinstance(rnn3.w, ViewLayer))
+            self.assertFalse(isinstance(rnn4.w, ViewLayer))
+            self.assertTrue(isinstance(rnn5.w, ViewLayer))
 
     def test_lstm_cell(self):
 
