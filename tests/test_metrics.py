@@ -38,9 +38,9 @@ class MyTestCase(test_utils.TestCase):
         dist2_sparse = metrics.sparse_cosine_distance(v1s, v3)
 
         with self.cached_session(use_gpu=True):
-            self.assertAllClose(dist0, 0, atol=1e-1)
+            self.assertAllClose(dist0, 0, atol=1e-2)
             self.assertIsInstance(v1s, tf.SparseTensor)
-            self.assertEqual(dist1_dense, dist1_sparse)
+            self.assertAllClose(dist1_dense, dist1_sparse, atol=1e-4)
             self.assertEqual(dist2_dense, dist2_sparse)
 
     def test_sparse_cosine_distance(self):

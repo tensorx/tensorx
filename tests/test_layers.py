@@ -1124,6 +1124,69 @@ class TestLayers(test_utils.TestCase):
             self.assertEqual(np.shape(v1), (batch_size, seq_size, embed_dim))
             self.assertEqual(np.shape(v2), (batch_size, seq_size, embed_dim))
 
+    def test_lookup_dynamic_sequence(self):
+        seq1 = [[1, 2], [3, 4]]
+        seq2 = [[1, 2, 3], [4, 5, 6]]
+
+        n = 10
+        m = 4
+
+        inputs = Input(None, dtype=tf.int32)
+
+        lookup = Lookup(inputs, seq_size=None, lookup_shape=[n, m])
+        concat = lookup.as_concat()
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            r1 = self.eval(inputs.tensor, {inputs.placeholder: seq1})
+            r2 = self.eval(inputs.tensor, {inputs.placeholder: seq2})
+
+            l1 = self.eval(lookup.tensor, {inputs.placeholder: seq1})
+            l2 = self.eval(lookup.tensor, {inputs.placeholder: seq2})
+
+            c1 = self.eval(concat.tensor, {inputs.placeholder: seq1})
+            c2 = self.eval(concat.tensor, {inputs.placeholder: seq2})
+
+            self.assertEqual(np.shape(l1)[-1], m)
+            self.assertEqual(np.shape(l2)[-1], m)
+
+            self.assertEqual(np.shape(c1)[-1], m * 2)
+            self.assertEqual(np.shape(c2)[-1], m * 3)
+
+    def test_lookup_dynamic_sparse_sequence(self):
+        k = 8
+        m = 3
+        seq1 = tf.SparseTensorValue(
+            indices=[[0, 1], [1, 2],
+                     [2, 3], [3, 4]],
+            values=[1, 2, 3, 4],
+            dense_shape=[2, k]
+        )
+        seq2 = tf.SparseTensorValue(
+            indices=[[0, 1], [1, 2], [2, 3],
+                     [3, 3], [4, 4], [5, 5]],
+            values=[1, 2, 3, 3, 4, 5],
+            dense_shape=[2, k]
+        )
+
+        inputs = SparseInput(n_units=k, dtype=tf.int32)
+        seq_len = Param(dtype=tf.int32)
+        lookup = Lookup(inputs, seq_size=seq_len.tensor, lookup_shape=[k, m])
+        concat = lookup.as_concat()
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            in1 = self.eval(inputs.tensor, {inputs.placeholder: seq1})
+            l1 = self.eval(lookup.tensor, {inputs.placeholder: seq1, seq_len.placeholder: 2})
+            l2 = self.eval(lookup.tensor, {inputs.placeholder: seq2, seq_len.placeholder: 3})
+
+            c1 = self.eval(concat.tensor, {inputs.placeholder: seq1, seq_len.placeholder: 2})
+            c2 = self.eval(concat.tensor, {inputs.placeholder: seq2, seq_len.placeholder: 3})
+            # print(in1)
+
+            self.assertEqual(np.shape(c1)[-1], m * 2)
+            self.assertEqual(np.shape(c2)[-1], m * 3)
+
     def test_lookup_sequence_sparse(self):
         input_dim = 10
         embed_dim = 3
@@ -1286,7 +1349,7 @@ class TestLayers(test_utils.TestCase):
 
         inputs = Input(n_inputs)
         rnn_1 = RNNCell(inputs, n_hidden)
-        rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
+        rnn_2 = rnn_1.reuse_with(inputs, rnn_1.state)
 
         rnn_3 = rnn_1.reuse_with(inputs)
 
@@ -1315,10 +1378,10 @@ class TestLayers(test_utils.TestCase):
                        w_regularizer=partial(Dropout, keep_prob=0.5),
                        regularized=True
                        )
-        rnn2 = rnn1.reuse_with(inputs2, previous_state=rnn1)
-        rnn3 = rnn1.reuse_with(inputs2, previous_state=rnn1)
-        rnn4 = rnn1.reuse_with(inputs2, previous_state=None, regularized=False)
-        rnn5 = rnn4.reuse_with(inputs2, previous_state=None, regularized=True)
+        rnn2 = rnn1.reuse_with(inputs2, previous_cell=rnn1)
+        rnn3 = rnn1.reuse_with(inputs2, previous_cell=rnn1)
+        rnn4 = rnn1.reuse_with(inputs2, previous_cell=None, regularized=False)
+        rnn5 = rnn4.reuse_with(inputs2, previous_cell=None, regularized=True)
 
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
@@ -1346,12 +1409,12 @@ class TestLayers(test_utils.TestCase):
         inputs = Input(n_inputs)
         rnn_1 = LSTMCell(inputs, n_hidden)
         rnn_2 = rnn_1.reuse_with(inputs,
-                                 previous_state=rnn_1)
+                                 previous_cell=rnn_1)
 
         # if we don't wipe the memory it reuses it
         rnn_3 = rnn_1.reuse_with(inputs,
-                                 previous_state=None,
-                                 memory_state=LSTMCell.zero_state(inputs, rnn_1.n_units))
+                                 previous_cell=None,
+                                 previous_memory=LSTMCell.zero_state(inputs, rnn_1.n_units))
 
         init = tf.global_variables_initializer()
 
@@ -1368,9 +1431,9 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayNotEqual(res1, res2)
 
     def test_lstm_layer(self):
-        n_features = 10
+        n_features = 5
         embed_size = 4
-        lstm_size = 5
+        hdim = 3
         seq_size = 3
         batch_size = 2
 
@@ -1378,13 +1441,16 @@ class TestLayers(test_utils.TestCase):
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
         seq = lookup.as_seq()
 
-        lstm = LSTM(seq, seq_size=3, n_units=lstm_size)
+        lstm = LSTM(seq, seq_size=3, n_units=hdim)
         lstm2 = lstm.reuse_with(seq)
 
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
-
-            self.assertArrayEqual(lstm.tensor, lstm2.tensor)
+            self.assertArrayEqual(lstm.cells[0].variables, lstm2.cells[0].variables)
+            r1, r2 = self.eval([lstm.cells[0].tensor, lstm2.cells[0].tensor])
+            self.assertArrayEqual(r1, r2)
+            r1, r2 = self.eval([lstm.tensor, lstm2.tensor])
+            self.assertArrayEqual(r1, r2)
 
     def test_gru_cell(self):
         n_inputs = 4

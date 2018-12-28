@@ -28,7 +28,6 @@ from tensorx.math import embedding_lookup_sparse
 from tensorx import utils as tx_utils
 from tensorx.activation import sigmoid, tanh, identity
 from tensorflow import sparse
-import numpy as np
 
 from tensorx import math as mathx
 
@@ -710,117 +709,14 @@ class Compose(Layer):
         return result
 
 
-class Param(Layer):
-    """ Param
-
-    a special building block to pass scalar parameter to neural network models with support for default values
-
-    Args:
-        value: initial Parameter value, if None must be fed
-
-    """
-
-    def __init__(self, value=None, dtype=dtypes.float32, name="param"):
-        super().__init__(input_layers=[], n_units=1, shape=[], dtype=dtype, name=name)
-        self.value = value
-
-        with layer_scope(self, name=name):
-            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
-            self.tensor = self.placeholder
-
-    def reuse_with(self, *layers, name=None):
-        raise AttributeError("Cannot call reuse_with on Param")
-
-    def eval(self, feed_dict=None, session=None):
-        if feed_dict is not None:
-            if self.placeholder not in feed_dict:
-                raise ValueError("feed dict does not contain the placeholder in this Param")
-        elif self.value is not None:
-            feed_dict = {self.placeholder: self.value}
-        return self.tensor.eval(feed_dict, session)
-
-    def __str__(self):
-        return "{name}::{cname}({dtype})".format(name=self.name, cname=type(self).__name__, dtype=self.dtype)
-
-
-class DynamicParam(Param):
-    def __init__(self, value=None, dtype=dtypes.float32, update_fn=None, name="param_"):
-        super().__init__(value=value, dtype=dtype, name=name)
-        self.update_fn = update_fn
-
-    def update(self, *args, **kwargs):
-        if self.update_fn is not None:
-            self.value = self.update_fn(*args, **kwargs)
-
-
-class EvalStepDecayParam(DynamicParam):
-    """
-    Args:
-        value: initial value for the dynamic param
-        decay_threshold: float value representing the difference between evaluations necessary for the update to occur
-        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
-        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
-        less_is_better: if True, evaluation is considered to improve if it decreases, else it is considered to improve
-        if it increases
-
-    Attributes:
-        eval_history: a list with the evaluation values passed through the update function
-        improvement_threshold: float value representing the difference between evaluations necessary for the update to occur
-        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
-        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
-    """
-
-    def __init__(self, value,
-                 improvement_threshold=1.0,
-                 less_is_better=True,
-                 decay_rate=1.0,
-                 decay_threshold=1e-6,
-                 dtype=dtypes.float32,
-                 name="eval_step_decay_param"):
-        self.improvement_threshold = improvement_threshold
-        self.decay_rate = decay_rate
-        self.decay_threshold = decay_threshold
-        self.less_is_better = less_is_better
-        self.eval_history = []
-
-        def update_fn(evaluation):
-            self.eval_history.append(evaluation)
-            value = self.value
-            if len(self.eval_history) > 1:
-                if self.eval_improvement() <= self.improvement_threshold:
-                    value = max(value * self.decay_rate, self.decay_threshold)
-            return value
-
-        super().__init__(value=value, dtype=dtype, update_fn=update_fn, name=name)
-
-    def eval_improvement(self):
-        if len(self.eval_history) > 1:
-            improvement = self.eval_history[-2] - self.eval_history[-1]
-            if not self.less_is_better:
-                improvement = -1 * improvement
-            return improvement
-        else:
-            return 0
-
-    def update(self, evaluation):
-        """ update.
-
-        Updates the parameter value. It only makes changes to the parameter after then second update.
-        The decay decays is only applied if the current evaluation did not improve more than the `eval_threshold`.
-
-        Args:
-            evaluation: a float with the current evaluation value
-        """
-        super().update(evaluation)
-
-
 class Input(Layer):
     """ Input Layer
 
     Creates a placeholder to receive tensors with a given shape and data type.
     """
 
-    def __init__(self, n_units, n_active=None, batch_size=None, value=None, dtype=dtypes.float32, name="input"):
+    def __init__(self, n_units, n_active=None, shape=None, batch_size=None, value=None, dtype=dtypes.float32,
+                 name="input"):
         """
         if n_active is not None:
             when connected to a Linear layer, this is interpreted
@@ -842,7 +738,6 @@ class Input(Layer):
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
-        shape = [batch_size, n_units]
         super().__init__(None, n_units, shape, dtype, name)
 
         self.value = value
@@ -855,7 +750,8 @@ class Input(Layer):
             else:  # sparse
                 self.n_active = n_active
                 self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
-                self.tensor = transform.sparse_one_hot(self.placeholder, self.shape[1], dtype=self.dtype)
+
+                self.tensor = transform.sparse_one_hot(self.placeholder, num_cols=self.n_units, dtype=self.dtype)
 
     def __str__(self):
         class_name = type(self).__name__
@@ -908,16 +804,16 @@ class SparseInput(Layer):
         when the `TensorFlow` graph is evaluated.
     """
 
-    def __init__(self, n_units, batch_size=None, dtype=dtypes.float32, value=None, name="sparse_input"):
-        shape = [batch_size, n_units]
+    def __init__(self, n_units, shape=None, dtype=dtypes.float32, value=None, name="sparse_input"):
         super().__init__(None, n_units, shape, dtype, name)
         self.value = value
 
         with layer_scope(self):
             self.placeholder = array_ops.sparse_placeholder(dtype, shape=self.shape, name=name)
 
-            dense_shape = array_ops.stack([self.placeholder.dense_shape[0], math_ops.cast(n_units, dtypes.int64)])
-            self.tensor = SparseTensor(self.placeholder.indices, self.placeholder.values, dense_shape)
+            self.tensor = self.placeholder
+            # dense_shape = array_ops.stack([self.placeholder.dense_shape[0], math_ops.cast(n_units, dtypes.int64)])
+            # self.tensor = SparseTensor(self.placeholder.indices, self.placeholder.values, self.placeholder.dense_shape)
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on SparseInput Layer: SparseInput has no input layers")
@@ -2046,7 +1942,21 @@ class QRNN(Layer):
                          attr_fwd=["w_z", "w_f", "w_o"])
 
 
-class RNNCell(Layer):
+class RecurrentCell(Layer):
+    def __init__(self, input_layer, previous_state, n_units, dtype=dtypes.float32, name="recurrent_cell"):
+        self.previous_state = _as_list(previous_state)
+        # needs to be defined on each recurrent cell just as we define self.tensor
+        # the default state is the current cell which gives access to its  output tensor
+        self.state = self
+
+        super().__init__(input_layers=[input_layer] + self.previous_state,
+                         n_units=n_units,
+                         shape=[input_layer.n_units, n_units],
+                         dtype=dtype,
+                         name=name)
+
+
+class RNNCell(RecurrentCell):
     """ Recurrent Cell
         Corresponds to a single step on an unrolled RNN network
 
@@ -2069,9 +1979,9 @@ class RNNCell(Layer):
         return TensorLayer(zero_state, n_units)
 
     def __init__(self,
-                 layer,
+                 input_layer,
                  n_units,
-                 previous_state=None,
+                 previous_cell=None,
                  activation=tanh,
                  use_bias=True,
                  w_init=xavier_init(),
@@ -2091,25 +2001,25 @@ class RNNCell(Layer):
         self.regularized = regularized
 
         # if previous state is None start with zeros
-        if previous_state is not None:
-            if previous_state.n_units != n_units:
+        if previous_cell is not None:
+            if previous_cell.n_units != n_units:
                 raise ValueError(
-                    "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
+                    "previous state n_units ({}) != current n_units ({})".format(previous_cell.n_units, self.n_units))
         else:
-            previous_state = RNNCell.zero_state(layer, n_units)
-
-        self.previous_state = previous_state
+            previous_cell = RNNCell.zero_state(input_layer, n_units)
 
         if share_state_with is not None and not isinstance(share_state_with, RNNCell):
             raise TypeError(
                 "share_state_with must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
-        super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
+        super().__init__(input_layer, previous_cell, n_units, dtypes.float32, name)
 
-        self.tensor = self._build_graph(layer, previous_state, regularized)
+        self.tensor = self._build_graph(input_layer, self.previous_state, regularized)
 
     def _build_graph(self, layer, previous_state, regularized):
+        previous_state = previous_state[0]
+
         with layer_scope(self):
             if self.share_state_with is None:
                 self.w = Linear(layer, self.n_units, add_bias=True, weight_init=self.w_init, name="w")
@@ -2137,16 +2047,16 @@ class RNNCell(Layer):
 
             return self.state.tensor
 
-    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
+    def reuse_with(self, input_layer, previous_cell=None, regularized=None, name=None):
         share_state_with = self if self.share_state_with is None else self.share_state_with
-        previous_state = self.previous_state if previous_state is None else previous_state
+        previous_cell = self.previous_state[0] if previous_cell is None else previous_cell
         name = self.name if name is None else name
         regularized = self.regularized if regularized is None else regularized
 
         return RNNCell(
-            layer=input_layer,
+            input_layer=input_layer,
             n_units=self.n_units,
-            previous_state=previous_state,
+            previous_cell=previous_cell,
             activation=self.activation,
             use_bias=self.use_bias,
             share_state_with=share_state_with,
@@ -2157,7 +2067,7 @@ class RNNCell(Layer):
         )
 
 
-class GRUCell(Layer):
+class GRUCell(RecurrentCell):
     """ Gated Recurrent Unit Cell.
 
         Performs a single step with a gated recurrent unit where. These units have two gates:
@@ -2171,8 +2081,8 @@ class GRUCell(Layer):
         zero_state = array_ops.zeros([input_batch, n_units])
         return TensorLayer(zero_state, n_units)
 
-    def __init__(self, layer, n_units,
-                 previous_state=None,
+    def __init__(self, input_layer, n_units,
+                 previous_cell=None,
                  activation=tanh,
                  add_bias=True,
                  w_init=xavier_init(),
@@ -2191,25 +2101,30 @@ class GRUCell(Layer):
         self.regularized = regularized
 
         # if previous state is None start with zeros
-        if previous_state is not None:
-            if previous_state.n_units != n_units:
+        if previous_cell is not None:
+            if previous_cell.n_units != n_units:
                 raise ValueError(
-                    "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
+                    "previous state n_units ({}) != current n_units ({})".format(previous_cell.n_units, self.n_units))
         else:
-            previous_state = GRUCell.zero_state(layer, n_units)
-
-        self.previous_state = previous_state
+            previous_cell = GRUCell.zero_state(input_layer, n_units)
 
         if share_state_with is not None and not isinstance(share_state_with, GRUCell):
             raise TypeError(
                 "share_state_with must be of type {} got {} instead".format(GRUCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
-        super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
+        super().__init__(input_layer=input_layer,
+                         previous_state=previous_cell,
+                         n_units=n_units,
+                         dtype=dtypes.float32,
+                         name=name)
 
-        self.tensor = self._build_graph(layer, previous_state, regularized)
+        self.tensor = self._build_graph(input_layer, self.previous_state, self.regularized)
 
     def _build_graph(self, layer, previous_state, regularized):
+        # previous state is a single layer
+        previous_state = previous_state[0]
+
         with layer_scope(self):
 
             if self.share_state_with is None:
@@ -2288,20 +2203,20 @@ class GRUCell(Layer):
 
             return self.state.tensor
 
-    def reuse_with(self, input_layer, previous_state=None, regularized=False, name=None):
+    def reuse_with(self, input_layer, previous_cell=None, regularized=False, name=None):
         share_state_with = self if self.share_state_with is None else self.share_state_with
         regularized = self.regularized if regularized is None else regularized
 
-        if previous_state is None:
-            previous_state = self.previous_state
+        if previous_cell is None:
+            previous_cell = self.previous_state[0]
 
         if name is None:
             name = self.name
 
         return GRUCell(
-            layer=input_layer,
+            input_layer=input_layer,
+            previous_cell=previous_cell,
             n_units=self.n_units,
-            previous_state=previous_state,
             activation=self.activation,
             add_bias=self.add_bias,
             share_state_with=share_state_with,
@@ -2312,85 +2227,7 @@ class GRUCell(Layer):
         )
 
 
-class LSTM(Layer):
-    def __init__(self,
-                 seq_layer,
-                 seq_size,
-                 n_units,
-                 candidate_activation=tanh,
-                 output_activation=tanh,
-                 w_init=xavier_init(),
-                 u_init=xavier_init(),
-                 share_vars_with=None,
-                 name="lstm"):
-
-        self.candidate_activation = candidate_activation
-        self.output_activation = output_activation
-        self.w_init = w_init
-        self.u_init = u_init
-        self.share_vars_with = share_vars_with
-        self.seq_size = seq_size
-        self.cells = []
-
-        super().__init__(input_layers=seq_layer,
-                         n_units=n_units,
-                         shape=[seq_layer.n_units, n_units],
-                         dtype=dtypes.float32,
-                         name=name)
-
-        self.tensor = self._build_graph(seq_layer)
-
-    def _build_graph(self, seq_layer):
-        with layer_scope(self):
-            input0 = seq_layer[0]
-
-            if self.share_vars_with is not None:
-                cell: LSTMCell = self.share_vars_with.cells[0]
-                previous_state = cell.previous_state
-                cell = cell.reuse_with(input_layer=seq_layer[0],
-                                       previous_state=previous_state,
-                                       memory_state=previous_state)
-            else:
-                previous_state = LSTMCell.zero_state(input0, self.n_units)
-                cell = LSTMCell(input0,
-                                n_units=self.n_units,
-                                previous_state=previous_state,
-                                memory_state=previous_state,
-                                candidate_activation=self.candidate_activation,
-                                output_activation=self.output_activation,
-                                w_init=self.w_init,
-                                u_init=self.u_init,
-                                name="lstm_0")
-
-            self.cells = [cell]
-
-            for i in range(1, self.seq_size):
-                input_i = seq_layer[i]
-                previous_cell = self.cells[i - 1]
-                current_cell = previous_cell.reuse_with(input_layer=input_i,
-                                                        previous_state=previous_cell,
-                                                        memory_state=previous_cell.memory_state,
-                                                        name="lstm_{}".format(i))
-                self.cells.append(current_cell)
-
-            return array_ops.stack(self.cells)
-
-    def reuse_with(self, seq_layer, name=None):
-        if name is None:
-            name = self.name
-
-        return LSTM(seq_layer,
-                    seq_size=self.seq_size,
-                    n_units=self.n_units,
-                    candidate_activation=self.candidate_activation,
-                    output_activation=self.output_activation,
-                    w_init=self.w_init,
-                    u_init=self.u_init,
-                    share_vars_with=self,
-                    name=name)
-
-
-class LSTMCell(Layer):
+class LSTMCell(RecurrentCell):
     """ LSTM Cell
 
         Performs a single step with a gated recurrent unit where. These units have two gates:
@@ -2406,8 +2243,8 @@ class LSTMCell(Layer):
         return zero_state
 
     def __init__(self, layer, n_units,
-                 previous_state=None,
-                 memory_state=None,
+                 previous_cell=None,
+                 previous_memory=None,
                  candidate_activation=tanh,
                  output_activation=tanh,
                  w_init=xavier_init(),
@@ -2427,52 +2264,64 @@ class LSTMCell(Layer):
         self.regularized = regularized
 
         # if previous state is None start with zeros
-        if previous_state is not None:
-            if previous_state.n_units != n_units:
+        if previous_cell is not None:
+            if previous_cell.n_units != n_units:
                 raise ValueError(
-                    "previous state n_units ({}) != current n_units ({})".format(previous_state.n_units, self.n_units))
+                    "previous state n_units ({}) != current n_units ({})".format(previous_cell.n_units, self.n_units))
         else:
-            previous_state = LSTMCell.zero_state(layer, n_units, name="zero_state")
+            previous_cell = LSTMCell.zero_state(layer, n_units, name="zero_state")
 
-        if memory_state is not None:
-            if memory_state.n_units != n_units:
+        if previous_memory is not None:
+            if previous_memory.n_units != n_units:
                 raise ValueError(
-                    "previous memory_state n_units ({}) != current n_units ({})".format(memory_state.n_units,
+                    "previous memory_state n_units ({}) != current n_units ({})".format(previous_memory.n_units,
                                                                                         self.n_units))
         else:
-            memory_state = LSTMCell.zero_state(layer, n_units, name="zero_memory")
-
-        self.previous_state = previous_state
-        self.memory_state = memory_state
+            previous_memory = LSTMCell.zero_state(layer, n_units, name="zero_memory")
 
         if share_state_with is not None and not isinstance(share_state_with, LSTMCell):
             raise TypeError(
                 "share_state_with must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
-        super().__init__([layer, previous_state], n_units, [layer.n_units, n_units], dtypes.float32, name)
+        super().__init__(input_layer=layer,
+                         previous_state=(previous_cell, previous_memory),
+                         n_units=n_units,
+                         dtype=dtypes.float32,
+                         name=name)
 
-        self.tensor = self._build_graph(layer, previous_state, regularized)
+        self.tensor, self.memory_state = self._build_graph(layer, self.previous_state, self.regularized)
+        # state is the current output and the current memory
+        self.state = (self, self.memory_state)
 
-    def _build_graph(self, layer, previous_state, regularized):
+        for l in self.w:
+            for v in l.variables:
+                self._add_variable(v)
+        for l in self.u:
+            for v in l.variables:
+                self._add_variable(v)
+
+    def _build_graph(self, input_layer, previous_state, regularized):
+        previous_cell, previous_memory = previous_state
+
         with layer_scope(self):
             # create new weights
             if self.share_state_with is None:
                 # forget gate linear
-                self.w_f = Linear(layer, self.n_units, add_bias=True, name="w_f")
-                self.u_f = Linear(previous_state, self.n_units, add_bias=False, name="u_f")
+                self.w_f = Linear(input_layer, self.n_units, add_bias=True, name="w_f")
+                self.u_f = Linear(previous_cell, self.n_units, add_bias=False, name="u_f")
 
                 # input gate linear
-                self.w_i = Linear(layer, self.n_units, add_bias=True, name="w_i")
-                self.u_i = Linear(previous_state, self.n_units, add_bias=False, name="u_i")
+                self.w_i = Linear(input_layer, self.n_units, add_bias=True, name="w_i")
+                self.u_i = Linear(previous_cell, self.n_units, add_bias=False, name="u_i")
 
                 # candidate linear
-                self.w_c = Linear(layer, self.n_units, add_bias=True, name="w_c")
-                self.u_c = Linear(previous_state, self.n_units, add_bias=False, name="u_c")
+                self.w_c = Linear(input_layer, self.n_units, add_bias=True, name="w_c")
+                self.u_c = Linear(previous_cell, self.n_units, add_bias=False, name="u_c")
 
                 # output gate
-                self.w_o = Linear(layer, self.n_units, add_bias=True, name="w_o")
-                self.u_o = Linear(previous_state, self.n_units, add_bias=False, name="u_o")
+                self.w_o = Linear(input_layer, self.n_units, add_bias=True, name="w_o")
+                self.u_o = Linear(previous_cell, self.n_units, add_bias=False, name="u_o")
 
                 self.w = [self.w_f, self.w_i, self.w_c, self.w_o]
                 self.u = [self.u_f, self.u_i, self.u_c, self.u_o]
@@ -2493,8 +2342,8 @@ class LSTMCell(Layer):
                 def reuse(x, in_layer):
                     return x.reuse_with(in_layer)
 
-                w = map(partial(reuse, in_layer=layer), w)
-                u = map(partial(reuse, in_layer=previous_state), u)
+                w = map(partial(reuse, in_layer=input_layer), w)
+                u = map(partial(reuse, in_layer=previous_cell), u)
 
                 self.w = list(w)
                 self.u = list(u)
@@ -2517,7 +2366,7 @@ class LSTMCell(Layer):
 
             with name_scope("memory_forget"):
                 gate_f = Add(self.w_f, self.u_f, name="add_f")
-                memory_state = Gate(self.memory_state, gate_f, name="gated_memory")
+                memory_state = Gate(previous_memory, gate_f, name="gated_memory")
 
             with name_scope("candidate_store"):
                 gate_i = Add(self.w_i, self.u_i, name="candidate_gate")
@@ -2525,27 +2374,32 @@ class LSTMCell(Layer):
                                        name="candidate_activation")
                 candidate = Gate(candidate, gate_i, name="gated_candidate")
                 memory_state = Add(memory_state, candidate, name="add_to_memory")
-                self.memory_state = memory_state
+                # self.memory_state = memory_state TODO this was how it was packaged before
+                memory_state = Module(inputs=[previous_memory,
+                                              previous_cell,
+                                              input_layer],
+                                      output=memory_state,
+                                      name=self.name + "_memory")
 
             with name_scope("output"):
                 gate_o = Add(self.w_o, self.u_o, name="add_o")
                 output = Activation(memory_state, fn=self.output_activation, name="output")
-                self.state = Gate(output, gate_o, name="gated_output")
+                output = Gate(output, gate_o, name="gated_output")
 
-            return self.state.tensor
+            return output.tensor, memory_state
 
-    def reuse_with(self, input_layer, previous_state=None, memory_state=None, regularized=None, name=None):
+    def reuse_with(self, input_layer, previous_cell=None, previous_memory=None, regularized=None, name=None):
         share_state_with = self if self.share_state_with is None else self.share_state_with
-        previous_state = self.previous_state if previous_state is None else previous_state
+        previous_cell = self.previous_state[0] if previous_cell is None else previous_cell
+        previous_memory = self.previous_state[1] if previous_memory is None else previous_memory
         name = self.name if name is None else name
         regularized = self.regularized if regularized is None else regularized
-        memory_state = self.memory_state if memory_state is None else memory_state
 
         return LSTMCell(
             layer=input_layer,
             n_units=self.n_units,
-            previous_state=previous_state,
-            memory_state=memory_state,
+            previous_cell=previous_cell,
+            previous_memory=previous_memory,
             candidate_activation=self.candidate_activation,
             output_activation=self.output_activation,
             share_state_with=share_state_with,
@@ -2554,6 +2408,106 @@ class LSTMCell(Layer):
             regularized=regularized,
             name=name
         )
+
+
+class LSTM(Layer):
+    def __init__(self,
+                 seq_layer,
+                 seq_size,
+                 n_units,
+                 candidate_activation=tanh,
+                 output_activation=tanh,
+                 previous_state=None,
+                 previous_memory=None,
+                 w_init=xavier_init(),
+                 u_init=xavier_init(),
+                 w_regularizer=None,
+                 u_regularizer=None,
+                 regularized=False,
+                 share_vars_with=None,
+                 name="lstm_layer"):
+
+        self.candidate_activation = candidate_activation
+        self.output_activation = output_activation
+        self.w_init = w_init
+        self.u_init = u_init
+        self.share_vars_with = share_vars_with
+        self.seq_size = seq_size
+        self.u_regularizer = u_regularizer
+        self.w_regularizer = w_regularizer
+        self.regularized = regularized
+        self.previous_state = previous_state
+        self.previous_memory = previous_memory
+
+        self.cells = []
+
+        super().__init__(input_layers=seq_layer,
+                         n_units=n_units,
+                         shape=[seq_layer.n_units, n_units],
+                         dtype=dtypes.float32,
+                         name=name)
+
+        self.tensor = self._build_graph(seq_layer)
+
+    def _build_graph(self, seq_layer):
+        with layer_scope(self):
+            input0 = seq_layer[0]
+
+            if self.share_vars_with is not None:
+                cell: LSTMCell = self.share_vars_with.cells[0]
+
+                cell = cell.reuse_with(input_layer=seq_layer[0],
+                                       previous_cell=self.previous_state,
+                                       previous_memory=self.previous_memory,
+                                       regularized=self.regularized)
+            else:
+                cell = LSTMCell(input0,
+                                n_units=self.n_units,
+                                previous_cell=self.previous_state,
+                                previous_memory=self.previous_memory,
+                                candidate_activation=self.candidate_activation,
+                                output_activation=self.output_activation,
+                                w_init=self.w_init,
+                                u_init=self.u_init,
+                                w_regularizer=self.w_regularizer,
+                                u_regularizer=self.u_regularizer,
+                                regularized=self.regularized,
+                                name="cell_0")
+
+            self.cells = [cell]
+
+            for i in range(1, self.seq_size):
+                input_i = seq_layer[i]
+                cell = cell.reuse_with(input_layer=input_i,
+                                       previous_cell=cell,
+                                       previous_memory=cell.memory_state,
+                                       regularized=self.regularized,
+                                       name="cell_{}".format(i))
+                self.cells.append(cell)
+
+            return array_ops.stack(self.cells)
+
+    def reuse_with(self, seq_layer, previous_state=None, previous_memory=None, regularized=None, name=None):
+        name = self.name if name is None else None
+        regularized = self.regularized if regularized is None else regularized
+        previous_state = self.previous_state if previous_state is None else previous_state
+        previous_memory = self.previous_memory if previous_memory is None else previous_memory
+        share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
+
+        return LSTM(seq_layer,
+                    seq_size=self.seq_size,
+                    n_units=self.n_units,
+                    candidate_activation=self.candidate_activation,
+                    output_activation=self.output_activation,
+                    w_init=self.w_init,
+                    u_init=self.u_init,
+                    w_regularizer=self.w_regularizer,
+                    u_regularizer=self.u_regularizer,
+                    regularized=regularized,
+                    previous_state=previous_state,
+                    previous_memory=previous_memory,
+                    share_vars_with=share_vars_with,
+                    name=name)
 
 
 class Lookup(Layer):
@@ -2611,6 +2565,9 @@ class Lookup(Layer):
         self.share_vars_with = share_vars_with
         self.shared_weights = shared_weights
 
+        if layer.is_sparse() and self.seq_size is None:
+            raise ValueError("cannot use unknown seq_size with sparse inputs")
+
         if layer.is_dense() and layer.dtype not in (dtypes.int32, dtypes.int64):
             raise TypeError("invalid input layer dtype {}: should be {} or {}".format(
                 layer.dtype,
@@ -2620,7 +2577,7 @@ class Lookup(Layer):
 
         if len(layer.tensor_shape()) > 2:
             raise ValueError("expected 1D/2D input layer")
-        elif layer.is_dense() and layer.n_units > seq_size:
+        elif layer.is_dense() and layer.n_units is not None and layer.n_units > seq_size:
             raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
                              "if n_units < seq_size the lookup will be padded".format(layer.n_units, seq_size))
 
@@ -2720,8 +2677,9 @@ class Lookup(Layer):
                 # pad lookup if layer.tensor.dense_shape[0] is not a multiple of self.seq_size
                 # this can happen if different lookups have a different number of indices
                 lookup_batch = array_ops.shape(tensor)[0]
-                expected_lookup_batch = math_ops.cast(math_ops.ceil(lookup_batch / self.seq_size) * self.seq_size,
-                                                      dtypes.int32)
+                expected_lookup_batch = math_ops.cast(
+                    math_ops.ceil(lookup_batch / self.seq_size) * math_ops.cast(self.seq_size, dtype=dtypes.float64),
+                    dtypes.int32)
                 lookup_padding = expected_lookup_batch - lookup_batch
 
                 # lookup_padding = sp_batch_size % self.seq_size
@@ -2733,6 +2691,7 @@ class Lookup(Layer):
                 # batch_size = math_ops.cast(math_ops.ceil(sp_batch_size / self.seq_size), dtypes.int32)
                 # batch_size = Print(batch_size, [batch_size], message="")
                 # tensor = array_ops.reshape(tensor, array_ops.stack([-1, self.seq_size, self.n_units]))
+
                 output_shape = array_ops.stack([-1, self.seq_size, self.n_units])
                 tensor = array_ops.reshape(tensor, output_shape)
 
@@ -2750,8 +2709,12 @@ class Lookup(Layer):
                 padding = array_ops.stack(padding)
                 tensor = array_ops.pad(tensor, padding)
             else:
+                # layer is dense
+                n_units = layer.n_units
+                if n_units is None:
+                    n_units = array_ops.shape(layer.tensor)[-1]
 
-                input_tensor = array_ops.reshape(layer.tensor, array_ops.stack([-1, layer.n_units]))
+                input_tensor = array_ops.reshape(layer.tensor, array_ops.stack([-1, n_units]))
                 lookup_weights = embedding_lookup(params=self.weights,
                                                   ids=input_tensor)
 
@@ -2774,8 +2737,9 @@ class Lookup(Layer):
                 else:
                     padding.append([0, 0])
 
-                if layer.n_units < self.seq_size:
-                    seq_padding = self.seq_size - layer.n_units
+                # pad to seq_size if se_size is specified
+                if self.seq_size is not None:
+                    seq_padding = math_ops.maximum(self.seq_size - layer.n_units, 0)
                     padding.append([0, seq_padding])
                 else:
                     padding.append([0, 0])
@@ -2787,11 +2751,16 @@ class Lookup(Layer):
         return tensor
 
     def as_concat(self):
-        n_units = self.n_units * self.seq_size
+        seq_size = self.seq_size
+        if self.seq_size is None:
+            seq_size = array_ops.shape(self.input_layers[-1].tensor)[-1]
+
+        n_units = self.n_units * seq_size
+        new_shape = array_ops.stack([-1, n_units])
 
         return WrapLayer(self,
                          n_units=n_units,
-                         wrap_fn=lambda x: array_ops.reshape(x, [-1, n_units]),
+                         wrap_fn=lambda x: array_ops.reshape(x, new_shape),
                          attr_fwd=["weights", "bias", "seq_size"], name="concat")
 
     def as_seq(self):
@@ -3867,6 +3836,50 @@ ops.register_tensor_conversion_function(
     priority=100
 )
 
+
+class Param(Layer):
+    """ Param
+
+    a special building block to pass scalar parameter to neural network models with support for default values
+
+    Args:
+        value: initial Parameter value, if None must be fed
+
+    """
+
+    def __init__(self, value=None, dtype=dtypes.float32, name="param"):
+        super().__init__(input_layers=[], n_units=1, shape=[], dtype=dtype, name=name)
+        self.value = value
+
+        with layer_scope(self, name=name):
+            self.placeholder = array_ops.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
+            self.tensor = self.placeholder
+
+    def reuse_with(self, *layers, name=None):
+        raise AttributeError("Cannot call reuse_with on Param")
+
+    def eval(self, feed_dict=None, session=None):
+        if feed_dict is not None:
+            if self.placeholder not in feed_dict:
+                raise ValueError("feed dict does not contain the placeholder in this Param")
+        elif self.value is not None:
+            feed_dict = {self.placeholder: self.value}
+        return self.tensor.eval(feed_dict, session)
+
+    def __str__(self):
+        return "{name}::{cname}({dtype})".format(name=self.name, cname=type(self).__name__, dtype=self.dtype)
+
+
+class DynamicParam(Param):
+    def __init__(self, value=None, dtype=dtypes.float32, update_fn=None, name="param_"):
+        super().__init__(value=value, dtype=dtype, name=name)
+        self.update_fn = update_fn
+
+    def update(self, *args, **kwargs):
+        if self.update_fn is not None:
+            self.value = self.update_fn(*args, **kwargs)
+
+
 __all__ = ["Input",
            "FC",
            "RNNCell",
@@ -3906,9 +3919,9 @@ __all__ = ["Input",
            "Conv2D",
            "VariableLayer",
            "FnLayer",
-           "Param",
-           "EvalStepDecayParam",
            "Mean",
            "DropConnect",
-           "ViewLayer"
+           "ViewLayer",
+           "DynamicParam",
+           "Param"
            ]

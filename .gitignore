@@ -57,3 +57,6 @@ _build/
 
 # Idea
 .idea
+
+# org files like notes and todo lists
+*.org

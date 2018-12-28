@@ -4,9 +4,9 @@ import tensorflow as tf
 
 from tensorx import test_utils
 from tensorx.activation import tanh, sigmoid
-from tensorx.layers import Input, Linear, Activation, Add, FnLayer, EvalStepDecayParam
+from tensorx.layers import Input, Linear, Activation, Add, FnLayer
 from tensorx.loss import binary_cross_entropy
-from tensorx.train import Model, LayerGraph
+from tensorx.train import Model, LayerGraph, EvalStepDecayParam
 from pygraphviz import AGraph
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'

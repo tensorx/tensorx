@@ -13,10 +13,12 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 import os
 from pygraphviz import AGraph
 from abc import ABCMeta, abstractmethod
+
+from tensorx.layers import DynamicParam
 from tensorx.utils import as_list
 from tensorflow.python.summary.writer.writer import FileWriter
 from tensorflow.python.client.session import Session, InteractiveSession
-from tensorflow.python.framework import ops
+from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.ops import array_ops, math_ops, control_flow_ops
 from tensorflow.python.ops.gen_state_ops import scatter_sub
 from tensorflow.python.ops.state_ops import assign_sub
@@ -971,5 +973,67 @@ class Model:
         return result
 
 
+class EvalStepDecayParam(DynamicParam):
+    """
+    Args:
+        value: initial value for the dynamic param
+        decay_threshold: float value representing the difference between evaluations necessary for the update to occur
+        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+        less_is_better: if True, evaluation is considered to improve if it decreases, else it is considered to improve
+        if it increases
+
+    Attributes:
+        eval_history: a list with the evaluation values passed through the update function
+        improvement_threshold: float value representing the difference between evaluations necessary for the update to occur
+        decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+    """
+
+    def __init__(self, value,
+                 improvement_threshold=1.0,
+                 less_is_better=True,
+                 decay_rate=1.0,
+                 decay_threshold=1e-6,
+                 dtype=dtypes.float32,
+                 name="eval_step_decay_param"):
+        self.improvement_threshold = improvement_threshold
+        self.decay_rate = decay_rate
+        self.decay_threshold = decay_threshold
+        self.less_is_better = less_is_better
+        self.eval_history = []
+
+        def update_fn(evaluation):
+            self.eval_history.append(evaluation)
+            value = self.value
+            if len(self.eval_history) > 1:
+                if self.eval_improvement() <= self.improvement_threshold:
+                    value = max(value * self.decay_rate, self.decay_threshold)
+            return value
+
+        super().__init__(value=value, dtype=dtype, update_fn=update_fn, name=name)
+
+    def eval_improvement(self):
+        if len(self.eval_history) > 1:
+            improvement = self.eval_history[-2] - self.eval_history[-1]
+            if not self.less_is_better:
+                improvement = -1 * improvement
+            return improvement
+        else:
+            return 0
+
+    def update(self, evaluation):
+        """ update.
+
+        Updates the parameter value. It only makes changes to the parameter after then second update.
+        The decay decays is only applied if the current evaluation did not improve more than the `eval_threshold`.
+
+        Args:
+            evaluation: a float with the current evaluation value
+        """
+        super().update(evaluation)
+
+
 __all__ = ["Model",
-           "LayerGraph"]
+           "LayerGraph",
+           "EvalStepDecayParam"]
