@@ -317,10 +317,14 @@ class Layer:
         return full_str + "\n"
 
     def __getitem__(self, item):
+        if isinstance(item, Tensor):
+            item_name = item.op.name
+        else:
+            item_name = str(item)
         return WrapLayer(layer=self,
                          n_units=self.n_units,
                          wrap_fn=lambda tensor: tensor[item],
-                         name="{}_item_{}".format(self.name, item))
+                         name="{}_item_{}".format(self.name, item_name))
 
     def eval(self, feed_dict=None, session=None):
         if isinstance(self.tensor, variables.Variable):
@@ -1031,10 +1035,11 @@ class Linear(Layer):
             if self.shared_weights is None:
                 if self.share_vars_with is None:
                     shape = [input_layer.n_units, self.n_units]
-                    self.weights = variables.Variable(initial_value=self.weight_init(shape),
-                                                      name="weights",
-                                                      dtype=self.dtype,
-                                                      trainable=True)
+                    self.weights = variable_scope.get_variable("weights",
+                                                               shape=shape,
+                                                               dtype=self.dtype,
+                                                               use_resource=True,
+                                                               initializer=self.weight_init)
                 else:
                     self.weights = self.share_vars_with.weights
             else:
@@ -1076,10 +1081,11 @@ class Linear(Layer):
             if self.shared_bias is None:
                 if self.add_bias and self.n_units is not None:
                     if self.share_vars_with is None:
-                        self.bias = variables.Variable(initial_value=self.bias_init([self.n_units]),
-                                                       name="bias",
-                                                       dtype=self.dtype,
-                                                       trainable=True)
+                        self.bias = variable_scope.get_variable("bias",
+                                                                shape=[self.n_units],
+                                                                dtype=self.dtype,
+                                                                initializer=self.bias_init,
+                                                                use_resource=True)
                     else:
                         self.bias = self.share_vars_with.bias
             else:
@@ -1398,7 +1404,7 @@ class Conv1D(Layer):
                  dilation_rate=1,
                  same_padding=True,
                  init=random_uniform(),
-                 bias=True,
+                 use_bias=True,
                  name="conv1D",
                  share_vars_with=None,
                  shared_filters=None):
@@ -1408,7 +1414,7 @@ class Conv1D(Layer):
         self.stride = stride
         self.filter_size = filter_size
         self.init = init
-        self.bias = bias
+        self.use_bias = use_bias
         self.filter_shape = [self.filter_size, layer.n_units, n_units]
         self.share_vars_with = share_vars_with
         self.shared_filters = shared_filters
@@ -1459,7 +1465,8 @@ class Conv1D(Layer):
                 self.filters = variable_scope.get_variable("filters",
                                                            shape=self.filter_shape,
                                                            dtype=self.dtype,
-                                                           initializer=self.init)
+                                                           initializer=self.init,
+                                                           use_resource=True)
             else:
                 self.filters = self.shared_filters
 
@@ -1482,11 +1489,12 @@ class Conv1D(Layer):
                                  data_format="NWC")
 
             # y = xW + [b]
-            if self.bias:
-                self.bias = variable_scope.get_variable("b",
+            if self.use_bias:
+                self.bias = variable_scope.get_variable("bias",
                                                         shape=[self.n_units],
                                                         dtype=self.dtype,
-                                                        initializer=zero_init())
+                                                        initializer=zero_init(),
+                                                        use_resource=True)
                 self._add_variable(self.bias)
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
@@ -1502,7 +1510,7 @@ class Conv1D(Layer):
                       self.stride,
                       self.dilation,
                       self.same_padding,
-                      self.bias,
+                      self.use_bias,
                       name,
                       share_vars_with)
 
@@ -1528,7 +1536,7 @@ class CausalConv(Conv1D):
                  stride=1,
                  dilation_rate=1,
                  init=random_uniform(),
-                 bias=True,
+                 use_bias=True,
                  name="CausalConv",
                  share_vars_with=None,
                  shared_filters=None):
@@ -1546,7 +1554,7 @@ class CausalConv(Conv1D):
                          dilation_rate=dilation_rate,
                          same_padding=False,
                          init=init,
-                         bias=bias,
+                         use_bias=use_bias,
                          name=name,
                          share_vars_with=share_vars_with,
                          shared_filters=shared_filters)
@@ -1562,7 +1570,7 @@ class CausalConv(Conv1D):
                           stride=self.stride,
                           dilation_rate=self.dilation_rate,
                           init=self.init,
-                          bias=self.bias,
+                          use_bias=self.use_bias,
                           name=name,
                           share_vars_with=share_vars_with,
                           shared_filters=self.shared_filters)
@@ -1702,7 +1710,8 @@ class Conv2D(Layer):
                 self.filters = variable_scope.get_variable("filters",
                                                            shape=self.filter_shape,
                                                            dtype=self.dtype,
-                                                           initializer=self.init)
+                                                           initializer=self.init,
+                                                           use_resource=True)
             else:
                 self.filters = self.shared_filters
 
@@ -1726,10 +1735,11 @@ class Conv2D(Layer):
 
             # y = xW + [b]
             if self.bias:
-                self.bias = variable_scope.get_variable("b",
+                self.bias = variable_scope.get_variable("bias",
                                                         shape=[self.n_units],
                                                         dtype=self.dtype,
-                                                        initializer=zero_init())
+                                                        initializer=zero_init(),
+                                                        use_resource=True)
                 self._add_variable(self.bias)
                 tensor = bias_add(tensor, self.bias, name="add_b")
         return tensor
@@ -1805,7 +1815,7 @@ class QRNN(Layer):
                                       filter_size=self.filter_size,
                                       stride=self.stride,
                                       dilation_rate=self.dilation_rate,
-                                      init=self.init_candidate, bias=True,
+                                      init=self.init_candidate, use_bias=True,
                                       name="candidate_conv")
 
                 # forget gate weights
@@ -1814,7 +1824,7 @@ class QRNN(Layer):
                                       filter_size=self.filter_size,
                                       stride=self.stride,
                                       dilation_rate=self.dilation_rate,
-                                      init=self.init_forget_gate, bias=True,
+                                      init=self.init_forget_gate, use_bias=True,
                                       name="forget_conv")
 
                 if self.input_gate:
@@ -1823,7 +1833,7 @@ class QRNN(Layer):
                                           filter_size=self.filter_size,
                                           stride=self.stride,
                                           dilation_rate=self.dilation_rate,
-                                          init=self.init_input_gate, bias=True,
+                                          init=self.init_input_gate, use_bias=True,
                                           name="input_conv")
 
                 if self.output_gate:
@@ -1832,7 +1842,7 @@ class QRNN(Layer):
                                           filter_size=self.filter_size,
                                           stride=self.stride,
                                           dilation_rate=self.dilation_rate,
-                                          init=self.init_output_gate, bias=True,
+                                          init=self.init_output_gate, use_bias=True,
                                           name="output_conv")
 
             else:
@@ -1945,6 +1955,11 @@ class QRNN(Layer):
 class RecurrentCell(Layer):
     def __init__(self, input_layer, previous_state, n_units, dtype=dtypes.float32, name="recurrent_cell"):
         self.previous_state = _as_list(previous_state)
+
+        self.previous_state = list(
+            map(lambda state: state if isinstance(state, Layer) else TensorLayer(state, n_units=n_units),
+                self.previous_state))
+
         # needs to be defined on each recurrent cell just as we define self.tensor
         # the default state is the current cell which gives access to its  output tensor
         self.state = self
@@ -1973,15 +1988,15 @@ class RNNCell(RecurrentCell):
         """
 
     @staticmethod
-    def zero_state(input_layer, n_units):
+    def zero_state(input_layer, n_units, name="zero_state"):
         input_batch = array_ops.shape(input_layer.tensor)[0]
         zero_state = array_ops.zeros([input_batch, n_units])
-        return TensorLayer(zero_state, n_units)
+        return TensorLayer(zero_state, n_units, name=name)
 
     def __init__(self,
                  input_layer,
                  n_units,
-                 previous_cell=None,
+                 previous_state=None,
                  activation=tanh,
                  use_bias=True,
                  w_init=xavier_init(),
@@ -2001,21 +2016,18 @@ class RNNCell(RecurrentCell):
         self.regularized = regularized
 
         # if previous state is None start with zeros
-        if previous_cell is not None:
-            if previous_cell.n_units != n_units:
-                raise ValueError(
-                    "previous state n_units ({}) != current n_units ({})".format(previous_cell.n_units, self.n_units))
-        else:
-            previous_cell = RNNCell.zero_state(input_layer, n_units)
+        if previous_state is None:
+            previous_state = RNNCell.zero_state(input_layer, n_units)
 
         if share_state_with is not None and not isinstance(share_state_with, RNNCell):
             raise TypeError(
                 "share_state_with must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
-        super().__init__(input_layer, previous_cell, n_units, dtypes.float32, name)
+        super().__init__(input_layer, previous_state, n_units, dtypes.float32, name)
 
         self.tensor = self._build_graph(input_layer, self.previous_state, regularized)
+        self.state = [self]
 
     def _build_graph(self, layer, previous_state, regularized):
         previous_state = previous_state[0]
@@ -2042,21 +2054,21 @@ class RNNCell(RecurrentCell):
                 if not isinstance(self.u, ViewLayer) and self.u_regularizer is not None:
                     self.u = self.u_regularizer(self.u)
 
-            state = Add(self.w, self.u)
-            self.state = Activation(state, self.activation)
+            output = Add(self.w, self.u)
+            output = Activation(output, self.activation)
 
-            return self.state.tensor
+            return output.tensor
 
-    def reuse_with(self, input_layer, previous_cell=None, regularized=None, name=None):
+    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
         share_state_with = self if self.share_state_with is None else self.share_state_with
-        previous_cell = self.previous_state[0] if previous_cell is None else previous_cell
+        previous_state = self.previous_state if previous_state is None else previous_state
         name = self.name if name is None else name
         regularized = self.regularized if regularized is None else regularized
 
         return RNNCell(
             input_layer=input_layer,
             n_units=self.n_units,
-            previous_cell=previous_cell,
+            previous_state=previous_state,
             activation=self.activation,
             use_bias=self.use_bias,
             share_state_with=share_state_with,
@@ -2082,7 +2094,7 @@ class GRUCell(RecurrentCell):
         return TensorLayer(zero_state, n_units)
 
     def __init__(self, input_layer, n_units,
-                 previous_cell=None,
+                 previous_state=None,
                  activation=tanh,
                  add_bias=True,
                  w_init=xavier_init(),
@@ -2101,12 +2113,8 @@ class GRUCell(RecurrentCell):
         self.regularized = regularized
 
         # if previous state is None start with zeros
-        if previous_cell is not None:
-            if previous_cell.n_units != n_units:
-                raise ValueError(
-                    "previous state n_units ({}) != current n_units ({})".format(previous_cell.n_units, self.n_units))
-        else:
-            previous_cell = GRUCell.zero_state(input_layer, n_units)
+        if previous_state is None:
+            previous_state = GRUCell.zero_state(input_layer, n_units)
 
         if share_state_with is not None and not isinstance(share_state_with, GRUCell):
             raise TypeError(
@@ -2114,12 +2122,13 @@ class GRUCell(RecurrentCell):
         self.share_state_with = share_state_with
 
         super().__init__(input_layer=input_layer,
-                         previous_state=previous_cell,
+                         previous_state=previous_state,
                          n_units=n_units,
                          dtype=dtypes.float32,
                          name=name)
 
         self.tensor = self._build_graph(input_layer, self.previous_state, self.regularized)
+        self.state = [self]
 
     def _build_graph(self, layer, previous_state, regularized):
         # previous state is a single layer
@@ -2148,7 +2157,7 @@ class GRUCell(RecurrentCell):
                 self.u_z = Linear(previous_state, self.n_units, add_bias=False, name="u_z")
                 update_gate = Add(self.w_z, self.u_z, name="linear_z")
 
-                self.state = CoupledGate(candidate_state, previous_state, update_gate)
+                output = CoupledGate(candidate_state, previous_state, update_gate)
             else:
                 def inner_or_view(x):
                     if isinstance(x, ViewLayer) and not self.regularized:
@@ -2199,23 +2208,19 @@ class GRUCell(RecurrentCell):
 
                 update_gate = Add(self.w_z, self.u_z)
 
-                self.state = CoupledGate(candidate_state, previous_state, update_gate)
+                output = CoupledGate(candidate_state, previous_state, update_gate)
 
-            return self.state.tensor
+            return output.tensor
 
-    def reuse_with(self, input_layer, previous_cell=None, regularized=False, name=None):
+    def reuse_with(self, input_layer, previous_state=None, regularized=False, name=None):
         share_state_with = self if self.share_state_with is None else self.share_state_with
         regularized = self.regularized if regularized is None else regularized
-
-        if previous_cell is None:
-            previous_cell = self.previous_state[0]
-
-        if name is None:
-            name = self.name
+        previous_state = self.previous_state if previous_state is None else previous_state
+        name = self.name if name is None else name
 
         return GRUCell(
             input_layer=input_layer,
-            previous_cell=previous_cell,
+            previous_state=previous_state,
             n_units=self.n_units,
             activation=self.activation,
             add_bias=self.add_bias,
@@ -2233,6 +2238,11 @@ class LSTMCell(RecurrentCell):
         Performs a single step with a gated recurrent unit where. These units have two gates:
         The first defines how much do we use the values from the recurrent connection to predict the current state
         The second
+
+        Args:
+            previous_state (tuple): (previous_h, previous_memory) where previous_h is the previous output for the cell from a
+            a previous timestep or None if the current cell is the first step
+            previous_memory is the memory state output for the previous cell or None if the current cell is the first step
     """
 
     @staticmethod
@@ -2243,8 +2253,7 @@ class LSTMCell(RecurrentCell):
         return zero_state
 
     def __init__(self, layer, n_units,
-                 previous_cell=None,
-                 previous_memory=None,
+                 previous_state=None,
                  candidate_activation=tanh,
                  output_activation=tanh,
                  w_init=xavier_init(),
@@ -2263,29 +2272,30 @@ class LSTMCell(RecurrentCell):
         self.w_regularizer = w_regularizer
         self.regularized = regularized
 
-        # if previous state is None start with zeros
-        if previous_cell is not None:
-            if previous_cell.n_units != n_units:
-                raise ValueError(
-                    "previous state n_units ({}) != current n_units ({})".format(previous_cell.n_units, self.n_units))
+        if previous_state is None:
+            previous_state = (None, None)
         else:
-            previous_cell = LSTMCell.zero_state(layer, n_units, name="zero_state")
+            previous_state = _as_list(previous_state)
+            if len(previous_state) != 2:
+                raise ValueError("Expected previous state to contain 2 entries: (prev_h,prev_memory)")
 
-        if previous_memory is not None:
-            if previous_memory.n_units != n_units:
-                raise ValueError(
-                    "previous memory_state n_units ({}) != current n_units ({})".format(previous_memory.n_units,
-                                                                                        self.n_units))
-        else:
-            previous_memory = LSTMCell.zero_state(layer, n_units, name="zero_memory")
+        # if previous state is None start with zeros
+        def input_states(state):
+            if state is None:
+                return LSTMCell.zero_state(layer, n_units, name="zero_state")
+            else:
+                return state
+
+        previous_state = map(input_states, previous_state)
+        previous_state = list(previous_state)
 
         if share_state_with is not None and not isinstance(share_state_with, LSTMCell):
             raise TypeError(
-                "share_state_with must be of type {} got {} instead".format(RNNCell, type(share_state_with)))
+                "share_state_with must be of type {} got {} instead".format(LSTMCell, type(share_state_with)))
         self.share_state_with = share_state_with
 
         super().__init__(input_layer=layer,
-                         previous_state=(previous_cell, previous_memory),
+                         previous_state=previous_state,
                          n_units=n_units,
                          dtype=dtypes.float32,
                          name=name)
@@ -2302,26 +2312,26 @@ class LSTMCell(RecurrentCell):
                 self._add_variable(v)
 
     def _build_graph(self, input_layer, previous_state, regularized):
-        previous_cell, previous_memory = previous_state
+        previous_h, previous_memory = previous_state
 
         with layer_scope(self):
             # create new weights
             if self.share_state_with is None:
                 # forget gate linear
                 self.w_f = Linear(input_layer, self.n_units, add_bias=True, name="w_f")
-                self.u_f = Linear(previous_cell, self.n_units, add_bias=False, name="u_f")
+                self.u_f = Linear(previous_h, self.n_units, add_bias=False, name="u_f")
 
                 # input gate linear
                 self.w_i = Linear(input_layer, self.n_units, add_bias=True, name="w_i")
-                self.u_i = Linear(previous_cell, self.n_units, add_bias=False, name="u_i")
+                self.u_i = Linear(previous_h, self.n_units, add_bias=False, name="u_i")
 
                 # candidate linear
                 self.w_c = Linear(input_layer, self.n_units, add_bias=True, name="w_c")
-                self.u_c = Linear(previous_cell, self.n_units, add_bias=False, name="u_c")
+                self.u_c = Linear(previous_h, self.n_units, add_bias=False, name="u_c")
 
                 # output gate
                 self.w_o = Linear(input_layer, self.n_units, add_bias=True, name="w_o")
-                self.u_o = Linear(previous_cell, self.n_units, add_bias=False, name="u_o")
+                self.u_o = Linear(previous_h, self.n_units, add_bias=False, name="u_o")
 
                 self.w = [self.w_f, self.w_i, self.w_c, self.w_o]
                 self.u = [self.u_f, self.u_i, self.u_c, self.u_o]
@@ -2343,7 +2353,7 @@ class LSTMCell(RecurrentCell):
                     return x.reuse_with(in_layer)
 
                 w = map(partial(reuse, in_layer=input_layer), w)
-                u = map(partial(reuse, in_layer=previous_cell), u)
+                u = map(partial(reuse, in_layer=previous_h), u)
 
                 self.w = list(w)
                 self.u = list(u)
@@ -2376,7 +2386,7 @@ class LSTMCell(RecurrentCell):
                 memory_state = Add(memory_state, candidate, name="add_to_memory")
                 # self.memory_state = memory_state TODO this was how it was packaged before
                 memory_state = Module(inputs=[previous_memory,
-                                              previous_cell,
+                                              previous_h,
                                               input_layer],
                                       output=memory_state,
                                       name=self.name + "_memory")
@@ -2386,20 +2396,18 @@ class LSTMCell(RecurrentCell):
                 output = Activation(memory_state, fn=self.output_activation, name="output")
                 output = Gate(output, gate_o, name="gated_output")
 
-            return output.tensor, memory_state
+        return output.tensor, memory_state
 
-    def reuse_with(self, input_layer, previous_cell=None, previous_memory=None, regularized=None, name=None):
+    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
         share_state_with = self if self.share_state_with is None else self.share_state_with
-        previous_cell = self.previous_state[0] if previous_cell is None else previous_cell
-        previous_memory = self.previous_state[1] if previous_memory is None else previous_memory
+        previous_state = self.previous_state if previous_state is None else previous_state
         name = self.name if name is None else name
         regularized = self.regularized if regularized is None else regularized
 
         return LSTMCell(
             layer=input_layer,
             n_units=self.n_units,
-            previous_cell=previous_cell,
-            previous_memory=previous_memory,
+            previous_state=previous_state,
             candidate_activation=self.candidate_activation,
             output_activation=self.output_activation,
             share_state_with=share_state_with,
@@ -2457,14 +2465,12 @@ class LSTM(Layer):
                 cell: LSTMCell = self.share_vars_with.cells[0]
 
                 cell = cell.reuse_with(input_layer=seq_layer[0],
-                                       previous_cell=self.previous_state,
-                                       previous_memory=self.previous_memory,
+                                       previous_state=self.previous_state,
                                        regularized=self.regularized)
             else:
                 cell = LSTMCell(input0,
                                 n_units=self.n_units,
-                                previous_cell=self.previous_state,
-                                previous_memory=self.previous_memory,
+                                previous_state=self.previous_state,
                                 candidate_activation=self.candidate_activation,
                                 output_activation=self.output_activation,
                                 w_init=self.w_init,
@@ -2479,19 +2485,17 @@ class LSTM(Layer):
             for i in range(1, self.seq_size):
                 input_i = seq_layer[i]
                 cell = cell.reuse_with(input_layer=input_i,
-                                       previous_cell=cell,
-                                       previous_memory=cell.memory_state,
+                                       previous_state=cell.state,
                                        regularized=self.regularized,
                                        name="cell_{}".format(i))
                 self.cells.append(cell)
 
             return array_ops.stack(self.cells)
 
-    def reuse_with(self, seq_layer, previous_state=None, previous_memory=None, regularized=None, name=None):
+    def reuse_with(self, seq_layer, previous_state=None, regularized=None, name=None):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         previous_state = self.previous_state if previous_state is None else previous_state
-        previous_memory = self.previous_memory if previous_memory is None else previous_memory
         share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
 
         return LSTM(seq_layer,
@@ -2505,7 +2509,6 @@ class LSTM(Layer):
                     u_regularizer=self.u_regularizer,
                     regularized=regularized,
                     previous_state=previous_state,
-                    previous_memory=previous_memory,
                     share_vars_with=share_vars_with,
                     name=name)
 
@@ -2620,7 +2623,10 @@ class Lookup(Layer):
             # init weights
 
             if self.shared_weights is None:
-                self.weights = variable_scope.get_variable("w", shape=self.feature_shape, initializer=self.weight_init)
+                self.weights = variable_scope.get_variable("weights",
+                                                           shape=self.feature_shape,
+                                                           initializer=self.weight_init,
+                                                           use_resource=True)
             else:
                 self.weights = self.shared_weights
 
@@ -2628,7 +2634,10 @@ class Lookup(Layer):
 
             if self.bias:
                 if self.shared_bias is None:
-                    self.bias = variable_scope.get_variable("b", shape=self.feature_shape[0], initializer=zero_init())
+                    self.bias = variable_scope.get_variable("bias",
+                                                            shape=self.feature_shape[0],
+                                                            initializer=zero_init(),
+                                                            use_resource=True)
                 else:
                     self.bias = self.bias
             else:
@@ -3138,9 +3147,6 @@ class SaltPepperNoise(Layer):
 
         # do nothing if amount of noise is 0
         if density == 0.0 or self.num_corrupted() == 0:
-            # print("lulz: ")
-            # print(density)
-            # print(self.num_corrupted())
             tensor = layer.tensor
         else:
             with layer_scope(self):
@@ -3260,7 +3266,10 @@ class Bias(Layer):
                          var_scope=True,
                          var_reuse=var_reuse,
                          var_scope_name=var_scope_name):
-            self.bias = variable_scope.get_variable("b", shape=[self.n_units], initializer=zero_init())
+            self.bias = variable_scope.get_variable("bias",
+                                                    shape=[self.n_units],
+                                                    initializer=zero_init(),
+                                                    use_resource=True)
             self._add_variable(self.bias)
             if layer.is_sparse():
                 tensor = sparse.to_dense(layer.tensor)
@@ -3727,7 +3736,8 @@ class BatchNorm(Layer):
                                                              shape=self.param_shape,
                                                              dtype=self.dtype,
                                                              initializer=self.gamma_init,
-                                                             trainable=self.trainable)
+                                                             trainable=self.trainable,
+                                                             use_resource=True)
 
                 # store variables for easy access
                 self._add_variable(self.gamma)
@@ -3739,7 +3749,8 @@ class BatchNorm(Layer):
                                                             shape=self.param_shape,
                                                             dtype=self.dtype,
                                                             initializer=self.beta_init,
-                                                            trainable=self.trainable)
+                                                            trainable=self.trainable,
+                                                            use_resource=True)
 
                 # store variables for easy access
                 self._add_variable(self.beta)
@@ -3751,6 +3762,7 @@ class BatchNorm(Layer):
                                                                shape=self.param_shape,
                                                                initializer=zero_init(),
                                                                trainable=False,
+                                                               use_resource=True,
                                                                dtype=self.dtype)
             self._add_variable(self.moving_mean)
 
@@ -3759,6 +3771,7 @@ class BatchNorm(Layer):
                                                                    shape=self.param_shape,
                                                                    initializer=zero_init(),
                                                                    trainable=False,
+                                                                   use_resource=True,
                                                                    dtype=self.dtype)
 
             self._add_variable(self.moving_variance)
@@ -3824,10 +3837,8 @@ class BatchNorm(Layer):
 # register Layer as Tensor
 
 def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
-    if dtype is not None:
-        return math_ops.cast(layer.tensor, dtype, name=name)
-    else:
-        return identity(layer.tensor, name=name)
+    with ops.name_scope(name):
+        return tx_utils.to_tensor_cast(layer.tensor, dtype=dtype)
 
 
 ops.register_tensor_conversion_function(

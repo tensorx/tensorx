@@ -1378,10 +1378,10 @@ class TestLayers(test_utils.TestCase):
                        w_regularizer=partial(Dropout, keep_prob=0.5),
                        regularized=True
                        )
-        rnn2 = rnn1.reuse_with(inputs2, previous_cell=rnn1)
-        rnn3 = rnn1.reuse_with(inputs2, previous_cell=rnn1)
-        rnn4 = rnn1.reuse_with(inputs2, previous_cell=None, regularized=False)
-        rnn5 = rnn4.reuse_with(inputs2, previous_cell=None, regularized=True)
+        rnn2 = rnn1.reuse_with(inputs2, previous_state=rnn1)
+        rnn3 = rnn1.reuse_with(inputs2, previous_state=rnn1)
+        rnn4 = rnn1.reuse_with(inputs2, previous_state=None, regularized=False)
+        rnn5 = rnn4.reuse_with(inputs2, previous_state=None, regularized=True)
 
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
@@ -1407,24 +1407,24 @@ class TestLayers(test_utils.TestCase):
         batch_size = 2
 
         inputs = Input(n_inputs)
-        rnn_1 = LSTMCell(inputs, n_hidden)
-        rnn_2 = rnn_1.reuse_with(inputs,
-                                 previous_cell=rnn_1)
+        rnn1 = LSTMCell(inputs, n_hidden)
+
+        rnn2 = rnn1.reuse_with(inputs,
+                               previous_state=rnn1.state)
 
         # if we don't wipe the memory it reuses it
-        rnn_3 = rnn_1.reuse_with(inputs,
-                                 previous_cell=None,
-                                 previous_memory=LSTMCell.zero_state(inputs, rnn_1.n_units))
-
+        rnn3 = rnn1.reuse_with(inputs,
+                               previous_state=(None, LSTMCell.zero_state(inputs, rnn1.n_units))
+                               )
         init = tf.global_variables_initializer()
 
         data = np.ones([batch_size, 4])
 
         with self.cached_session(use_gpu=True):
             self.eval(init)
-            res1 = self.eval(rnn_1.tensor, {inputs.placeholder: data})
-            res2 = self.eval(rnn_2.tensor, {inputs.placeholder: data})
-            res3 = self.eval(rnn_3.tensor, {inputs.placeholder: data})
+            res1 = self.eval(rnn1.tensor, {inputs.placeholder: data})
+            res2 = self.eval(rnn2.tensor, {inputs.placeholder: data})
+            res3 = self.eval(rnn3.tensor, {inputs.placeholder: data})
 
             self.assertEqual((batch_size, n_hidden), np.shape(res1))
             self.assertArrayEqual(res1, res3)
