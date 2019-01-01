@@ -1350,8 +1350,13 @@ class TestLayers(test_utils.TestCase):
         inputs = Input(n_inputs)
         rnn_1 = RNNCell(inputs, n_hidden)
         rnn_2 = rnn_1.reuse_with(inputs, rnn_1.state)
-
         rnn_3 = rnn_1.reuse_with(inputs)
+
+        try:
+            RNNCell(inputs, n_hidden, share_state_with=inputs)
+            self.fail("should have thrown exception because inputs cannot share state with RNNCell")
+        except TypeError:
+            pass
 
         init = tf.global_variables_initializer()
 
@@ -1441,16 +1446,37 @@ class TestLayers(test_utils.TestCase):
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
         seq = lookup.as_seq()
 
-        lstm = LSTM(seq, seq_size=3, n_units=hdim)
-        lstm2 = lstm.reuse_with(seq)
+        # lambda x: LSTMCell(x,n_units=hdim) doesn't allow for additional params to be given
+        # partial(LSTMCell, n_units=hdim) works
+        # lambda x, **kwargs: LSTMCell(x,n_units=hdim,**kwargs) also works
+
+        lstm = Recurrent(seq, cell_proto=lambda x, **kwargs: LSTMCell(x, n_units=hdim, **kwargs))
+
+        # static graph
+        cells = []
+        cell = lstm.cell.reuse_with(seq[0])
+        cells.append(cell)
+        last_state = cell.state
+        for t in range(1, seq_size):
+            xt = seq[t]
+            cell_i = cell.reuse_with(xt, previous_state=last_state)
+            last_state = cell_i.state
+            cells.append(cell_i)
+        out_static = tf.stack(cells)
+
+        # lstm2 = lstm.reuse_with(seq)
 
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
-            self.assertArrayEqual(lstm.cells[0].variables, lstm2.cells[0].variables)
-            r1, r2 = self.eval([lstm.cells[0].tensor, lstm2.cells[0].tensor])
-            self.assertArrayEqual(r1, r2)
-            r1, r2 = self.eval([lstm.tensor, lstm2.tensor])
-            self.assertArrayEqual(r1, r2)
+            out_recurrent = self.eval(lstm.tensor)
+            out_static = self.eval(out_static)
+            self.assertArrayEqual(out_recurrent, out_static)
+
+            # self.assertArrayEqual(lstm.cells[0].variables, lstm2.cells[0].variables)
+            # r1, r2 = self.eval([lstm.cells[0].tensor, lstm2.cells[0].tensor])
+            # self.assertArrayEqual(r1, r2)
+            # r1, r2 = self.eval([lstm.tensor, lstm2.tensor])
+            # self.assertArrayEqual(r1, r2)
 
     def test_gru_cell(self):
         n_inputs = 4
