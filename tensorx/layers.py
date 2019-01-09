@@ -504,9 +504,14 @@ class VariableLayer(Layer):
 
         self.trainable = trainable
         self.resource = resource
-        self.init = init
+        self.init = init if init is not None else zero_init(dtype=self.dtype)
+        self.tensor = self._build_graph()
+
+    def _build_graph(self):
         var_reuse = self.share_vars_with is not None
         var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
+        input_layer = self.input_layers[0]
+        var_shape = self.var_shape
 
         with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
 
@@ -518,16 +523,14 @@ class VariableLayer(Layer):
                 init_shape = var_shape
                 validate_shape = True
 
-            init = init if init is not None else zero_init(dtype=self.dtype)
-
             if self.share_vars_with is None:
                 self.variable = variable_scope.get_variable(self.name + "_var",
                                                             shape=init_shape,
                                                             dtype=self.dtype,
-                                                            trainable=trainable,
+                                                            trainable=self.trainable,
                                                             validate_shape=validate_shape,
-                                                            initializer=init,
-                                                            use_resource=resource)
+                                                            initializer=self.init,
+                                                            use_resource=self.resource)
             else:
                 self.variable = self.share_vars_with.variable
 
@@ -536,11 +539,22 @@ class VariableLayer(Layer):
 
             if input_layer is not None:
                 update_var = state_ops.assign(self.variable, input_layer.tensor, validate_shape=False)
-                self.tensor = update_var
+                tensor = update_var
             else:
-                self.tensor = self.variable
+                tensor = self.variable
 
             self._add_variable(self.variable)
+            return tensor
+
+    def reset(self):
+        """ reset
+
+        resets the variable using its initializer
+
+        Returns:
+            an op that can be run to reinitialize the variable
+        """
+        return self.variable.initializer
 
     def reuse_with(self, input_layer=None, name=None):
         input_layer = self.input_layers[0] if input_layer is None else input_layer
