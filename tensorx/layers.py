@@ -510,7 +510,9 @@ class VariableLayer(Layer):
     def _build_graph(self):
         var_reuse = self.share_vars_with is not None
         var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
-        input_layer = self.input_layers[0]
+
+        input_layer = self.input_layers[-1] if len(self.input_layers) != 0 else None
+
         var_shape = self.var_shape
 
         with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
