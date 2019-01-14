@@ -2485,7 +2485,7 @@ class Recurrent(Layer):
         self.previous_state = previous_state
 
         # n_units and shape are set after the first cell is created
-        super().__init__(input_layers=input_seq,
+        super().__init__(input_layers=[input_seq] + _as_list(previous_state),
                          n_units=None,
                          shape=[input_seq.n_units, None],
                          dtype=dtypes.float32,
@@ -2556,7 +2556,7 @@ class Recurrent(Layer):
 
             return out.stack()
 
-    def reuse_with(self, input_seq, regularized=None, reverse=None, previous_state=None, name=None):
+    def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, name=None):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         reverse = self.reverse if reverse is None else reverse
