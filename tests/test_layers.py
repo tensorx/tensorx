@@ -1514,7 +1514,6 @@ class TestLayers(test_utils.TestCase):
 
             out3 = self.eval(rnn3.tensor)
 
-
             out4 = self.eval(rnn4.tensor)
 
             self.assertArrayEqual(out3, out4)
@@ -1534,6 +1533,45 @@ class TestLayers(test_utils.TestCase):
             out5 = self.eval(rnn5.tensor)
 
             self.assertArrayEqual(out1, out5)
+
+    def test_stateful_recurrent(self):
+        n_features = 5
+        embed_size = 4
+        hdim = 3
+        seq_size = 3
+        batch_size = 2
+
+        inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
+        seq = lookup.as_seq()
+
+        def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
+
+        rnn1 = Recurrent(seq, cell_proto=rnn_proto, stateful=True)
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+
+            zero_state0 = self.eval(tensors=[layer.tensor for layer in rnn1.previous_state])
+            self.assertEqual(len(zero_state0), 1)
+            self.assertArrayEqual(zero_state0, [np.zeros([batch_size, hdim])])
+
+            # run once get output and last state
+            out1, state1 = self.eval([rnn1.tensor] + [l.tensor for l in rnn1.state])
+
+            # state after single run
+            zero_state1 = self.eval(tensors=[layer.tensor for layer in rnn1.previous_state])
+            self.assertArrayEqual(zero_state1, state1)
+
+            out2, state2 = self.eval([rnn1.tensor] + [l.tensor for l in rnn1.state])
+
+            zero_state2 = self.eval(tensors=[layer.tensor for layer in rnn1.previous_state])
+            self.assertArrayEqual(zero_state2, state2)
+
+            self.eval(rnn1.reset())
+            reset_state = self.eval(tensors=[layer.tensor for layer in rnn1.previous_state])
+            self.assertArrayEqual(reset_state, zero_state0)
 
     def test_lstm_layer(self):
         n_features = 5

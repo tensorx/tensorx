@@ -470,6 +470,8 @@ class VariableLayer(Layer):
         self.init_from_input = init_from_input
 
         if input_layer is not None:
+            if not isinstance(input_layer, Layer):
+                input_layer = TensorLayer(input_layer)
             if n_units is not None and n_units != input_layer.n_units:
                 raise ValueError("n_units must match input_layer.n_units")
             var_shape = input_layer.tensor.get_shape().as_list()
@@ -2474,6 +2476,7 @@ class Recurrent(Layer):
                  previous_state=None,
                  reverse=False,
                  regularized=False,
+                 stateful=False,
                  share_vars_with: Optional['Recurrent'] = None,
                  name="rnn_layer"):
 
@@ -2483,6 +2486,7 @@ class Recurrent(Layer):
         self.regularized = regularized
         self.reverse = reverse
         self.previous_state = previous_state
+        self.stateful = stateful
 
         # n_units and shape are set after the first cell is created
         super().__init__(input_layers=[input_seq] + _as_list(previous_state),
@@ -2491,7 +2495,9 @@ class Recurrent(Layer):
                          dtype=dtypes.float32,
                          name=name)
 
-        self.tensor = self._build_graph()
+        tensor, *state = self._build_graph()
+        self.tensor = tensor
+        self.state = [TensorLayer(s) for s in state]
 
     def _build_graph(self):
         input_seq = self.input_layers[0]
@@ -2554,22 +2560,35 @@ class Recurrent(Layer):
                                                              name="rnn_unroll",
                                                              parallel_iterations=1)
 
-            return out.stack()
+            # getting the results stores them in the previous state
+            if self.stateful:
+                updates = [zero_state.reuse_with(last_state, init_from_input=False).tensor
+                           for zero_state, last_state in zip(cell.previous_state, last_state)]
+                with ops.control_dependencies(updates):
+                    out = out.stack()
+            else:
+                out = out.stack()
+            return out, last_state
 
-    def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, name=None):
+    def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, stateful=None, name=None):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         reverse = self.reverse if reverse is None else reverse
         share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
         previous_state = self.previous_state if previous_state is None else previous_state
+        stateful = self.stateful if stateful is None else stateful
 
         return Recurrent(input_seq=input_seq,
                          cell_proto=self.cell_fn,
                          regularized=regularized,
                          previous_state=previous_state,
+                         stateful=stateful,
                          reverse=reverse,
                          share_vars_with=share_vars_with,
                          name=name)
+
+    def reset(self):
+        return control_flow_ops.group([state.reset() for state in self.cell.previous_state])
 
 
 class Lookup(Layer):
