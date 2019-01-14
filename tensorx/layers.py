@@ -459,6 +459,7 @@ class VariableLayer(Layer):
                  input_layer=None,
                  n_units=None,
                  var_shape=None,
+                 init_from_input=False,
                  trainable=False,
                  resource=False,
                  dtype=dtypes.float32,
@@ -466,6 +467,7 @@ class VariableLayer(Layer):
                  share_vars_with=None,
                  name="variable"):
         self.share_vars_with = share_vars_with
+        self.init_from_input = init_from_input
 
         if input_layer is not None:
             if n_units is not None and n_units != input_layer.n_units:
@@ -487,7 +489,7 @@ class VariableLayer(Layer):
             else:
                 n_units = var_shape[-1]
 
-        if var_shape[0] is None:
+        if var_shape[0] is None or isinstance(var_shape[0], Tensor):
             var_shape[0] = 0
 
         self.var_shape = var_shape
@@ -510,7 +512,6 @@ class VariableLayer(Layer):
     def _build_graph(self):
         var_reuse = self.share_vars_with is not None
         var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
-
         input_layer = self.input_layers[-1] if len(self.input_layers) != 0 else None
 
         var_shape = self.var_shape
@@ -533,19 +534,44 @@ class VariableLayer(Layer):
                                                             validate_shape=validate_shape,
                                                             initializer=self.init,
                                                             use_resource=self.resource)
+
+                self.counter = variable_scope.get_variable(name="counter",
+                                                           shape=[],
+                                                           initializer=zero_init(dtype=dtypes.int32),
+                                                           trainable=False,
+                                                           use_resource=True)
             else:
                 self.variable = self.share_vars_with.variable
+                self.counter = self.share_vars_with.counter
 
             if not self.resource and var_shape[0] is None:
                 self.variable.set_shape(TensorShape(self.var_shape))
 
             if input_layer is not None:
-                update_var = state_ops.assign(self.variable, input_layer.tensor, validate_shape=False)
-                tensor = update_var
+
+                def update_fn():
+                    inc_counter = state_ops.assign_add(self.counter, 1)
+                    with ops.control_dependencies([inc_counter]):
+                        update_var = state_ops.assign(self.variable, input_layer.tensor, validate_shape=False)
+                    return update_var
+
+                # assign from input mode
+                if self.init_from_input:
+                    update = control_flow_ops.cond(math_ops.less(self.counter, 1),
+                                                   update_fn,
+                                                   lambda: self.variable)
+
+                    # control flow erases the shape of our tensor
+                    # update = array_ops.reshape(update, [-1, self.n_units])
+                    update.set_shape([None, self.n_units])
+                else:
+                    update = update_fn()
+                tensor = update
             else:
                 tensor = self.variable
 
             self._add_variable(self.variable)
+
             return tensor
 
     def reset(self):
@@ -556,14 +582,16 @@ class VariableLayer(Layer):
         Returns:
             an op that can be run to reinitialize the variable
         """
-        return self.variable.initializer
+        return control_flow_ops.group(self.variable.initializer, self.counter.initializer)
 
-    def reuse_with(self, input_layer=None, name=None):
+    def reuse_with(self, input_layer=None, init_from_input=None, name=None):
         input_layer = self.input_layers[0] if input_layer is None else input_layer
         name = self.name if name is None else name
+        init_from_input = self.init_from_input if init_from_input is None else init_from_input
 
         return VariableLayer(input_layer=input_layer,
                              var_shape=self.var_shape,
+                             init_from_input=init_from_input,
                              trainable=self.trainable,
                              resource=self.resource,
                              dtype=self.dtype,
@@ -1974,12 +2002,23 @@ class QRNN(Layer):
 class RecurrentCell(Layer):
 
     @staticmethod
-    def zero_state(input_layer, n_units, name="zero_state"):
-        input_batch = array_ops.shape(input_layer.tensor)[0]
-        zero_state = array_ops.zeros([input_batch, n_units])
-        return TensorLayer(zero_state, n_units, name=name)
+    def zero_state(state_shape, stateful=True, name="zero_state"):
+        zero_state = TensorLayer(array_ops.zeros(state_shape), n_units=state_shape[-1], name=name)
 
-    def __init__(self, input_layer, previous_state, n_units,
+        if stateful:
+            # init only once from zero state
+            zero_state = VariableLayer(input_layer=zero_state,
+                                       n_units=state_shape[-1],
+                                       init_from_input=True,
+                                       name=name)
+
+        return zero_state
+
+    def __init__(self,
+                 input_layer,
+                 previous_state,
+                 state_size,
+                 n_units,
                  dtype=dtypes.float32,
                  w_init=xavier_init(),
                  u_init=xavier_init(),
@@ -1994,17 +2033,46 @@ class RecurrentCell(Layer):
                 "share_state_with must be of type {} got {} instead".format(type(self), type(share_state_with)))
         self.share_state_with = share_state_with
 
-        self.previous_state = _as_list(previous_state)
+        if state_size is None:
+            state_size = [n_units]
+
+        batch_size = array_ops.shape(input_layer.tensor)[0]
+
+        def init_states(enum_state):
+            i, state = enum_state
+            if state is None:
+                state_shape = [batch_size, state_size[i]]
+                return RecurrentCell.zero_state(state_shape)
+            else:
+                if isinstance(state, Layer):
+                    if state.n_units != state_size[i]:
+                        raise ValueError(
+                            "previous state {i} n_units {n_units} not compatible with state shape {state_shape}".format(
+                                i=i,
+                                n_units=state.n_units,
+                                state_shape=state_size[i]))
+                else:
+                    state = TensorLayer(state, n_units=state_size[i])
+                return state
+
+        if previous_state is not None:
+            previous_state = _as_list(previous_state)
+            if len(previous_state) != len(state_size):
+                raise ValueError(
+                    "previous state should have {} states: {} passed instead".format(len(state_size),
+                                                                                     len(previous_state)))
+        else:
+            previous_state = tuple([None] * len(state_size))
+        # fills in all previous states
+        previous_state = list(map(init_states, enumerate(previous_state)))
+
+        self.previous_state = previous_state
         self.regularized = regularized
         self.w_regularizer = w_regularizer
         self.u_regularizer = u_regularizer
         self.w_init = w_init
         self.u_init = u_init
         self.activation = activation
-
-        self.previous_state = list(
-            map(lambda state: state if isinstance(state, Layer) else TensorLayer(state, n_units=n_units),
-                self.previous_state))
 
         # needs to be defined on each recurrent cell just as we define self.tensor
         # the default state is the current cell which gives access to its  output tensor
@@ -2061,12 +2129,9 @@ class RNNCell(RecurrentCell):
                  regularized=False,
                  name="rnn_cell"):
 
-        # if previous state is None start with zeros
-        if previous_state is None:
-            previous_state = RNNCell.zero_state(input_layer, n_units)
-
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
+                         state_size=None,
                          n_units=n_units,
                          activation=activation,
                          dtype=dtypes.float32,
@@ -2131,11 +2196,9 @@ class GRUCell(RecurrentCell):
                  share_state_with=None,
                  name="gru_cell"):
 
-        if previous_state is None:
-            previous_state = RecurrentCell.zero_state(input_layer, n_units)
-
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
+                         state_size=None,
                          n_units=n_units,
                          activation=activation,
                          dtype=dtypes.float32,
@@ -2266,25 +2329,9 @@ class LSTMCell(RecurrentCell):
         self.w_regularizer = w_regularizer
         self.regularized = regularized
 
-        if previous_state is None:
-            previous_state = (None, None)
-        else:
-            previous_state = _as_list(previous_state)
-            if len(previous_state) != 2:
-                raise ValueError("Expected previous state to contain 2 entries: (prev_h,prev_memory)")
-
-        # if previous state is None start with zeros
-        def input_states(state):
-            if state is None:
-                return LSTMCell.zero_state(input_layer, n_units, name="zero_state")
-            else:
-                return state
-
-        previous_state = map(input_states, previous_state)
-        previous_state = list(previous_state)
-
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
+                         state_size=[n_units] * 2,
                          n_units=n_units,
                          activation=activation,
                          dtype=dtypes.float32,
@@ -2424,6 +2471,7 @@ class Recurrent(Layer):
     def __init__(self,
                  input_seq,
                  cell_proto: Callable[[Union[Layer, Tensor]], RecurrentCell],
+                 previous_state=None,
                  reverse=False,
                  regularized=False,
                  share_vars_with: Optional['Recurrent'] = None,
@@ -2434,6 +2482,7 @@ class Recurrent(Layer):
         self.cell = None
         self.regularized = regularized
         self.reverse = reverse
+        self.previous_state = previous_state
 
         # n_units and shape are set after the first cell is created
         super().__init__(input_layers=input_seq,
@@ -2472,15 +2521,17 @@ class Recurrent(Layer):
             if self.share_vars_with is not None:
                 cell = self.share_vars_with.cell
                 cell = cell.reuse_with(input_layer=x0,
-                                       previous_state=None,
+                                       previous_state=self.previous_state,
                                        regularized=self.regularized)
             else:
-                cell = self.cell_fn(x0)
+                cell = self.cell_fn(x0, previous_state=self.previous_state)
                 if cell.regularized != self.regularized:
                     # create a new regularized cell if somehow the regularized parameter doesn't match the constructor
                     cell = cell.reuse_with(input_layer=x0,
-                                           previous_state=None,
+                                           previous_state=self.previous_state,
                                            regularized=self.regularized)
+
+            self.previous_state = cell.previous_state
             output_ta = output_ta.write(i0, cell.tensor)
             self.cell = cell
             self.n_units = cell.n_units
@@ -2505,15 +2556,17 @@ class Recurrent(Layer):
 
             return out.stack()
 
-    def reuse_with(self, input_seq, regularized=None, reverse=None, name=None):
+    def reuse_with(self, input_seq, regularized=None, reverse=None, previous_state=None, name=None):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         reverse = self.reverse if reverse is None else reverse
         share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
+        previous_state = self.previous_state if previous_state is None else previous_state
 
         return Recurrent(input_seq=input_seq,
                          cell_proto=self.cell_fn,
                          regularized=regularized,
+                         previous_state=previous_state,
                          reverse=reverse,
                          share_vars_with=share_vars_with,
                          name=name)
@@ -3344,7 +3397,8 @@ class Merge(Layer):
                 tensors = [layer.tensor for layer in layers]
             tensor = merge_fn(tensors)
 
-        output_shape = tensor.get_shape().as_list()
+        output_shape = tensor.get_shape()
+        output_shape = output_shape.as_list()
         self.output_shape = output_shape
         shape = [[layer.n_units for layer in layers], output_shape[-1]]
 

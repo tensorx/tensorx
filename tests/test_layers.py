@@ -62,6 +62,52 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayNotEqual(var_layer_init_value, var_value)
             self.assertArrayEqual(var_layer.tensor, var_layer.variable)
 
+    def test_variable_init_from_input(self):
+        input_layer = Input(1)
+        var_layer_init = VariableLayer(input_layer, init_from_input=True)
+        var_layer_fwd = VariableLayer(input_layer, init_from_input=False)
+
+        var_layer_fwd2 = var_layer_init.reuse_with(init_from_input=False)
+
+        data0 = np.array([[1]])
+        input1 = {input_layer.placeholder: data0}
+        input2 = {input_layer.placeholder: np.array([[2]])}
+        input3 = {input_layer.placeholder: np.array([[3]])}
+
+        init = tf.global_variables_initializer()
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            self.assertEqual(self.eval(var_layer_init.counter), 0)
+            r1_init = var_layer_init.eval(input1)
+            self.assertEqual(self.eval(var_layer_init.counter), 1)
+            r2_init = var_layer_init.eval(input2)
+            r3_init = var_layer_init.eval(input3)
+            self.assertEqual(self.eval(var_layer_init.counter), 1)
+
+            self.assertEqual(self.eval(var_layer_fwd.counter), 0)
+            r1_fwd = var_layer_fwd.eval(input1)
+            self.assertEqual(self.eval(var_layer_fwd.counter), 1)
+            r2_fwd = var_layer_fwd.eval(input2)
+            r3_fwd = var_layer_fwd.eval(input3)
+            self.assertEqual(self.eval(var_layer_fwd.counter), 3)
+
+            self.assertArrayEqual(r1_init, data0)
+            self.assertArrayEqual(r2_init, data0)
+            self.assertArrayEqual(r3_init, data0)
+            self.assertArrayEqual(r1_fwd, data0)
+            self.assertNotEqual(r2_fwd, data0)
+            self.assertNotEqual(r3_fwd, data0)
+
+            r1_fwd2 = var_layer_fwd2.eval(input2)
+            self.assertArrayEqual(r1_fwd2, np.array([[2]]))
+            self.assertEqual(self.eval(var_layer_fwd2.counter), 2)
+            r2_fwd2 = var_layer_fwd2.eval(input1)
+            self.assertArrayEqual(r2_fwd2, np.array([[1]]))
+            self.assertEqual(self.eval(var_layer_fwd2.counter), 3)
+
+            r4_fwd = var_layer_init.eval(input2)
+            self.assertArrayEqual(r2_fwd2, r4_fwd)
+
     def test_variable_layer_reuse(self):
         input_layer = TensorLayer([[1]], n_units=1, dtype=tf.float32)
         input_layer2 = TensorLayer([[1], [2]], n_units=1, dtype=tf.float32)
@@ -1419,7 +1465,7 @@ class TestLayers(test_utils.TestCase):
 
         # if we don't wipe the memory it reuses it
         rnn3 = rnn1.reuse_with(inputs,
-                               previous_state=(None, LSTMCell.zero_state(inputs, rnn1.n_units))
+                               previous_state=(None, LSTMCell.zero_state([batch_size, rnn1.n_units]))
                                )
         init = tf.global_variables_initializer()
 
@@ -1434,6 +1480,60 @@ class TestLayers(test_utils.TestCase):
             self.assertEqual((batch_size, n_hidden), np.shape(res1))
             self.assertArrayEqual(res1, res3)
             self.assertArrayNotEqual(res1, res2)
+
+    def test_recurren_layer(self):
+        n_features = 5
+        embed_size = 4
+        hdim = 3
+        seq_size = 3
+        batch_size = 2
+
+        inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
+        seq = lookup.as_seq()
+
+        # this state is passed to the first cell instance which
+        # which transforms it into a list, the recurrent cell gets that state back as list
+        ones_state = tf.ones([batch_size, hdim])
+        zero_state = (tf.zeros([batch_size, hdim]))
+
+        def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
+
+        rnn1 = Recurrent(seq, cell_proto=rnn_proto, previous_state=ones_state)
+        rnn2 = rnn1.reuse_with(seq)
+        rnn3 = rnn1.reuse_with(seq, previous_state=zero_state)
+        rnn4 = rnn3.reuse_with(seq)
+        rnn5 = rnn4.reuse_with(seq, previous_state=ones_state)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            out1 = self.eval(rnn1.tensor)
+            out2 = self.eval(rnn2.tensor)
+
+            self.assertArrayEqual(out1, out2)
+
+            out3 = self.eval(rnn3.tensor)
+
+
+            out4 = self.eval(rnn4.tensor)
+
+            self.assertArrayEqual(out3, out4)
+
+            cell_state1 = self.eval(rnn1.cell.previous_state[0].tensor)
+            cell_state2 = self.eval(rnn2.cell.previous_state[0].tensor)
+            cell_state3 = self.eval(rnn3.cell.previous_state[0].tensor)
+            cell_state4 = self.eval(rnn4.cell.previous_state[0].tensor)
+
+            self.assertEqual(len(rnn1.cell.previous_state), 1)
+
+            self.assertArrayEqual(cell_state1, cell_state2)
+            self.assertArrayEqual(cell_state3, cell_state4)
+
+            self.assertArrayNotEqual(out1, out3)
+
+            out5 = self.eval(rnn5.tensor)
+
+            self.assertArrayEqual(out1, out5)
 
     def test_lstm_layer(self):
         n_features = 5
@@ -1490,7 +1590,7 @@ class TestLayers(test_utils.TestCase):
 
         # if we don't wipe the memory it reuses it
         rnn_3 = rnn_1.reuse_with(inputs,
-                                 previous_state=GRUCell.zero_state(inputs, rnn_1.n_units))
+                                 previous_state=GRUCell.zero_state([batch_size, rnn_1.n_units]))
 
         init = tf.global_variables_initializer()
 
