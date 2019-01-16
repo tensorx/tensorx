@@ -287,6 +287,7 @@ def bptt_it(seq, batch_size, seq_len, min_seq_len=2, seq_prob=0.95, num_batches=
         - "Regularizing and Optimizing LSTM Language Models", https://arxiv.org/abs/1708.02182
 
     Args:
+        enum: if True returns tuples (seq_id, parallel_seq_batch)
         seq: iterable sequence
         batch_size: number of parallel sequences
         seq_len: base sequence length
@@ -417,8 +418,8 @@ def repeat_apply(fn, arg, n=1, enum=False):
         a generator on elements in data given by the fn it
 
     """
-    if n == 1:
-        return fn(arg)
 
     it = (fn(arg) for fn in itertools.repeat(fn, n))
-    return chain_iterable(it, enum=enum)
+    it = chain_iterable(it, enum=enum)
+
+    return it
