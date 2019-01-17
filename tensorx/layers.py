@@ -2658,10 +2658,11 @@ class Lookup(Layer):
 
         if len(input_layer.tensor_shape()) > 2:
             raise ValueError("expected 1D/2D input layer")
-        elif input_layer.is_dense() and input_layer.n_units is not None and input_layer.n_units > seq_size:
-            raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
-                             "if n_units < seq_size the lookup will be padded".format(input_layer.n_units, seq_size))
-
+        elif input_layer.is_dense() and input_layer.n_units is not None:
+            if seq_size is not None and input_layer.n_units > seq_size:
+                raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
+                                 "if n_units < seq_size the lookup will be padded".format(input_layer.n_units,
+                                                                                          seq_size))
         super().__init__(input_layer, n_units=n_units, shape=shape, dtype=dtype, name=name)
 
         if self.shared_weights is not None:

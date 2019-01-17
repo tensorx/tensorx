@@ -438,7 +438,7 @@ class LayerGraph:
 class Model:
     """ Model.
 
-    A `Model` is a container for tensorx graph. It stores the endpoints (input-output) of a model
+    A `Model` is a container for TensorX graphs. It stores the endpoints (input-output) of a model
     and facilitates training, inference, and evaluation
 
     Args:
