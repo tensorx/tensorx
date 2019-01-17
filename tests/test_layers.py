@@ -119,7 +119,7 @@ class TestLayers(test_utils.TestCase):
 
         init = tf.global_variables_initializer()
 
-        with self.cached_session(use_gpu=True):
+        with self.cached_session(use_gpu=False):
             self.eval(init)
             r1, r2 = self.eval([var1.tensor, var2.tensor])
             r3 = self.eval(var1.tensor)
