@@ -22,7 +22,7 @@ class TestItertools(TestCase):
         data = np.arange(n_rows)
         subset = range(50, 100)
 
-        it = itx.subset_buffer_it(data, subset, 4)
+        it = itx.buffer_slice_it(data, seq_range=subset)
 
         for i in subset:
             data_j = next(it)
@@ -68,7 +68,6 @@ class TestItertools(TestCase):
         b_it = itx.batch_it(c_it, batch_size, padding=True, fill_value=padding)
 
         for b in b_it:
-            print(b)
             self.assertEqual(len(b), batch_size)
             # print(np.array(b))
 
@@ -142,24 +141,24 @@ class TestItertools(TestCase):
 
     def test_take_it(self):
         n_samples = 8
-        t = 5
+        t = 4
         data = range(n_samples)
         result = itx.take_n_it(data, t)
         for r in result:
-            print(r)
+            self.assertEqual(len(r), t)
 
         # self.assertEqual(len(list(result)), t)
 
     def test_slice_it(self):
         n_samples = 10
-        t = 3
-        data = range(n_samples)
+        size = 3
+        data = np.arange(n_samples)
 
-        it1 = itx.batch_it(data, t, padding=True, fill_value=0)
-        it2 = itx.take_n_it(data, t)
+        it1 = itx.batch_it(data, size, padding=True, fill_value=0)
+        it2 = itx.take_n_it(data, size)
 
         for s1 in it1:
-            self.assertEqual(len(s1), t)
+            self.assertEqual(len(s1), size)
 
         for i, s2 in enumerate(it2):
             if i < 3:
@@ -222,18 +221,45 @@ class TestItertools(TestCase):
     def test_bptt_enum(self):
         """ test enumeration of each sequence when parallel sequences are buffered
         """
-        data = range(20)
+        data = range(40)
         data = map(str, data)
 
         data_it = itx.bptt_it(data,
                               batch_size=2,
                               seq_prob=1.0,
                               seq_len=3,
-                              num_batches=2)
-        print(next(data_it))
-        print(next(data_it))
-        print(next(data_it))
-        print(next(data_it))
+                              num_batches=2,
+                              enum=True)
+        d0 = next(data_it)
+        itx.advance_it(data_it, 2)
+        d1 = next(data_it)
+
+        self.assertTrue(d0[0] < d1[0])
+
+    def test_bptt_targets(self):
+        data = range(62)
+        data = map(str, data)
+
+        data_it = itx.bptt_it(data,
+                              batch_size=2,
+                              seq_prob=1.0,
+                              seq_len=3,
+                              min_seq_len=2,
+                              num_batches=2,
+                              enum=True,
+                              return_targets=True)
+
+        for i, ctx, target in data_it:
+            np.testing.assert_array_equal(ctx[:, 1], target[:, 0])
+
+    def test_bptt_slices_overlap(self):
+        data = np.arange(20)
+        slices = itx.bptt_slice_it(len(data), seq_len=4, min_seq_len=4, seq_prob=1.0, overlap=1)
+        prev_s = next(slices)
+        for s in slices:
+            self.assertEqual(data[s[0]:s[1]][0],
+                             data[prev_s[0]:prev_s[1]][-1])
+            prev_s = s
 
     def test_repeat_fn_exhaust(self):
         n_samples = 4
@@ -253,7 +279,7 @@ class TestItertools(TestCase):
         shape = [2, 2]
         data = np.random.uniform(0, 1, size=shape)
 
-        data_3 = itx.repeat_apply(iter,[data], 3, enum=True)
+        data_3 = itx.repeat_apply(iter, [data], 3, enum=True)
         for i, d in data_3:
             np.testing.assert_array_equal(np.shape(d), shape)
             np.testing.assert_array_equal(d, data)

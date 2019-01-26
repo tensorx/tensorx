@@ -7,10 +7,12 @@ from typing import Callable, Union, Optional
 
 from collections import deque
 
+from tensorflow.python.eager import context
 from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.framework.ops import Tensor, name_scope
 from tensorflow.python.ops import array_ops, control_flow_ops, logging_ops
 
+from tensorflow.python.framework import common_shapes
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import tensor_array_ops as ta
 from tensorflow.python.ops import variables
@@ -195,16 +197,7 @@ class Layer:
         dtype: the dtype for the output tensor
         name: a name used to build a named_scope for the layer
         scoped_name: layer name with its full scope (if created inside another scope)
-        variable_names: a list of `tf.Variable` fully qualified name `layer_name/var_name'
         variables: a list of `tf.Variable` instances
-
-    Note:
-        Variables can be re-used elsewhere based on variable_names as follows::
-            var_names = layer.var_names
-            some_var = var_names[0]
-
-            with tf.variable_scope('',reuse=True):
-                v = tf.get_variable(some_var)
 
 
     Args:
@@ -234,8 +227,8 @@ class Layer:
         # self.shape = TensorShape(self.shape).as_list()
 
         # stores the variables if this layer has any
-        self.variable_names = []
         self.variables = []
+
         self.attr_names = []
 
         self._tensor = None
@@ -271,7 +264,6 @@ class Layer:
     def _add_variable(self, var):
         if isinstance(var, variables.Variable):
             self.variables.append(var)
-        self.variable_names.append(var.op.name)
 
     def is_sparse(self):
         """ Checks if the current layer is sparse
@@ -309,13 +301,13 @@ class Layer:
     def full_str(self):
         """ Informal string representation for a layer that includes inner variables
         """
-        fullstr = [str(self)]
-        if len(self.variable_names) > 0:
-            fullstr.append("variables:")
-            for var_name in self.variable_names:
-                fullstr.append("\t{var_name}".format(var_name=var_name))
+        full_str = [str(self)]
+        if len(self.variables) > 0:
+            full_str.append("variables:")
+            for var in self.variables:
+                full_str.append("\t{var_name}".format(var_name=var.name))
 
-        full_str = "\n".join(fullstr)
+        full_str = "\n".join(full_str)
         return full_str + "\n"
 
     def __getitem__(self, item):
@@ -401,7 +393,6 @@ class WrapLayer(Layer):
             if hasattr(layer, attr):
                 setattr(self, attr, getattr(layer, attr))
 
-        self.variable_names = layer.variable_names
         self.variables = layer.variables
 
         with layer_scope(self, name=name):
@@ -885,7 +876,7 @@ class TensorLayer(Layer):
     Attributes:
         tensor: the tensor to be wrapped by this layer
         var_list: if vars are involved in the output tensor, they can be specified here
-        and will be listed in variable_names and variables
+        and will be listed in variables
         n_units: number of units for this layer,
         batch_size: Optional batch size for this layer
 
@@ -919,13 +910,13 @@ class TensorLayer(Layer):
         raise AttributeError("Cannot call reuse_with on TensorLayer Layer: TensorLayer has no input layers")
 
 
-class FnLayer(Layer):
+class LambdaLayer(Layer):
     """ Custom Fn Layer
 
     Attributes:
         tensor: the tensor to be wrapped by this layer
         var_list: if vars are involved in the output tensor, they can be specified here
-        and will be listed in variable_names and variables
+        and will be listed in variables
         n_units: number of units for this layer,
         batch_size: Optional batch size for this layer
         layer_fn: if False applies the function to the tensors otherwise applies to the layer
@@ -969,13 +960,13 @@ class FnLayer(Layer):
         self.tensor = array_ops.reshape(tensor, output_shape)
 
     def reuse_with(self, *layers, name=None):
-        return FnLayer(*layers,
-                       apply_fn=self.apply_fn,
-                       n_units=self.n_units,
-                       var_list=self.var_list,
-                       dtype=self.dtype,
-                       name=self.name,
-                       layer_fn=self.layer_fn)
+        return LambdaLayer(*layers,
+                           apply_fn=self.apply_fn,
+                           n_units=self.n_units,
+                           var_list=self.var_list,
+                           dtype=self.dtype,
+                           name=self.name,
+                           layer_fn=self.layer_fn)
 
 
 class Linear(Layer):
@@ -1119,11 +1110,23 @@ class Linear(Layer):
                                                          name=self.scoped_name + "_embeddings")
                 tensor = lookup_sum
             else:
-                tensor = math_ops.matmul(a=input_layer.tensor,
-                                         b=self.weights,
-                                         name="mat_mul",
-                                         transpose_b=self.transpose_weights,
-                                         b_is_sparse=self.sparse_weights)
+                rank = len(input_layer.tensor.get_shape().as_list())
+                if rank > 2:
+                    # Broadcasting is required for the inputs.
+                    tensor = math_ops.tensordot(input_layer.tensor,
+                                                self.weights,
+                                                [[rank - 1], [0]])
+                    # Reshape the output back to the original ndim of the input.
+                    if not context.executing_eagerly():
+                        shape = input_layer.tensor.get_shape().as_list()
+                        output_shape = shape[:-1] + [self.n_units]
+                        tensor.set_shape(output_shape)
+                else:
+                    tensor = math_ops.matmul(a=input_layer.tensor,
+                                             b=self.weights,
+                                             name="mat_mul",
+                                             transpose_b=self.transpose_weights,
+                                             b_is_sparse=self.sparse_weights)
 
             # y = xW + [b]
             self.bias = None
@@ -1351,7 +1354,7 @@ class FC(Layer):
     def __init__(self,
                  layer,
                  n_units,
-                 fn=identity,
+                 activation=identity,
                  weight_init=random_uniform(),
                  shared_weights=None,
                  transpose_weights=False,
@@ -1373,7 +1376,7 @@ class FC(Layer):
                                  name="{}_linear".format(name),
                                  share_vars_with=share_vars_with)
 
-            self.activation = Activation(self.linear, fn=fn, name="{}_activation".format(name))
+            self.activation = Activation(self.linear, fn=activation, name="{}_activation".format(name))
 
         super().__init__(input_layers=layer,
                          n_units=self.activation.n_units,
@@ -1391,7 +1394,7 @@ class FC(Layer):
 
         return FC(layer=layer,
                   n_units=self.n_units,
-                  fn=self.activation.fn,
+                  activation=self.activation.fn,
                   weight_init=self.linear.weight_init,
                   shared_weights=self.linear.shared_weights,
                   transpose_weights=self.linear.transpose_weights,
@@ -2225,7 +2228,8 @@ class GRUCell(RecurrentCell):
 
             if self.share_state_with is None:
                 # reset gate
-                self.w_r = Linear(input_layer, self.n_units, add_bias=True, name="w_r")
+                # forget / reset bias init to one http://proceedings.mlr.press/v37/jozefowicz15.pdf
+                self.w_r = Linear(input_layer, self.n_units, add_bias=True, bias_init=ones_init(), name="w_r")
                 self.u_r = Linear(previous_state, self.n_units, add_bias=False, name="u_r")
 
                 # candidate
@@ -2245,8 +2249,11 @@ class GRUCell(RecurrentCell):
                 update_gate = Add(self.w_z, self.u_z, name="linear_z")
 
                 output = CoupledGate(candidate_state, previous_state, update_gate)
+
+                self.w = [self.w_r, self.w_h, self.w_z]
+                self.u = [self.u_r, self.u_h, self.u_z]
             else:
-                def inner_or_view(x):
+                def get_inner(x):
                     if isinstance(x, ViewLayer) and not self.regularized:
                         return x.inner
                     else:
@@ -2258,11 +2265,20 @@ class GRUCell(RecurrentCell):
                     else:
                         return x
 
-                # reset gate
-                w_r = self.share_state_with.w_r
-                self.w_r = inner_or_view(w_r).reuse_with(input_layer)
-                u_r = self.share_state_with.u_r
-                self.u_r = inner_or_view(u_r).reuse_with(previous_state)
+                w = self.share_state_with.w
+                u = self.share_state_with.u
+
+                w = map(get_inner, w)
+                u = map(get_inner, u)
+
+                w = list(w)
+                u = list(u)
+
+                w_r, w_h, w_z = w
+                u_r, u_h, u_z = u
+
+                self.w_r = w_r.reuse_with(input_layer)
+                self.u_r = u_r.reuse_with(previous_state)
 
                 if regularized:
                     self.w_r = apply_reg(self.w_r, self.w_regularizer)
@@ -2272,10 +2288,8 @@ class GRUCell(RecurrentCell):
                 gate_r = Add(self.w_r, self.u_r)
                 gated_previous = Gate(previous_state, gate_r)
 
-                w_h = self.share_state_with.w_h
-                self.w_h = inner_or_view(w_h).reuse_with(input_layer)
-                u_h = self.share_state_with.u_h
-                self.u_h = inner_or_view(u_h).reuse_with(gated_previous)
+                self.w_h = w_h.reuse_with(input_layer)
+                self.u_h = u_h.reuse_with(gated_previous)
 
                 if regularized:
                     self.w_h = apply_reg(self.w_h, self.w_regularizer)
@@ -2284,10 +2298,9 @@ class GRUCell(RecurrentCell):
                 candidate_state = Activation(Add(self.w_h, self.u_h), self.activation)
 
                 # update gate
-                w_z = self.share_state_with.w_z
-                self.w_z = inner_or_view(w_z).reuse_with(input_layer)
-                u_z = self.share_state_with.u_z
-                self.u_z = inner_or_view(u_z).reuse_with(previous_state)
+
+                self.w_z = w_z.reuse_with(input_layer)
+                self.u_z = u_z.reuse_with(previous_state)
 
                 if regularized:
                     self.w_z = apply_reg(self.w_z, self.w_regularizer)
@@ -2296,6 +2309,9 @@ class GRUCell(RecurrentCell):
                 update_gate = Add(self.w_z, self.u_z)
 
                 output = CoupledGate(candidate_state, previous_state, update_gate)
+
+                self.w = [self.w_r, self.w_h, self.w_z]
+                self.u = [self.u_r, self.u_h, self.u_z]
 
             return output.tensor
 
@@ -2365,7 +2381,8 @@ class LSTMCell(RecurrentCell):
             # create new weights
             if self.share_state_with is None:
                 # forget gate linear
-                self.w_f = Linear(input_layer, self.n_units, add_bias=True, name="w_f")
+                # http://proceedings.mlr.press/v37/jozefowicz15.pdf bias forget = 1
+                self.w_f = Linear(input_layer, self.n_units, add_bias=True, bias_init=ones_init(), name="w_f")
                 self.u_f = Linear(previous_h, self.n_units, add_bias=False, name="u_f")
 
                 # input gate linear
@@ -2465,7 +2482,7 @@ class Recurrent(Layer):
 
     Attributes:
         cell: a Layer of type RecurrentCell used in the unrolled steps
-        cell_fn (function): a function returning a RecurrentCell when applied to an input or tensor.
+        cell_proto (function): a function returning a RecurrentCell when applied to an input or tensor.
         This can be solved by creating a lambda with the sell parameters or a partial
 
     """
@@ -2480,7 +2497,7 @@ class Recurrent(Layer):
                  share_vars_with: Optional['Recurrent'] = None,
                  name="rnn_layer"):
 
-        self.cell_fn = cell_proto
+        self.cell_proto = cell_proto
         self.share_vars_with = share_vars_with
         self.cell = None
         self.regularized = regularized
@@ -2530,7 +2547,7 @@ class Recurrent(Layer):
                                        previous_state=self.previous_state,
                                        regularized=self.regularized)
             else:
-                cell = self.cell_fn(x0, previous_state=self.previous_state)
+                cell = self.cell_proto(x0, previous_state=self.previous_state)
                 if cell.regularized != self.regularized:
                     # create a new regularized cell if somehow the regularized parameter doesn't match the constructor
                     cell = cell.reuse_with(input_layer=x0,
@@ -2547,6 +2564,7 @@ class Recurrent(Layer):
                 xt = input_ta.read(t)
                 xt = TensorLayer(xt)
                 c = cell.reuse_with(xt, previous_state=state)
+
                 y = y.write(t, c.tensor)
                 if self.reverse:
                     t = t - 1
@@ -2579,7 +2597,7 @@ class Recurrent(Layer):
         stateful = self.stateful if stateful is None else stateful
 
         return Recurrent(input_seq=input_seq,
-                         cell_proto=self.cell_fn,
+                         cell_proto=self.cell_proto,
                          regularized=regularized,
                          previous_state=previous_state,
                          stateful=stateful,
@@ -2803,7 +2821,8 @@ class Lookup(Layer):
                 if n_units is None:
                     n_units = array_ops.shape(input_layer.tensor)[-1]
 
-                input_tensor = array_ops.reshape(input_layer.tensor, array_ops.stack([-1, n_units]))
+                # input_tensor = array_ops.reshape(input_layer.tensor, array_ops.stack([-1, n_units]))
+                input_tensor = input_layer.tensor
                 lookup_weights = embedding_lookup(params=self.weights,
                                                   ids=input_tensor)
 
@@ -2852,11 +2871,11 @@ class Lookup(Layer):
                          wrap_fn=lambda x: array_ops.reshape(x, new_shape),
                          attr_fwd=["weights", "bias", "seq_size"], name="concat")
 
-    def as_seq(self):
+    def permute_batch_time(self):
         return WrapLayer(layer=self,
                          n_units=self.n_units,
                          wrap_fn=lambda x: array_ops.transpose(x, [1, 0, 2]),
-                         attr_fwd=["weights", "bias", "seq_size"], name="seq")
+                         attr_fwd=["weights", "bias", "seq_size"], name="permute_batch_time")
 
     def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
@@ -3411,6 +3430,7 @@ class Merge(Layer):
             raise Exception("len(weights) must be equals to len(layers)")
 
         with layer_scope(self, name=name):
+            layers = list(map(lambda l: TensorLayer(l) if not isinstance(l, Layer) else l, layers))
             if weights is not None:
                 tensors = [math_ops.scalar_mul(weights[i], layers[i].tensor) for i in range(len(layers))]
             else:
@@ -3444,6 +3464,8 @@ class Add(Merge):
     """
 
     def __init__(self, *layers, weights=None, name="add"):
+        layers = list(map(lambda l: TensorLayer(l) if not isinstance(l, Layer) else l, layers))
+
         def merge_add(tensors):
             res, *tensors = tensors
             for tensor in tensors:
@@ -3474,6 +3496,7 @@ class Concat(Layer):
     """
 
     def __init__(self, *layers, name="concat"):
+        layers = list(map(lambda l: TensorLayer(l) if not isinstance(l, Layer) else l, layers))
         first, *rest = layers
         if not all(layer.dtype == first.dtype for layer in rest):
             raise ValueError("Layers must have the same type to be concatenated")
@@ -3590,7 +3613,7 @@ class Residual(Layer):
 
         if share_vars_with is not None:
             if not isinstance(share_vars_with, Residual):
-                raise TypeError("can only share vars with a Highway Layer {} found".format(type(share_vars_with)))
+                raise TypeError("can only share vars with a Residual Layer {} found".format(type(share_vars_with)))
 
         super().__init__(input_layers=[x_layer, h_layer],
                          n_units=h_layer.n_units,
@@ -3626,6 +3649,8 @@ class Residual(Layer):
 
 class Reshape(Layer):
     def __init__(self, layer, shape, name="reshape"):
+        if not isinstance(layer, Layer):
+            layer = TensorLayer(layer)
         self.target_shape = [d if d is not None else -1 for d in shape]
 
         with layer_scope(self, name=name):
@@ -3648,17 +3673,20 @@ class Reshape(Layer):
 
 
 class Transpose(Layer):
-    def __init__(self, layer, perm, name="transpose"):
-        super().__init__(layer, n_units=layer.shape[perm[-1]], shape=None, dtype=layer.dtype, name=name)
+    def __init__(self, layer, perm=None, name="transpose"):
+        if not isinstance(layer, Layer):
+            layer = TensorLayer(layer)
 
-        with layer_scope(self):
+        with layer_scope(self, name=name):
             if layer.is_dense():
                 output = array_ops.transpose(layer.tensor, perm)
             else:
-                output = sparse_ops.sparse_transpose(layer.tensor, perm)
+                output = sparse.transpose(layer.tensor, perm)
 
-            self.shape = output.get_shape().as_list()
-            self.tensor = output
+        n_units = output.get_shape().as_list()[-1]
+
+        super().__init__(layer, n_units=n_units, dtype=layer.dtype, name=name)
+        self.tensor = output
 
     def reuse_with(self, layer, name=None):
         if name is None:
@@ -3674,6 +3702,8 @@ class Flatten(Layer):
     """
 
     def __init__(self, layer, name="flatten"):
+        if not isinstance(layer, Layer):
+            layer = TensorLayer(layer)
         n_units = reduce(operator.mul, layer.tensor.get_shape().as_list()[1:])
         super().__init__(layer, n_units, shape=[layer.shape[0], n_units], dtype=layer.dtype, name=name)
 
@@ -4010,7 +4040,7 @@ __all__ = ["Input",
            "BatchNorm",
            "Conv2D",
            "VariableLayer",
-           "FnLayer",
+           "LambdaLayer",
            "Mean",
            "DropConnect",
            "ViewLayer",

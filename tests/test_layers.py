@@ -32,7 +32,7 @@ class TestLayers(test_utils.TestCase):
         in2 = Input(1)
         in3 = TensorLayer(tf.constant([[2.]]))
 
-        txfn = FnLayer(in1, in2, apply_fn=binary_cross_entropy)
+        txfn = LambdaLayer(in1, in2, apply_fn=binary_cross_entropy)
         txfn2 = txfn.reuse_with(in1, in3)
 
         graph = LayerGraph(outputs=[txfn, txfn2])
@@ -135,6 +135,17 @@ class TestLayers(test_utils.TestCase):
             self.eval(tf.global_variables_initializer())
             value = var_layer.eval()
             self.assertArrayEqual(np.zeros([10]), value)
+
+    def test_linear_rank3(self):
+        x = TensorLayer([[[1], [1]], [[2], [2]]], dtype=tf.float32)
+        x_flat = Reshape(x, [-1, 1])
+        linear = Linear(x, n_units=2)
+        linear_flat = linear.reuse_with(x_flat)
+        linear_flat = Reshape(linear_flat, x.tensor.get_shape().as_list()[:-1] + [2])
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+
+            self.assertArrayEqual(linear.tensor, linear_flat.tensor)
 
     def test_variable_layer_broadcasting(self):
         layer1 = TensorLayer([[1], [1]], dtype=tf.float32)
@@ -264,10 +275,10 @@ class TestLayers(test_utils.TestCase):
         comp = Compose(l1, l2)
         comp2 = comp.reuse_with(in2)
 
-        fn1 = FC(in1, 4, fn=relu, share_vars_with=l1)
+        fn1 = FC(in1, 4, activation=relu, share_vars_with=l1)
         fn2 = fn1.reuse_with(in2, name="fn2")
         fn3 = fn2.reuse_with(in2, name="fn3")
-        fn4 = FC(in2, 4, fn=relu, shared_weights=l1.weights, bias_init=tf.initializers.constant(value=34))
+        fn4 = FC(in2, 4, activation=relu, shared_weights=l1.weights, bias_init=tf.initializers.constant(value=34))
 
         init = tf.global_variables_initializer()
 
@@ -316,7 +327,7 @@ class TestLayers(test_utils.TestCase):
         x = TensorLayer([[1., 1., 1., 1.]], 4)
         x2 = TensorLayer([[1., 1., 1., 1.]], 4)
 
-        h = FC(x, 4, fn=sigmoid)
+        h = FC(x, 4, activation=sigmoid)
         highway = Highway(x, h)
 
         with self.assertRaises(ValueError):
@@ -332,8 +343,8 @@ class TestLayers(test_utils.TestCase):
         x = TensorLayer([[1., 1., 1., 1.]], 4)
         x2 = TensorLayer([[1., 1., 1., 1.]], 4)
 
-        h = FC(x, 4, fn=sigmoid)
-        h2 = FC(x, 2, fn=sigmoid)
+        h = FC(x, 4, activation=sigmoid)
+        h2 = FC(x, 2, activation=sigmoid)
 
         residual = Residual(x, h)
         residual_2 = Residual(x, h2)
@@ -487,7 +498,7 @@ class TestLayers(test_utils.TestCase):
         b1 = Bias(in1)
         b2 = b1.reuse_with(in2)
 
-        self.assertListEqual(b1.variable_names, b2.variable_names)
+        self.assertListEqual(b1.variables, b2.variables)
 
     def test_reusable_layers(self):
         in1 = TensorLayer([[1.]], 1)
@@ -499,8 +510,8 @@ class TestLayers(test_utils.TestCase):
         layer2 = layer1.reuse_with(in2)
         layer3 = layer2.reuse_with(in3)
 
-        self.assertListEqual(layer1.variable_names, layer2.variable_names)
-        self.assertListEqual(layer2.variable_names, layer3.variable_names)
+        self.assertListEqual(layer1.variables, layer2.variables)
+        self.assertListEqual(layer2.variables, layer3.variables)
 
         init = tf.global_variables_initializer()
 
@@ -525,8 +536,7 @@ class TestLayers(test_utils.TestCase):
             result = self.eval(in_layer.tensor, {in_layer.tensor: ones})
             self.assertArrayEqual(ones, result)
 
-            variables = in_layer.variable_names
-            self.assertEqual(len(variables), 0)
+            self.assertEqual(len(in_layer.variables), 0)
 
             self.assertRaises(ValueError, self.eval, in_layer.tensor, {in_layer.tensor: ones_wrong_shape})
 
@@ -663,31 +673,6 @@ class TestLayers(test_utils.TestCase):
             inner_drop, inner_drop2 = self.eval(tensors=[drop.inner_layer.tensor, drop3.inner_layer.tensor])
             self.assertArrayEqual(inner_drop, inner_drop2)
 
-    def test_linear_variable_names(self):
-        inputs = TensorLayer([[1]], 1, dtype=tf.float32)
-        layer = Linear(inputs, 10, add_bias=True, name="layer1")
-        layer2 = Linear(inputs, 10, add_bias=True, name="layer2")
-        layer_shared = Linear(inputs, 10, shared_weights=layer.weights, add_bias=True, name="layer3")
-
-        var_names = layer.variable_names
-        var_names_2 = layer2.variable_names
-        shared_names = layer_shared.variable_names
-
-        self.assertEqual(var_names[0], shared_names[0])
-        self.assertNotEqual(var_names_2[0], shared_names[0])
-
-        self.assertNotEqual(var_names[1], var_names_2[1])
-        self.assertNotEqual(var_names[1], shared_names[1])
-
-        with self.cached_session():
-            with tf.variable_scope("", reuse=True):
-                weights1 = layer.weights
-                weights2 = layer_shared.weights
-
-                self.assertIs(weights1, weights2)
-
-                # print(tf.trainable_variables())
-
     def test_linear_none_n_units(self):
         in1 = TensorLayer([[2], [2]], 1)
         w = VariableLayer(in1)
@@ -719,10 +704,10 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(l1.tensor, l3.tensor)
             self.assertArrayEqual(l2.tensor, l4.tensor)
 
-            self.assertListEqual(l1.variable_names, l2.variable_names)
+            self.assertListEqual(l1.variables, l2.variables)
 
-            self.assertFalse(l3.variable_names == l1.variable_names)
-            self.assertListEqual(l3.variable_names, l4.variable_names)
+            self.assertFalse(l3.variables == l1.variables)
+            self.assertListEqual(l3.variables, l4.variables)
 
     def test_to_sparse(self):
         index = 0
@@ -1144,6 +1129,40 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayNotEqual(tf.reduce_sum(wrap2.tensor), tf.reduce_sum(wrap2_r2.tensor))
             self.assertArrayEqual(tf.reduce_sum(wrap2.tensor), tf.reduce_sum(wrap2_r2.tensor * 2))
 
+    def test_lookup_sequence_linear(self):
+        """ Testing linear layer after a 3D tensor generated by a sequence lookup
+        """
+        seq1 = [[1, 2], [3, 4]]
+        seq2 = [[1, 2, 3], [4, 5, 6]]
+
+        n = 10
+        m = 4
+        k = 3
+
+        inputs = Input(None, dtype=tf.int32)
+        lookup = Lookup(inputs, seq_size=None, lookup_shape=[n, m])
+        lookup = lookup.permute_batch_time()
+
+        # so we can multiply for the linear layer
+        lookup_flat = Reshape(lookup, [-1, m])
+        linear = Linear(lookup_flat, n_units=3)
+
+        t = tf.shape(lookup.tensor)[0]
+        linear_reshape = Reshape(linear, [-1, t, 3])
+
+        single_linear = linear.reuse_with(lookup[0])
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+
+            seq = self.eval(lookup.tensor, {inputs.placeholder: seq1})
+            seq_flat = lookup_flat.eval({inputs.placeholder: seq1})
+            res1 = self.eval(linear.tensor, {inputs.placeholder: seq1})
+
+            all_mull = self.eval(linear_reshape.tensor, {inputs.placeholder: seq1})
+            single_mul = self.eval(single_linear.tensor, {inputs.placeholder: seq1})
+            self.assertArrayEqual(all_mull[0], single_mul)
+
     def test_lookup_sequence_dense(self):
         input_dim = 4
         embed_dim = 3
@@ -1314,7 +1333,7 @@ class TestLayers(test_utils.TestCase):
         input_data = np.array([[2, 0], [1, 2], [0, 2]])
         lookup = Lookup(inputs, seq_size, lookup_shape=[vocab_size, embed_dim], bias=True)
         concat_lookup = lookup.as_concat()
-        seq_lookup = lookup.as_seq()
+        seq_lookup = lookup.permute_batch_time()
 
         self.assertTrue(hasattr(lookup, "seq_size"))
 
@@ -1490,7 +1509,7 @@ class TestLayers(test_utils.TestCase):
 
         inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
-        seq = lookup.as_seq()
+        seq = lookup.permute_batch_time()
 
         # this state is passed to the first cell instance which
         # which transforms it into a list, the recurrent cell gets that state back as list
@@ -1543,7 +1562,7 @@ class TestLayers(test_utils.TestCase):
 
         inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
-        seq = lookup.as_seq()
+        seq = lookup.permute_batch_time()
 
         def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
 
@@ -1582,7 +1601,7 @@ class TestLayers(test_utils.TestCase):
 
         inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
-        seq = lookup.as_seq()
+        seq = lookup.permute_batch_time()
 
         # lambda x: LSTMCell(x,n_units=hdim) doesn't allow for additional params to be given
         # partial(LSTMCell, n_units=hdim) works

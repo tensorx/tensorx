@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from tensorx import test_utils
 from tensorx.activation import tanh, sigmoid
-from tensorx.layers import Input, Linear, Activation, Add, FnLayer
+from tensorx.layers import Input, Linear, Activation, Add, LambdaLayer
 from tensorx.loss import binary_cross_entropy
 from tensorx.train import Model, LayerGraph, EvalStepDecayParam
 from pygraphviz import AGraph
@@ -225,7 +225,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
             # configure training
             labels = Input(2, name="labels")
-            losses = FnLayer(labels, h, apply_fn=binary_cross_entropy)
+            losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
 
             model = Model(run_inputs=input_layer,
                           run_outputs=h,

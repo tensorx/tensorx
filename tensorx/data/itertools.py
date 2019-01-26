@@ -132,10 +132,7 @@ def take_n_it(iterable, n):
         if not s:
             return
         else:
-            if len(s) == 1:
-                yield s[0]
-            else:
-                yield s
+            yield s
 
 
 def advance_it(iterator, n):
@@ -240,7 +237,29 @@ def batch_it(iterable, size, padding=False, fill_value=None):
         return
 
 
-def bptt_slice_it(n, seq_len, min_seq_len=2, seq_prob=0.95):
+def bptt_slice_it(n, seq_len, min_seq_len=2, seq_prob=0.95, overlap=0):
+    """
+
+    Args:
+        overlap: if overlap, the last item will be overlapped with the first item of the next slice
+        this is useful to create an iterator that returns the current sequence and the same sequence shifted by 1 into
+        the future.
+        n: number of items to slice (e.g. len(some_list) or np.shape(v)[-1])
+        seq_len: base sequence length
+        min_seq_len: minimum sequence length
+        seq_prob: probability of base sequence length
+
+    Note:
+        Since the slices are probabilistic, there's no guarantee that the last slice would have at least min_seq_len, as
+        such, if the last slice size is smaller than the minimum, the previous slice is extended to include the last
+        elements as to avoid wasting data.
+
+    Returns:
+        an iterator over slices with variable size for back propagation through time-style learning, the idea is to slice
+        a given dimension into segments of size seq_len with a given probability p and seq_len // 2 with probability
+        1-p, to unbias the truncated back-propagation through time learning process.
+
+    """
     if seq_prob > 1:
         raise ValueError("seq_prob has to be a value 0<x<=1.0")
 
@@ -248,28 +267,27 @@ def bptt_slice_it(n, seq_len, min_seq_len=2, seq_prob=0.95):
     k1 = seq_len
     k2 = seq_len // 2
 
-    # probability of sequence length distribution
-    p1 = seq_prob
-    p2 = 1 - p1
-
     i = 0
     while i < n:
         r = np.random.rand()
         if r < seq_prob:
-            current_len = np.random.normal(k1, min_seq_len)
+            offset = np.random.normal(k1, min_seq_len)
         else:
-            current_len = np.random.normal(k2, min_seq_len)
+            offset = np.random.normal(k2, min_seq_len)
 
         # prevents excessively small or negative sequence sizes
         # it also prevents excessively small splits at the end of a long sequence
-        offset = max(min_seq_len, int(current_len))
-        if n - i + offset < min_seq_len:
+        offset = max(min_seq_len, int(offset))
+
+        if n - (i + offset) < min_seq_len:
             offset = n - i
         yield i, i + offset
         i += offset
+        if overlap != 0 and i < n:
+            i -= min(overlap, offset - 1)
 
 
-def bptt_it(seq, batch_size, seq_len, min_seq_len=2, seq_prob=0.95, num_batches=None, enum=False):
+def bptt_it(seq, batch_size, seq_len, min_seq_len=2, seq_prob=0.95, num_batches=None, enum=False, return_targets=False):
     """ Back Propagation Through Time Iterator
 
     Provides an iterator over a given sequence as batch_size independent parallel sequences,
@@ -287,6 +305,8 @@ def bptt_it(seq, batch_size, seq_len, min_seq_len=2, seq_prob=0.95, num_batches=
         - "Regularizing and Optimizing LSTM Language Models", https://arxiv.org/abs/1708.02182
 
     Args:
+        return_targets: if true returns a tuple (seq,seq_targets). seq_targets is essentially seq shifted by 1 into
+        the future. For example for a sequence [1,2,3,4,5,6,...] and sequence length of 4, returns ([1,2,3,4],[2,3,4,5])
         enum: if True returns tuples (seq_id, parallel_seq_batch)
         seq: iterable sequence
         batch_size: number of parallel sequences
@@ -302,6 +322,13 @@ def bptt_it(seq, batch_size, seq_len, min_seq_len=2, seq_prob=0.95, num_batches=
 
         if num_batches is None returns only a generator of sequence batches, otherwise.
     """
+
+    overlap = 0
+    if return_targets:
+        # we need to adjust to unbias since we'll be cutting the sequences to get the respective batches
+        seq_len += 1
+        min_seq_len += 1
+        overlap = 1
 
     def to_batch(flat_data):
         n = np.shape(flat_data)[0]
@@ -341,10 +368,17 @@ def bptt_it(seq, batch_size, seq_len, min_seq_len=2, seq_prob=0.95, num_batches=
                for ii, fi in bptt_slice_it(n=np.shape(data_i)[-1],
                                            seq_len=seq_len,
                                            min_seq_len=min_seq_len,
-                                           seq_prob=seq_prob))
+                                           seq_prob=seq_prob,
+                                           overlap=overlap))
+
+    if return_targets:
+        batches = ((i, d[:, :-1], d[:, 1:]) for i, d in batches)
 
     if not enum:
-        batches = (batch for _, batch in batches)
+        if return_targets:
+            batches = ((ctx, target) for _, ctx, target in batches)
+        else:
+            batches = (ctx for _, ctx in batches)
 
     return batches
 

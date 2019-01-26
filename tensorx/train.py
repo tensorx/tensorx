@@ -481,9 +481,9 @@ class Model:
         self.eval_graph: LayerGraph = LayerGraph(inputs=self.eval_inputs,
                                                  outputs=self.eval_outputs + self.eval_score)
 
-        self.run_vars = {var for layer in self.run_graph.layers for var in layer.variable_names}
+        self.run_vars = {var.name for layer in self.run_graph.layers for var in layer.variables}
         self.train_vars = []
-        self.eval_vars = {var for layer in self.eval_graph.layers for var in layer.variable_names}
+        self.eval_vars = {var.name for layer in self.eval_graph.layers for var in layer.variables}
 
         if len(self.update_ops) > 0:
             self.update_graph: LayerGraph = LayerGraph(inputs=self.update_inputs, outputs=self.update_ops)
@@ -790,7 +790,7 @@ class Model:
                                       other_inputs=self.optimizer_params,
                                       other_tensors=self.train_step)
 
-        self.train_vars = {var for layer in self.train_graph.layers for var in layer.variable_names}
+        self.train_vars = {var.name for layer in self.train_graph.layers for var in layer.variables}
 
     def run(self, feed, write_summaries=False):
         """ run the model (inference graph)
