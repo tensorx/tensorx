@@ -557,10 +557,6 @@ def dropout(tensor,
                 else:
                     return tensor
 
-        if random_mask is not None and tensor.get_shape() != random_mask.get_shape():
-            raise ValueError("invalid random_tensor, must have shape {}: shape is {} instead".format(noise_shape,
-
-                                                                                                     random_mask.get_shape()))
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
         # uniform [keep_prob, 1.0 + keep_prob)

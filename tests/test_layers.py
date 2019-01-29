@@ -137,15 +137,30 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(np.zeros([10]), value)
 
     def test_linear_rank3(self):
+        # v = VariableLayer(var_shape=[])
         x = TensorLayer([[[1], [1]], [[2], [2]]], dtype=tf.float32)
+        x2 = Transpose(x)
         x_flat = Reshape(x, [-1, 1])
-        linear = Linear(x, n_units=2)
-        linear_flat = linear.reuse_with(x_flat)
+        linear1 = Linear(x, n_units=2)
+        linear2 = Linear(x2,
+                         n_units=1,
+                         shared_weights=linear1.weights,
+                         transpose_weights=True)
+
+        # we cant do this because it changes the definition of the layer (n_units etc)
+        try:
+            linear3 = linear1.reuse_with(x2, transpose_weights=True)
+            self.fail("we can't reuse with transpose weights while changing the layer definition")
+        except ValueError:
+            pass
+
+        linear_flat = linear1.reuse_with(x_flat)
         linear_flat = Reshape(linear_flat, x.tensor.get_shape().as_list()[:-1] + [2])
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
+            self.assertArrayEqual(linear1.tensor, linear_flat.tensor)
 
-            self.assertArrayEqual(linear.tensor, linear_flat.tensor)
+            self.assertArrayEqual(tf.shape(linear2.tensor), [1, 2, 1])
 
     def test_variable_layer_broadcasting(self):
         layer1 = TensorLayer([[1], [1]], dtype=tf.float32)
@@ -1499,6 +1514,53 @@ class TestLayers(test_utils.TestCase):
             self.assertEqual((batch_size, n_hidden), np.shape(res1))
             self.assertArrayEqual(res1, res3)
             self.assertArrayNotEqual(res1, res2)
+
+    def test_lstm_cell_regularization(self):
+
+        n_inputs = 8
+        n_hidden = 2
+        batch_size = 2
+
+        inputs = Input(n_inputs)
+
+        def drop_reg(layer): return Dropout(layer, keep_prob=0.1, locked=True)
+
+        rnn1 = LSTMCell(inputs, n_hidden,
+                        u_regularizer=drop_reg,
+                        w_regularizer=drop_reg,
+                        name="lstm1")
+
+        rnn2 = rnn1.reuse_with(inputs,
+                               previous_state=rnn1.state,
+                               regularized=True,
+                               name="lstm2"
+                               )
+
+        rnn3 = rnn2.reuse_with(inputs,
+                               previous_state=rnn1.state,
+                               name="lstm3"
+                               )
+
+        init = tf.global_variables_initializer()
+        data = np.ones([batch_size, n_inputs])
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            res1, res2, res3 = self.eval([rnn1.tensor, rnn2.tensor, rnn3.tensor], {inputs.placeholder: data})
+
+            state2, state3 = self.eval([rnn2.w_f.random_state, rnn3.w_f.random_state], {inputs.placeholder: data})
+            self.assertArrayEqual(state2, state3)
+            w2, w3 = self.eval([rnn2.w_f.tensor, rnn3.w_f.tensor], {inputs.placeholder: data})
+            self.assertArrayEqual(w2, w3)
+            w2, w3 = self.eval([rnn2.w_i.tensor, rnn3.w_i.tensor], {inputs.placeholder: data})
+            self.assertArrayEqual(w2, w3)
+            w2, w3 = self.eval([rnn2.w_o.tensor, rnn3.w_o.tensor], {inputs.placeholder: data})
+            self.assertArrayEqual(w2, w3)
+            w2, w3 = self.eval([rnn2.w_c.tensor, rnn3.w_c.tensor], {inputs.placeholder: data})
+            self.assertArrayEqual(w2, w3)
+
+            self.assertArrayEqual(res2, res3)
+            self.assertArrayNotEqual(res1, res2)
+            self.assertArrayNotEqual(res1, res3)
 
     def test_recurren_layer(self):
         n_features = 5

@@ -1,42 +1,35 @@
 """ Neural Network Layers"""
 
-from functools import partial, reduce
-import operator
 import itertools
-from typing import Callable, Union, Optional
-
 from collections import deque
 
+import operator
+from contextlib import ExitStack
+from functools import partial, reduce
+from tensorflow import sparse
 from tensorflow.python.eager import context
 from tensorflow.python.framework import ops, dtypes
 from tensorflow.python.framework.ops import Tensor, name_scope
-from tensorflow.python.ops import array_ops, control_flow_ops, logging_ops
-
-from tensorflow.python.framework import common_shapes
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import tensor_array_ops as ta
-from tensorflow.python.ops import variables
-from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
-from tensorflow.python.ops import variable_scope
-from tensorflow.python.framework.tensor_shape import TensorShape
-
-from tensorflow.python.ops import random_ops, sparse_ops, state_ops
-from tensorflow.python.ops.nn import bias_add, embedding_lookup, moments, convolution, batch_normalization
 from tensorflow.python.framework.sparse_tensor import SparseTensor
+from tensorflow.python.framework.tensor_shape import TensorShape
+from tensorflow.python.ops import array_ops, control_flow_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import random_ops, sparse_ops, state_ops
+from tensorflow.python.ops import tensor_array_ops as ta
+from tensorflow.python.ops import variable_scope
+from tensorflow.python.ops import variables
+from tensorflow.python.ops.nn import bias_add, embedding_lookup, moments, convolution, batch_normalization
+from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.training import moving_averages
-
-from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
-from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
-from tensorx import transform
-from tensorx.math import embedding_lookup_sparse
-from tensorx import utils as tx_utils
-from tensorx.activation import sigmoid, tanh, identity
-from tensorflow import sparse
+from typing import Callable, Union, Optional
 
 from tensorx import math as mathx
-
-from contextlib import ExitStack
-
+from tensorx import transform
+from tensorx import utils as tx_utils
+from tensorx.activation import sigmoid, tanh, identity
+from tensorx.init import random_uniform, zero_init, xavier_init, const_init, ones_init
+from tensorx.math import embedding_lookup_sparse
+from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx.utils import Graph
 
 
@@ -1033,7 +1026,7 @@ class Linear(Layer):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
             if self.shape != self.share_vars_with.shape:
-                raise ValueError("Can only share variables with layers with the same shape: "
+                raise ValueError("Can only share variables with layers with the same dimension: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
                                  "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
@@ -1112,10 +1105,14 @@ class Linear(Layer):
             else:
                 rank = len(input_layer.tensor.get_shape().as_list())
                 if rank > 2:
+                    if self.transpose_weights:
+                        axes = [[rank - 1], [1]]
+                    else:
+                        axes = [[rank - 1], [0]]
                     # Broadcasting is required for the inputs.
-                    tensor = math_ops.tensordot(input_layer.tensor,
-                                                self.weights,
-                                                [[rank - 1], [0]])
+                    tensor = math_ops.tensordot(a=input_layer.tensor,
+                                                b=self.weights,
+                                                axes=axes)
                     # Reshape the output back to the original ndim of the input.
                     if not context.executing_eagerly():
                         shape = input_layer.tensor.get_shape().as_list()
@@ -1266,7 +1263,7 @@ class DropConnect(ViewLayer):
 
 
 class Dropout(ViewLayer):
-    """ A Dropout Layer that applies the tensorflow dropout op to a given layer.
+    """ A Dropout Layer that applies the Tensorflow dropout op to a given layer.
 
     With probability ``keep_prob``, outputs the input elements scaled up by ``1 / keep_prob``, otherwise
     outputs ``0``. The scaling is to that the expected sum of the input elements is unchanged.
@@ -1282,9 +1279,9 @@ class Dropout(ViewLayer):
         http://www.jmlr.org/papers/volume15/srivastava14a/srivastava14a.pdf
 
     Note:
-        Contrary to the tensorflow operator, this layer also works with sparse layers as input it uses:
+        Contrary to the TensorFlow operator, this layer also works with sparse layers as input it uses:
 
-            * `dropout` from tensorflow for dense layers
+            * `dropout` from TensorFlow for dense layers
             * :class:`tensorx.transform.py.sparse_dropout` from for sparse layers
 
     Args:
@@ -1293,16 +1290,24 @@ class Dropout(ViewLayer):
             seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
-    def __init__(self, layer, keep_prob=0.1, scale=True, noise_shape=None, random_state=None, seed=None,
+    def __init__(self, layer,
+                 keep_prob=0.1,
+                 scale=True,
+                 noise_shape=None,
+                 random_state=None,
+                 locked=True,
+                 seed=None,
                  name="dropout"):
         self.seed = seed
         self.keep_prob = keep_prob
         self.scale = scale
         self.noise_shape = noise_shape
+        self.locked = locked
         self.random_state = random_state
 
         if self.random_state is not None:
-            self.random_state = tx_utils.to_tensor_cast(random_state)
+            if not isinstance(self.random_state, Layer):
+                self.random_state = tx_utils.to_tensor_cast(self.random_state)
 
         if self.noise_shape is not None:
             input_shape = array_ops.shape(layer.tensor)
@@ -1336,16 +1341,20 @@ class Dropout(ViewLayer):
 
             return tensor
 
-    def reuse_with(self, layer, name=None, share_state=True):
+    def reuse_with(self, layer, name=None, locked=None):
+        locked = self.locked if locked is None else locked
         name = self.name if name is None else name
-        random_state = self.random_state if share_state else None
-        new_layer = self.inner_layer.reuse_with(layer)
+        random_state = self.random_state if locked else None
 
-        return Dropout(new_layer,
+        # TODO maintain this or view is just a view?
+        # new_layer = self.inner_layer.reuse_with(layer)
+
+        return Dropout(layer,
                        keep_prob=self.keep_prob,
                        noise_shape=self.noise_shape,
                        random_state=random_state,
                        scale=self.scale,
+                       locked=locked,
                        seed=self.seed,
                        name=name)
 
@@ -2030,6 +2039,8 @@ class RecurrentCell(Layer):
                  activation=tanh,
                  w_regularizer=None,
                  u_regularizer=None,
+                 out_regularizer=None,
+                 recurrent_regularizer=None,
                  regularized=False,
                  share_state_with=None,
                  name="recurrent_cell"):
@@ -2075,6 +2086,8 @@ class RecurrentCell(Layer):
         self.regularized = regularized
         self.w_regularizer = w_regularizer
         self.u_regularizer = u_regularizer
+        self.out_regularizer = out_regularizer
+        self.recurrent_regularizer = recurrent_regularizer
         self.w_init = w_init
         self.u_init = u_init
         self.activation = activation
@@ -2090,7 +2103,8 @@ class RecurrentCell(Layer):
                          name=name)
 
     def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
-        share_state_with = self if self.share_state_with is None else self.share_state_with
+        # because we use objects and not scopes we can use self always on share state with
+        share_state_with = self  # self if self.share_state_with is None else self.share_state_with
         previous_state = self.previous_state if previous_state is None else previous_state
         name = self.name if name is None else name
         regularized = self.regularized if regularized is None else regularized
@@ -2103,6 +2117,8 @@ class RecurrentCell(Layer):
             share_state_with=share_state_with,
             w_regularizer=self.w_regularizer,
             u_regularizer=self.u_regularizer,
+            out_regularizer=self.out_regularizer,
+            recurrent_regularizer=self.recurrent_regularizer,
             regularized=regularized,
             name=name
         )
@@ -2336,16 +2352,11 @@ class LSTMCell(RecurrentCell):
                  u_init=xavier_init(),
                  u_regularizer=None,
                  w_regularizer=None,
+                 out_regularizer=None,
+                 recurrent_regularizer=None,
                  regularized=False,
                  share_state_with=None,
                  name="lstm_cell"):
-
-        self.activation = activation
-        self.w_init = w_init
-        self.u_init = u_init
-        self.u_regularizer = u_regularizer
-        self.w_regularizer = w_regularizer
-        self.regularized = regularized
 
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
@@ -2357,6 +2368,8 @@ class LSTMCell(RecurrentCell):
                          u_init=u_init,
                          w_regularizer=w_regularizer,
                          u_regularizer=u_regularizer,
+                         out_regularizer=out_regularizer,
+                         recurrent_regularizer=recurrent_regularizer,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)
@@ -2372,12 +2385,27 @@ class LSTMCell(RecurrentCell):
                 self._add_variable(v)
 
     def _build_graph(self):
+        def get_inner(layers):
+            for layer in layers:
+                if isinstance(layer, ViewLayer):
+                    yield layer.inner_layer
+                else:
+                    yield layer
+
+        def reuse_view(layer, view, default):
+            if isinstance(view, ViewLayer):
+                return view.reuse_with(layer)
+            else:
+                return default(layer)
+
         # input layers = [input_layer, *state_layer]
         input_layer = self.input_layers[0]
         regularized = self.regularized
         previous_h, previous_memory = self.previous_state
 
         with layer_scope(self):
+            # regularize recurrent
+
             # create new weights
             if self.share_state_with is None:
                 # forget gate linear
@@ -2400,40 +2428,27 @@ class LSTMCell(RecurrentCell):
                 self.w = [self.w_f, self.w_i, self.w_c, self.w_o]
                 self.u = [self.u_f, self.u_i, self.u_c, self.u_o]
 
+                # if we have a layer with regularisation we want to apply the same regularizers
+                w_reg = [partial(reuse_view, view=wi, default=self.w_regularizer) for wi in self.w]
+                u_reg = [partial(reuse_view, view=ui, default=self.w_regularizer) for ui in self.u]
+
             else:
-                w = self.share_state_with.w
-                u = self.share_state_with.u
+                self.w = self.share_state_with.w
+                self.u = self.share_state_with.u
 
-                def get_inner(x):
-                    if isinstance(x, ViewLayer) and not self.regularized:
-                        return x.inner
-                    else:
-                        return x
+                # if we have a layer with regularisation we want to apply the same regularizers
+                w_reg = [partial(reuse_view, view=wi, default=self.w_regularizer) for wi in self.w]
+                u_reg = [partial(reuse_view, view=ui, default=self.w_regularizer) for ui in self.u]
 
-                w = map(get_inner, w)
-                u = map(get_inner, u)
-
-                def reuse(x, in_layer):
-                    return x.reuse_with(in_layer)
-
-                w = map(partial(reuse, in_layer=input_layer), w)
-                u = map(partial(reuse, in_layer=previous_h), u)
-
-                self.w = list(w)
-                self.u = list(u)
+                self.w = list(map(lambda wi: wi.reuse_with(input_layer), get_inner(self.w)))
+                self.u = list(map(lambda ui: ui.reuse_with(previous_h), get_inner(self.u)))
 
                 self.w_f, self.w_i, self.w_c, self.w_o = self.w
                 self.u_f, self.u_i, self.u_c, self.u_o = self.u
 
-            def apply_reg(x, reg):
-                if not isinstance(x, ViewLayer) and reg is not None:
-                    return reg(x)
-                else:
-                    return x
-
             if regularized:
-                self.w = list(map(partial(apply_reg, reg=self.w_regularizer), self.w))
-                self.u = list(map(partial(apply_reg, reg=self.u_regularizer), self.u))
+                self.w = [fn(wi) for fn, wi in zip(w_reg, self.w)]
+                self.u = [fn(ui) for fn, ui in zip(u_reg, self.u)]
 
                 self.w_f, self.w_i, self.w_c, self.w_o = self.w
                 self.u_f, self.u_i, self.u_c, self.u_o = self.u
