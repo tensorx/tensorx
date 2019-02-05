@@ -1034,6 +1034,34 @@ class EvalStepDecayParam(DynamicParam):
         super().update(evaluation)
 
 
+class StepDecay(DynamicParam):
+    """
+    """
+
+    def __init__(self, value,
+                 decay_after=0,
+                 decay_rate=1.0,
+                 decay_threshold=1e-6,
+                 dtype=dtypes.float32,
+                 name="step_decay_param"):
+
+        self.decay_rate = decay_rate
+        self.decay_threshold = decay_threshold
+        self.decay_after = decay_after
+        self.current_step = 0
+
+        def update_fn():
+            self.current_step += 1
+            if self.current_step <= decay_after:
+                new_value = self.value
+            else:
+                new_value = max(self.decay_threshold, self.value * decay_rate)
+
+            return new_value
+
+        super().__init__(value=value, dtype=dtype, update_fn=update_fn, name=name)
+
+
 __all__ = ["Model",
            "LayerGraph",
            "EvalStepDecayParam"]

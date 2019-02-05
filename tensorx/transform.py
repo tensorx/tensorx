@@ -6,14 +6,12 @@ import numbers
 
 import numpy as np
 from tensorflow import sparse
-from tensorflow.contrib.layers.python.ops import sparse_ops
 from tensorflow.python.eager import context
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape, tensor_util
 from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn
-
 from tensorx.utils import to_tensor_cast, complete_shape
 
 
@@ -27,7 +25,7 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
     Note:
         ``shape = [10]``
 
-        ``empty = tf.parse.to_dense(transform.empty_sparse_tensor(shape))``
+        ``empty = tf.sparse.to_dense(transform.empty_sparse_tensor(shape))``
 
         is equivalent to:
 
@@ -484,16 +482,15 @@ def _get_noise_shape(x, noise_shape):
 def dropout(tensor,
             noise_shape=None,
             random_mask=None,
-            keep_prob=0.1,
+            probability=0.1,
             scale=True,
             seed=None,
-            return_state=False,
+            return_mask=False,
             name="dropout"):
     """ dropout
 
-    With probability `keep_prob`, outputs the input element, otherwise outputs `0`. If scale == True, the
-    input elements are scaled up by `1 / keep_prob` so that the expected
-    sum is unchanged.
+    With probability `probability`, outputs `0`  otherwise outputs the input element. If ``scale`` is True, the
+    input elements are scaled up by `1 / (1-probability)` so that the expected sum of the activations is unchanged.
 
     By default, each element is kept or dropped independently.  If `noise_shape`
     is specified, it must be [broadcastable](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html)
@@ -503,11 +500,12 @@ def dropout(tensor,
     kept independently and each row and column will be kept or not kept together.
 
     Args:
-        return_state: if true, returns (value, mask used)
-        random_mask: a tensor used to create the random bernoulli mask with keep[
+        noise_shape: A 1-D `Tensor` of type `int32`, representing the shape for randomly generated drop flags.
+        return_mask: if true, returns the random mask used
+        random_mask: a tensor used to create the random bernoulli mask
         tensor: A floating point tensor.
-        keep_prob: A scalar `Tensor` with the same type as x. The probability that each element is kept.
-        scale: A 1-D `Tensor` of type `int32`, representing the shape for randomly generated keep/drop flags.
+        probability: A scalar `Tensor` with the same type as x. The probability that each element is kept.
+        scale: if true rescales the non-zero elements to 1 / (1-drop_probability)
         seed: A Python integer with the random number generator seed
         name: a name for this operation (optional)
 
@@ -515,7 +513,7 @@ def dropout(tensor,
         a Tensor of the same shape of tensor
 
     Raises:
-        ValueError: If `keep_prob` is not in `(0, 1]` or if `x` is not a floating point tensor.
+        ValueError: If `probability` is not in `[0, 1]` or if `x` is not a floating point tensor.
     """
     with ops.name_scope(name, "dropout", [tensor]):
         tensor = ops.convert_to_tensor(tensor, name="x")
@@ -528,57 +526,79 @@ def dropout(tensor,
             except Exception as e:
                 raise ValueError("x has to be a floating point tensor since it might be scaled"
                                  "Got a %s tensor instead. and could not cast it" % tensor.dtype)
-        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
-            raise ValueError("keep_prob must be a scalar tensor or a float in the "
-                             "range (0, 1], got %g" % keep_prob)
+
+        if isinstance(probability, numbers.Real) and not 0 <= probability < 1:
+            raise ValueError("drop probability must be a scalar tensor or a float in the "
+                             "range [0, 1), got %g" % probability)
 
         # Early return if nothing needs to be dropped.
-        if isinstance(keep_prob, float) and keep_prob == 1:
-            if return_state:
+        if isinstance(probability, float) and probability == 0:
+            if return_mask:
                 return tensor, None
             else:
                 return tensor
+        elif isinstance(probability, float) and probability == 1:
+            zeros = array_ops.zeros_like(tensor)
+            if return_mask:
+                return zeros, None
+            else:
+                return zeros
+
         if context.executing_eagerly():
-            if isinstance(keep_prob, ops.EagerTensor):
-                if keep_prob.numpy() == 1:
-                    if return_state:
+            if isinstance(probability, ops.EagerTensor):
+                if probability.numpy() == 0:
+                    if return_mask:
                         return tensor, None
                     else:
                         return tensor
+                elif probability.numpy() == 1:
+                    zeros = array_ops.zeros_like(tensor)
+                    if return_mask:
+                        return zeros, None
+                    else:
+                        return zeros
         else:
-            keep_prob = ops.convert_to_tensor(
-                keep_prob, dtype=tensor.dtype, name="keep_prob")
-            keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
+            probability = ops.convert_to_tensor(
+                probability, dtype=tensor.dtype, name="drop_probability")
+            probability.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
-            # Do nothing if we know keep_prob == 1
-            if tensor_util.constant_value(keep_prob) == 1:
-                if return_state:
+            # Do nothing if we know drop_probability == 0
+            const_val = tensor_util.constant_value(probability)
+            if const_val == 0:
+                if return_mask:
                     return tensor, None
                 else:
                     return tensor
+            elif const_val == 1:
+                zeros = array_ops.zeros_like(tensor)
+                if return_mask:
+                    return zeros, None
+                else:
+                    return zeros
 
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
-        # uniform [keep_prob, 1.0 + keep_prob)
         if random_mask is None:
-            random_mask = random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
-        mask = keep_prob + random_mask
-        # 0. if [keep_prob, 1.0) and 1. if [1.0, 1.0 + keep_prob)
-        binary_tensor = math_ops.floor(mask)
+            with ops.name_scope("random_mask"):
+                keep_prob = 1 - probability
+                random_state = random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+                mask = keep_prob + random_state
+                random_mask = math_ops.floor(mask, name="binary_mask")
+
         if scale:
-            ret = math_ops.div(tensor, keep_prob) * binary_tensor
+            ret = math_ops.div(tensor, math_ops.maximum(1 - probability, 1e-10)) * random_mask
         else:
-            ret = tensor * binary_tensor
+            ret = tensor * random_mask
         if not context.executing_eagerly():
             ret.set_shape(tensor.get_shape())
 
-        if return_state:
+        if return_mask:
             return ret, random_mask
         else:
             return ret
 
 
-def zoneout(tensor, zoneout_tensor, noise_shape=None, keep_prob=0.1, seed=None, name="dropout"):
+def zoneout(tensor, zoneout_tensor, noise_shape=None, probability=0.1, seed=None, name="dropout"):
     """
     """
     with ops.name_scope(name, "dropout", [tensor]):
@@ -586,38 +606,35 @@ def zoneout(tensor, zoneout_tensor, noise_shape=None, keep_prob=0.1, seed=None, 
         if not tensor.dtype.is_floating:
             raise ValueError("x has to be a floating point tensor since it's going to"
                              " be scaled. Got a %s tensor instead." % tensor.dtype)
-        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
-            raise ValueError("keep_prob must be a scalar tensor or a float in the "
-                             "range (0, 1], got %g" % keep_prob)
+        if isinstance(probability, numbers.Real) and not 0 <= probability < 1:
+            raise ValueError("dropout probability must be a scalar tensor or a float in the "
+                             "range [0, 1), got %g" % probability)
 
         # Early return if nothing needs to be dropped.
-        if isinstance(keep_prob, float) and keep_prob == 1:
+        if isinstance(probability, float) and probability == 0:
             return tensor
         if context.executing_eagerly():
-            if isinstance(keep_prob, ops.EagerTensor):
-                if keep_prob.numpy() == 1:
+            if isinstance(probability, ops.EagerTensor):
+                if probability.numpy() == 0:
                     return tensor
         else:
-            keep_prob = ops.convert_to_tensor(
-                keep_prob, dtype=tensor.dtype, name="keep_prob")
-            keep_prob.get_shape().assert_is_compatible_with(tensor_shape.scalar())
+            probability = ops.convert_to_tensor(
+                probability, dtype=tensor.dtype, name="drop_probability")
+            probability.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
             # Do nothing if we know keep_prob == 1
-            if tensor_util.constant_value(keep_prob) == 1:
+            if tensor_util.constant_value(probability) == 0:
                 return tensor
 
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
-        # uniform [keep_prob, 1.0 + keep_prob)
-        random_tensor = keep_prob
-        random_tensor += random_ops.random_uniform(
-            noise_shape, seed=seed, dtype=tensor.dtype)
-        # 0. if [keep_prob, 1.0) and 1. if [1.0, 1.0 + keep_prob)
-        binary_tensor = math_ops.floor(random_tensor)
+        keep_prob = 1 - probability
+        random_tensor = keep_prob + random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+        mask = math_ops.floor(random_tensor)
 
-        keep = tensor * binary_tensor
-        zoned = zoneout_tensor * (1 - binary_tensor)
-        ret = keep + zoned
+        kept = tensor * (1 - mask)
+        zoned = zoneout_tensor * mask
+        ret = kept + zoned
 
         if not context.executing_eagerly():
             ret.set_shape(tensor.get_shape())
@@ -625,11 +642,11 @@ def zoneout(tensor, zoneout_tensor, noise_shape=None, keep_prob=0.1, seed=None, 
 
 
 def sparse_dropout(sp_tensor,
-                   keep_prob=0.2,
+                   probability=0.2,
                    scale=True,
                    seed=None,
-                   random_mask=None,
-                   return_state=False,
+                   mask=None,
+                   return_mask=False,
                    name="sparse_dropout"):
     """Performs a dropout on a ``SparseTensor``.
 
@@ -638,10 +655,10 @@ def sparse_dropout(sp_tensor,
     sum is unchanged.
 
     Args:
-        random_mask: a mask to be applied to the values of this tensor
-        return_mask: if true returns the mask used to perform dropout (result,mask)
+        mask: a random_mask to be applied to the values of this tensor
+        return_mask: if true returns the random_mask used to perform dropout (result,random_mask)
         sp_tensor: a ``SparseTensor`` on which the dropout is performed.
-        keep_prob: A scalar `Tensor` with the same type as x. The probability
+        probability: A scalar `Tensor` with the same type as x. The probability
         that each element is kept.
         scale: if True rescales the input to 1 / keep_prob else simply drops without rescaling
         seed: A Python integer. Used to create random seeds. (See `TensorFlow` documentation
@@ -655,32 +672,31 @@ def sparse_dropout(sp_tensor,
         if not sp_tensor.values.dtype.is_floating:
             raise ValueError("sp_tensor has to be a floating point tensor since its values are going to"
                              " be scaled. Got a %s tensor instead." % sp_tensor.dtype)
-        if isinstance(keep_prob, numbers.Real) and not 0 < keep_prob <= 1:
+        if isinstance(probability, numbers.Real) and not 0 <= probability < 1:
             raise ValueError("keep_prob must be a scalar tensor or a float in the "
-                             "range (0, 1], got %g" % keep_prob)
-        keep_prob = ops.convert_to_tensor(keep_prob,
-                                          dtype=sp_tensor.dtype,
-                                          name="keep_prob")
+                             "range (0, 1], got %g" % probability)
+        probability = ops.convert_to_tensor(probability,
+                                            dtype=sp_tensor.dtype,
+                                            name="drop_probability")
 
         drop_values = dropout(tensor=sp_tensor.values,
-                              random_mask=random_mask,
-                              keep_prob=keep_prob,
+                              random_mask=mask,
+                              probability=probability,
                               scale=scale,
-                              return_state=return_state,
+                              return_mask=return_mask,
                               seed=seed)
 
-        if return_state is not None:
-            drop_values, state = drop_values
+        if return_mask is not None:
+            drop_values, mask = drop_values
 
         not_zero = math_ops.not_equal(drop_values, 0)
-
         values = array_ops.boolean_mask(drop_values, not_zero)
         indices = array_ops.boolean_mask(sp_tensor.indices, not_zero)
 
         new_tensor = SparseTensor(indices, values, dense_shape)
 
-        if return_state is not None:
-            return new_tensor, state
+        if return_mask is not None:
+            return new_tensor, mask
         else:
             return new_tensor
 

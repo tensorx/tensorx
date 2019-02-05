@@ -1,7 +1,7 @@
 """ Tests for TensorX transform module
 """
 from tensorx import transform, test_utils
-from tensorflow.python.framework.sparse_tensor import *
+from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
 from tensorflow.python.ops import array_ops, math_ops
 from tensorflow.python.framework import dtypes
 import os
@@ -48,9 +48,9 @@ class TestTransform(test_utils.TestCase):
         n = 10000
         b = 10
         x = array_ops.ones([b, n])
-        keep_prob = 0.5
+        prob = 0.5
 
-        drop_x = transform.dropout(x, keep_prob=keep_prob, scale=True)
+        drop_x = transform.dropout(x, probability=prob, scale=True)
 
         actual_avg = math_ops.reduce_mean(drop_x)
         expected_avg = math_ops.mean(x, axis=-1)
@@ -68,7 +68,7 @@ class TestTransform(test_utils.TestCase):
 
         mask = np.random.uniform(size=x.shape)
 
-        drop_x = transform.dropout(x, keep_prob=keep_prob, random_mask=mask, scale=True)
+        drop_x = transform.dropout(x, probability=keep_prob, random_mask=mask, scale=True)
 
         actual_avg = math_ops.reduce_mean(drop_x)
         expected_avg = math_ops.mean(x, axis=-1)
@@ -84,7 +84,7 @@ class TestTransform(test_utils.TestCase):
         x = array_ops.ones([b, n])
         keep_prob = 0.5
 
-        drop_x = transform.dropout(x, keep_prob=keep_prob, scale=False)
+        drop_x = transform.dropout(x, probability=keep_prob, scale=False)
 
         actual_avg = math_ops.reduce_mean(drop_x)
         expected_avg = math_ops.mean(x, axis=-1) * keep_prob

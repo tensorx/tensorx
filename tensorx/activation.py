@@ -38,7 +38,7 @@ def sigmoid(x):
     return nn.sigmoid(x)
 
 
-def hard_sigmoid(x):
+def hard_sigmoid(x, name="hard_sigmoid"):
     """Segment-wise linear approximation of sigmoid.
     Faster than sigmoid.
 
@@ -48,6 +48,7 @@ def hard_sigmoid(x):
     In `-2.5 <= x <= 2.5`, returns `0.2 * x + 0.5`.
 
     Args:
+        name: name for this op
         x: A tensor or variable.
 
     Returns:
@@ -55,13 +56,13 @@ def hard_sigmoid(x):
 
     """
     x = ops.convert_to_tensor(x)
-
-    slope = to_tensor_cast(0.2, x.dtype)
-    shift = to_tensor_cast(0.5, x.dtype)
-    x = (slope * x) + shift
-    zero = to_tensor_cast(0., x.dtype)
-    one = to_tensor_cast(1., x.dtype)
-    x = clip_ops.clip_by_value(x, zero, one)
+    with ops.name_scope(name):
+        slope = to_tensor_cast(0.2, x.dtype)
+        shift = to_tensor_cast(0.5, x.dtype)
+        x = (slope * x) + shift
+        zero = to_tensor_cast(0., x.dtype)
+        one = to_tensor_cast(1., x.dtype)
+        x = clip_ops.clip_by_value(x, zero, one)
 
     return x
 

@@ -5,7 +5,7 @@ from collections import deque
 
 import operator
 from contextlib import ExitStack
-from functools import partial, reduce
+from functools import partial, reduce, wraps
 from tensorflow import sparse
 from tensorflow.python.eager import context
 from tensorflow.python.framework import ops, dtypes
@@ -22,7 +22,7 @@ from tensorflow.python.ops.nn import bias_add, embedding_lookup, moments, convol
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_variable_scope
 from tensorflow.python.training import moving_averages
 from typing import Callable, Union, Optional
-
+import inspect
 from tensorx import math as mathx
 from tensorx import transform
 from tensorx import utils as tx_utils
@@ -180,6 +180,38 @@ def _as_list(elems):
     return elems
 
 
+class LayerProto:
+    def _validate_args(self, **kwargs):
+        for key in kwargs:
+            if key not in self.args:
+                raise TypeError("{} prototype got an unexpected argument {}".format(self.layer_cls.__name__, key))
+
+    """ Layer Proto
+
+    Utility class for the creation of Layer prototypes. A LayerProto is a callable that validates invalid layer
+    constructor arguments.
+
+    """
+
+    def __init__(self, layer_cls, **kwargs):
+        self.layer_cls = layer_cls
+
+        spec = inspect.getfullargspec(layer_cls.__init__)
+        self.args = spec.args[1:]
+        self._validate_args(**kwargs)
+
+        self.args_set = kwargs
+
+    def __call__(self, *args, **kwargs):
+        new_args = dict(self.args_set)
+        new_args.update(kwargs)
+        return self.layer_cls(*args, **new_args)
+
+    def set(self, **kwargs):
+        self._validate_args(**kwargs)
+        self.args_set.update(kwargs)
+
+
 class Layer:
     """ Layer.
 
@@ -225,6 +257,10 @@ class Layer:
         self.attr_names = []
 
         self._tensor = None
+
+    @classmethod
+    def proto(cls, **kwargs):
+        return LayerProto(cls, **kwargs)
 
     def reuse_with(self, *layers, name=None):
         if name is None:
@@ -327,6 +363,9 @@ class Layer:
 
         """
         return self.tensor.get_shape().as_list()
+
+    def __call__(self, *args, **kwargs):
+        return type(self).reuse_with(*args, **kwargs)
 
 
 class WrapLayer(Layer):
@@ -1211,16 +1250,28 @@ class ViewLayer(Layer):
 
 
 class DropConnect(ViewLayer):
-    def __init__(self, layer, keep_prob=0.5, weight_mask=None, bias_mask=None, name=None):
+    """ DropConnect
+
+    Args:
+            layer (Layer):
+            keep_prob (float):
+            weight_mask (Tensor):
+            bias_mask (Tensor):
+            locked (bool):
+            name (str):
+
+    """
+
+    def __init__(self, layer, probability=0.5, weight_mask=None, bias_mask=None, locked=True, name=None):
         if not isinstance(layer, Linear):
             raise TypeError("DropConnect can only wrap Linear layers: {} found instead".format(layer))
-        # layer to be wrapped
-        self.new_linear = None
-        self.keep_prob = keep_prob
+
+        self.probability = probability
         self.weight_mask = weight_mask
         self.bias_mask = bias_mask
         self.bias = None
         self.weights = None
+        self.locked = locked
 
         name = name if name is not None else "drop_{}".format(layer.name)
 
@@ -1232,38 +1283,45 @@ class DropConnect(ViewLayer):
             w = self.inner_layer.weights
             b = self.inner_layer.bias
 
-            drop_w, w_mask = transform.dropout(w, keep_prob=self.keep_prob, random_mask=self.weight_mask, scale=False,
-                                               return_state=True)
+            drop_w, w_mask = transform.dropout(w, probability=self.probability, random_mask=self.weight_mask,
+                                               scale=False,
+                                               return_mask=True)
             self.weight_mask = w_mask
             drop_b = None
             if b is not None:
-                drop_b, b_mask = transform.dropout(b, keep_prob=self.keep_prob, random_mask=self.bias_mask, scale=False,
-                                                   return_state=True)
+                drop_b, b_mask = transform.dropout(b, probability=self.probability, random_mask=self.bias_mask,
+                                                   scale=False,
+                                                   return_mask=True)
                 self.bias_mask = b_mask
 
-            self.new_linear = Linear(input_layer, n_units=self.n_units, shared_weights=drop_w, shared_bias=drop_b)
-
+            new_linear = Linear(input_layer, n_units=self.n_units, shared_weights=drop_w, shared_bias=drop_b)
             # forward weights and bias
-            self.weights = self.new_linear.weights
-            self.bias = self.new_linear.bias
+            self.weights = new_linear.weights
+            self.bias = new_linear.bias
 
-            return self.new_linear.tensor
+            return new_linear.tensor
 
-    def reuse_with(self, layer, name=None, share_state=True):
-        name = self.name if name is None else name
+    def reuse_with(self, layer, name=None, locked=None):
         new_layer = self.inner_layer.reuse_with(layer)
-        weight_mask = self.weight_mask if share_state else None
-        bias_mask = self.bias_mask if share_state else None
+
+        locked = self.locked if locked is None else locked
+        name = self.name if name is None else name
+        weight_mask = self.weight_mask if locked else None
+        bias_mask = self.bias_mask if locked else None
 
         return DropConnect(layer=new_layer,
-                           keep_prob=self.keep_prob,
+                           probability=self.probability,
                            weight_mask=weight_mask,
                            bias_mask=bias_mask,
+                           locked=locked,
                            name=name)
 
 
-class Dropout(ViewLayer):
-    """ A Dropout Layer that applies the Tensorflow dropout op to a given layer.
+class Dropout(Layer):
+    """ Dropout
+
+    Sets output units of the input layer to zero with a given probability and re-scales the remaining units to maintain
+    the expected activation value.
 
     With probability ``keep_prob``, outputs the input elements scaled up by ``1 / keep_prob``, otherwise
     outputs ``0``. The scaling is to that the expected sum of the input elements is unchanged.
@@ -1271,88 +1329,83 @@ class Dropout(ViewLayer):
     Dropout can be viewed a stochastic version of model averaging and prevents the nodes from co-adapting too much. This
     reduces generalisation error during training.
 
+    Args:
+        layer: an input layer :class:`Layer` to which dropout will be applied
+        keep_prob: a scalar float with the probability that each element is kept.
+        seed: A Python integer. Used to create a random seed for the dropout op.
+
     Warning:
         if input is sparse the noise shape is not used
 
     References:
         [1] "Dropout:  A Simple Way to Prevent Neural Networks from Overfitting"
         http://www.jmlr.org/papers/volume15/srivastava14a/srivastava14a.pdf
-
-    Note:
-        Contrary to the TensorFlow operator, this layer also works with sparse layers as input it uses:
-
-            * `dropout` from TensorFlow for dense layers
-            * :class:`tensorx.transform.py.sparse_dropout` from for sparse layers
-
-    Args:
-            layer: an input layer :class:`Layer` to which dropout will be applied
-            keep_prob: a scalar float with the probability that each element is kept.
-            seed: A Python integer. Used to create a random seed for the dropout op.
     """
 
     def __init__(self, layer,
-                 keep_prob=0.1,
+                 probability=0.1,
                  scale=True,
                  noise_shape=None,
-                 random_state=None,
+                 mask=None,
                  locked=True,
                  seed=None,
                  name="dropout"):
         self.seed = seed
-        self.keep_prob = keep_prob
+        self.probability = probability
         self.scale = scale
         self.noise_shape = noise_shape
         self.locked = locked
-        self.random_state = random_state
+        self.mask = mask
 
-        if self.random_state is not None:
-            if not isinstance(self.random_state, Layer):
-                self.random_state = tx_utils.to_tensor_cast(self.random_state)
+        if self.mask is not None:
+            if not isinstance(self.mask, Layer):
+                self.mask = tx_utils.to_tensor_cast(self.mask)
 
         if self.noise_shape is not None:
             input_shape = array_ops.shape(layer.tensor)
             self.noise_shape = [input_shape[axis] if dim is None else dim for axis, dim in enumerate(self.noise_shape)]
 
-        super().__init__(layer, name=name)
+        super().__init__(layer,
+                         n_units=layer.n_units,
+                         shape=[layer.n_units, layer.n_units],
+                         dtype=layer.dtype,
+                         name=name)
         self.tensor = self._build_graph(layer)
 
     def _build_graph(self, layer):
         with layer_scope(self):
             if layer.is_sparse():
                 # if input is sparse, noise_shape is not used
-                tensor, state = transform.sparse_dropout(sp_tensor=layer.tensor,
-                                                         random_mask=self.random_state,
-                                                         keep_prob=self.keep_prob,
-                                                         scale=self.scale,
-                                                         return_state=True,
-                                                         seed=self.seed)
+                tensor, mask = transform.sparse_dropout(sp_tensor=layer.tensor,
+                                                        mask=self.mask,
+                                                        probability=self.probability,
+                                                        scale=self.scale,
+                                                        return_mask=True,
+                                                        seed=self.seed)
 
             else:
-                tensor, state = transform.dropout(tensor=layer.tensor,
-                                                  noise_shape=self.noise_shape,
-                                                  random_mask=self.random_state,
-                                                  keep_prob=self.keep_prob,
-                                                  scale=self.scale,
-                                                  return_state=True,
-                                                  seed=self.seed)
+                tensor, mask = transform.dropout(tensor=layer.tensor,
+                                                 noise_shape=self.noise_shape,
+                                                 random_mask=self.mask,
+                                                 probability=self.probability,
+                                                 scale=self.scale,
+                                                 return_mask=True,
+                                                 seed=self.seed)
 
-            if self.random_state is None:
-                self.random_state = state
+            if self.mask is None:
+                self.mask = mask
 
             return tensor
 
     def reuse_with(self, layer, name=None, locked=None):
         locked = self.locked if locked is None else locked
         name = self.name if name is None else name
-        random_state = self.random_state if locked else None
-
-        # TODO maintain this or view is just a view?
-        # new_layer = self.inner_layer.reuse_with(layer)
+        mask = self.mask if locked else None
 
         return Dropout(layer,
-                       keep_prob=self.keep_prob,
+                       probability=self.probability,
                        noise_shape=self.noise_shape,
-                       random_state=random_state,
+                       mask=mask,
                        scale=self.scale,
                        locked=locked,
                        seed=self.seed,
@@ -2013,7 +2066,7 @@ class QRNN(Layer):
                          attr_fwd=["w_z", "w_f", "w_o"])
 
 
-class RecurrentCell(Layer):
+class BaseRNNCell(Layer):
 
     @staticmethod
     def zero_state(state_shape, stateful=True, name="zero_state"):
@@ -2037,10 +2090,11 @@ class RecurrentCell(Layer):
                  w_init=xavier_init(),
                  u_init=xavier_init(),
                  activation=tanh,
-                 w_regularizer=None,
-                 u_regularizer=None,
-                 out_regularizer=None,
-                 recurrent_regularizer=None,
+                 w_dropconnect=None,
+                 u_dropconnect=None,
+                 x_dropout=None,
+                 r_dropout=None,
+                 y_dropout=None,
                  regularized=False,
                  share_state_with=None,
                  name="recurrent_cell"):
@@ -2058,7 +2112,7 @@ class RecurrentCell(Layer):
             i, state = enum_state
             if state is None:
                 state_shape = [batch_size, state_size[i]]
-                return RecurrentCell.zero_state(state_shape)
+                return BaseRNNCell.zero_state(state_shape)
             else:
                 if isinstance(state, Layer):
                     if state.n_units != state_size[i]:
@@ -2084,13 +2138,70 @@ class RecurrentCell(Layer):
 
         self.previous_state = previous_state
         self.regularized = regularized
-        self.w_regularizer = w_regularizer
-        self.u_regularizer = u_regularizer
-        self.out_regularizer = out_regularizer
-        self.recurrent_regularizer = recurrent_regularizer
+        self.w_dropconnect = w_dropconnect
+        self.u_dropconnect = u_dropconnect
+        self.x_dropout = x_dropout
+        self.r_dropout = r_dropout
+        self.y_dropout = y_dropout
         self.w_init = w_init
         self.u_init = u_init
         self.activation = activation
+
+        # util class to apply regularizers or forward views
+        class Regularizer:
+
+            def __init__(self, func: LayerProto):
+                self.func = func
+                self.reg = None
+
+            def reset(self):
+                self.reg = None
+
+            def __call__(self, *layers):
+
+                reg_layers = []
+                if self.reg is None:
+                    self.reg = []
+                    for layer in layers:
+                        reg_layer = self.func(layer)
+                        reg_layers.append(reg_layer)
+
+                        if issubclass(self.func.layer_cls, ViewLayer):
+                            self.reg.append(lambda x: x)
+                        else:
+                            # dropouts we can re-use
+                            self.reg.append(reg_layer.reuse_with)
+                else:
+                    for layer, reg in zip(layers, self.reg):
+                        reg_layers.append(reg(layer))
+
+                if len(reg_layers) == 1:
+                    return reg_layers[0]
+                else:
+                    return reg_layers
+
+        # stores regularizers
+        if self.share_state_with is None:
+            self.w_reg = Regularizer(
+                DropConnect.proto(probability=self.w_dropconnect, locked=True, name="w_dropconnect"))
+            self.u_reg = Regularizer(
+                DropConnect.proto(probability=self.u_dropconnect, locked=True, name="u_dropconnect"))
+            self.x_reg = Regularizer(Dropout.proto(probability=self.x_dropout, locked=True, name="x_dropout"))
+            self.r_reg = Regularizer(Dropout.proto(probability=self.r_dropout, locked=True, name="r_dropout"))
+            self.y_reg = Regularizer(Dropout.proto(probability=self.r_dropout, locked=True, name="y_dropout"))
+        else:
+            self.w_reg = self.share_state_with.w_reg
+            self.u_reg = self.share_state_with.u_reg
+            self.x_reg = self.share_state_with.x_reg
+            self.r_reg = self.share_state_with.r_reg
+            self.y_reg = self.share_state_with.y_reg
+
+            if not self.regularized:
+                self.w_reg.reset()
+                self.u_reg.reset()
+                self.x_reg.reset()
+                self.r_reg.reset()
+                self.y_reg.reset()
 
         # needs to be defined on each recurrent cell just as we define self.tensor
         # the default state is the current cell which gives access to its  output tensor
@@ -2102,7 +2213,7 @@ class RecurrentCell(Layer):
                          dtype=dtype,
                          name=name)
 
-    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
+    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None, **kwargs):
         # because we use objects and not scopes we can use self always on share state with
         share_state_with = self  # self if self.share_state_with is None else self.share_state_with
         previous_state = self.previous_state if previous_state is None else previous_state
@@ -2115,16 +2226,18 @@ class RecurrentCell(Layer):
             previous_state=previous_state,
             activation=self.activation,
             share_state_with=share_state_with,
-            w_regularizer=self.w_regularizer,
-            u_regularizer=self.u_regularizer,
-            out_regularizer=self.out_regularizer,
-            recurrent_regularizer=self.recurrent_regularizer,
+            w_dropconnect=self.w_dropconnect,
+            u_dropconnect=self.u_dropconnect,
+            x_dropout=self.x_dropout,
+            r_dropout=self.r_dropout,
+            y_dropout=self.y_dropout,
             regularized=regularized,
-            name=name
+            name=name,
+            **kwargs
         )
 
 
-class RNNCell(RecurrentCell):
+class RNNCell(BaseRNNCell):
     """ Recurrent Cell
         Corresponds to a single step on an unrolled RNN network
 
@@ -2145,8 +2258,11 @@ class RNNCell(RecurrentCell):
                  w_init=xavier_init(),
                  u_init=xavier_init(),
                  share_state_with=None,
-                 u_regularizer=None,
-                 w_regularizer=None,
+                 w_dropconnect=None,
+                 u_dropconnect=None,
+                 r_dropout=None,
+                 x_dropout=None,
+                 y_dropout=None,
                  regularized=False,
                  name="rnn_cell"):
 
@@ -2158,47 +2274,67 @@ class RNNCell(RecurrentCell):
                          dtype=dtypes.float32,
                          w_init=w_init,
                          u_init=u_init,
-                         w_regularizer=w_regularizer,
-                         u_regularizer=u_regularizer,
+                         w_dropconnect=w_dropconnect,
+                         u_dropconnect=u_dropconnect,
+                         x_dropout=x_dropout,
+                         r_dropout=r_dropout,
+                         y_dropout=y_dropout,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)
 
-        self.tensor = self._build_graph(input_layer, self.previous_state, regularized)
-        self.state = [self]
+        tensor, state = self._build_graph()
+        self.tensor = tensor
+        self.state = [state]
 
-    def _build_graph(self, layer, previous_state, regularized):
-        previous_state = previous_state[0]
+    def _build_graph(self):
+        regularized = self.regularized
+        input_layer = self.input_layers[0]
+        previous_h = self.previous_state[0]
 
         with layer_scope(self):
+            if self.regularized:
+                if self.x_dropout and self.x_dropout > 0:
+                    input_layer = self.x_reg(input_layer)
+                if self.r_dropout and self.r_dropout > 0:
+                    previous_h = self.r_reg(previous_h)
+
             if self.share_state_with is None:
-                self.w = Linear(layer, self.n_units, add_bias=True, weight_init=self.w_init, name="w")
-                self.u = Linear(previous_state, self.n_units, add_bias=False, weight_init=self.u_init, name="r_w")
+                self.w = Linear(input_layer, self.n_units, add_bias=True, weight_init=self.w_init, name="w")
+                self.u = Linear(previous_h, self.n_units, add_bias=False, weight_init=self.u_init, name="r_w")
             else:
                 w = self.share_state_with.w
                 u = self.share_state_with.u
                 # this means the previous layer was regularized we want the inner layer
-                if isinstance(w, ViewLayer) and not self.regularized:
-                    w = w.inner_layer
-                if isinstance(u, ViewLayer) and not self.regularized:
-                    u = u.inner_layer
+                # get inner state of dropconnect or other views
+                if not self.regularized:
+                    w = w.inner_layer if isinstance(w, ViewLayer) else w
+                    u = u.inner_layer if isinstance(u, ViewLayer) else u
 
-                self.w = w.reuse_with(layer)
-                self.u = u.reuse_with(previous_state)
+                self.w = w.reuse_with(input_layer)
+                self.u = u.reuse_with(previous_h)
 
             if regularized:
-                if not isinstance(self.w, ViewLayer) and self.w_regularizer is not None:
-                    self.w = self.w_regularizer(self.w)
-                if not isinstance(self.u, ViewLayer) and self.u_regularizer is not None:
-                    self.u = self.u_regularizer(self.u)
+                if self.w_dropconnect is not None and self.w_dropconnect > 0:
+                    self.w = self.w_reg(self.w)
+                if self.u_dropconnect is not None and self.u_dropconnect > 0:
+                    self.u = self.u_reg(self.u)
 
             output = Add(self.w, self.u)
             output = Activation(output, self.activation)
 
-            return output.tensor
+            current_h = Module(inputs=[previous_h, input_layer],
+                               output=output,
+                               name=self.name + "_h")
+
+            if regularized:
+                if self.y_dropout is not None and self.y_dropout > 0:
+                    current_h = self.y_reg(current_h)
+
+            return output.tensor, current_h
 
 
-class GRUCell(RecurrentCell):
+class GRUCell(BaseRNNCell):
     """ Gated Recurrent Unit Cell.
 
         Performs a single step with a gated recurrent unit where. These units have two gates:
@@ -2209,10 +2345,14 @@ class GRUCell(RecurrentCell):
     def __init__(self, input_layer, n_units,
                  previous_state=None,
                  activation=tanh,
+                 gate_activation=sigmoid,
                  w_init=xavier_init(),
                  u_init=xavier_init(),
-                 u_regularizer=None,
-                 w_regularizer=None,
+                 u_dropconnect=None,
+                 w_dropconnect=None,
+                 x_dropout=None,
+                 r_dropout=None,
+                 y_dropout=None,
                  regularized=False,
                  share_state_with=None,
                  name="gru_cell"):
@@ -2225,114 +2365,103 @@ class GRUCell(RecurrentCell):
                          dtype=dtypes.float32,
                          w_init=w_init,
                          u_init=u_init,
-                         w_regularizer=w_regularizer,
-                         u_regularizer=u_regularizer,
+                         w_dropconnect=w_dropconnect,
+                         u_dropconnect=u_dropconnect,
+                         x_dropout=x_dropout,
+                         r_dropout=r_dropout,
+                         y_dropout=y_dropout,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)
 
-        self.tensor = self._build_graph()
-        self.state = [self]
+        self.gate_activation = gate_activation
+        tensor, state = self._build_graph()
+        self.tensor = tensor
+        self.state = [state]
 
     def _build_graph(self):
+
+        def get_inner(layers):
+            inner = []
+            for layer in layers:
+                if isinstance(layer, ViewLayer):
+                    inner.append(layer.inner_layer)
+                else:
+                    inner.append(layer)
+            return inner
+
         input_layer = self.input_layers[0]
         # previous state is a single layer
         regularized = self.regularized
-        previous_state = self.previous_state[0]
+        previous_h = self.previous_state[0]
 
         with layer_scope(self):
+
+            # its not obvious that we forward w_reg from share_state_with?
+            # regularize inputs and recurrent inputs
+            if self.regularized:
+                if self.x_dropout and self.x_dropout > 0:
+                    input_layer = self.x_reg(input_layer)
+                if self.r_dropout and self.r_dropout > 0:
+                    previous_h = self.r_reg(previous_h)
 
             if self.share_state_with is None:
                 # reset gate
                 # forget / reset bias init to one http://proceedings.mlr.press/v37/jozefowicz15.pdf
                 self.w_r = Linear(input_layer, self.n_units, add_bias=True, bias_init=ones_init(), name="w_r")
-                self.u_r = Linear(previous_state, self.n_units, add_bias=False, name="u_r")
+                self.u_r = Linear(previous_h, self.n_units, add_bias=False, name="u_r")
 
-                # candidate
-                gate_r = Add(self.w_r, self.u_r, name="linear_r")
-                gated_previous = Gate(previous_state, gate_r, name="gated_previous")
+                self.w_c = Linear(input_layer, self.n_units, add_bias=True, weight_init=self.w_init, name="w_c")
+                self.u_c = Linear(previous_h, self.n_units, add_bias=False, weight_init=self.u_init, name="u_c")
 
-                self.w_h = Linear(input_layer, self.n_units, add_bias=True, weight_init=self.w_init, name="w_h")
-                self.u_h = Linear(gated_previous, self.n_units, add_bias=False, weight_init=self.u_init,
-                                  name="u_h")
-
-                linear_h = Add(self.w_h, self.u_h, name="linear_h")
-                candidate_state = Activation(linear_h, self.activation, name="candidate")
-
-                # coupled update gate
                 self.w_z = Linear(input_layer, self.n_units, add_bias=True, name="w_z")
-                self.u_z = Linear(previous_state, self.n_units, add_bias=False, name="u_z")
-                update_gate = Add(self.w_z, self.u_z, name="linear_z")
+                self.u_z = Linear(previous_h, self.n_units, add_bias=False, name="u_z")
 
-                output = CoupledGate(candidate_state, previous_state, update_gate)
+                self.w = [self.w_r, self.w_c, self.w_z]
+                self.u = [self.u_r, self.u_c, self.u_z]
 
-                self.w = [self.w_r, self.w_h, self.w_z]
-                self.u = [self.u_r, self.u_h, self.u_z]
+
             else:
-                def get_inner(x):
-                    if isinstance(x, ViewLayer) and not self.regularized:
-                        return x.inner
-                    else:
-                        return x
+                self.w = self.share_state_with.w
+                self.u = self.share_state_with.u
 
-                def apply_reg(x, reg):
-                    if not isinstance(x, ViewLayer) and reg is not None:
-                        return reg(x)
-                    else:
-                        return x
+                if not self.regularized:
+                    self.w = get_inner(self.w)
+                    self.u = get_inner(self.u)
 
-                w = self.share_state_with.w
-                u = self.share_state_with.u
+                self.w = [wi.reuse_with(input_layer) for wi in self.w]
+                self.u = [ui.reuse_with(previous_h) for ui in self.u]
 
-                w = map(get_inner, w)
-                u = map(get_inner, u)
+                self.w_r, self.w_c, self.w_z = self.w
+                self.u_r, self.u_c, self.u_z = self.u
 
-                w = list(w)
-                u = list(u)
+            if regularized:
+                if self.w_dropconnect is not None and self.w_dropconnect > 0:
+                    self.w = self.w_reg(*self.w)
+                if self.u_dropconnect is not None and self.u_dropconnect > 0:
+                    self.u = self.u_reg(*self.u)
 
-                w_r, w_h, w_z = w
-                u_r, u_h, u_z = u
+                self.w_r, self.w_c, self.w_z = self.w
+                self.u_r, self.u_c, self.u_z = self.u
 
-                self.w_r = w_r.reuse_with(input_layer)
-                self.u_r = u_r.reuse_with(previous_state)
+            r_u_c = Gate(self.u_c, Add(self.w_r, self.u_r), name="reset_gate")
+            candidate = Activation(Add(self.w_c, r_u_c), fn=self.activation, name="candidate")
+            output = CoupledGate(candidate, previous_h, Add(self.w_z, self.u_z), name="output")
 
-                if regularized:
-                    self.w_r = apply_reg(self.w_r, self.w_regularizer)
-                    self.u_r = apply_reg(self.u_r, self.u_regularizer)
+            current_h = Module(inputs=[previous_h, input_layer],
+                               output=output,
+                               name=self.name + "_h")
+            if regularized:
+                if self.y_dropout is not None and self.y_dropout > 0:
+                    current_h = self.y_reg(current_h)
 
-                # candidate
-                gate_r = Add(self.w_r, self.u_r)
-                gated_previous = Gate(previous_state, gate_r)
+            return output.tensor, current_h
 
-                self.w_h = w_h.reuse_with(input_layer)
-                self.u_h = u_h.reuse_with(gated_previous)
-
-                if regularized:
-                    self.w_h = apply_reg(self.w_h, self.w_regularizer)
-                    self.u_h = apply_reg(self.u_h, self.u_regularizer)
-
-                candidate_state = Activation(Add(self.w_h, self.u_h), self.activation)
-
-                # update gate
-
-                self.w_z = w_z.reuse_with(input_layer)
-                self.u_z = u_z.reuse_with(previous_state)
-
-                if regularized:
-                    self.w_z = apply_reg(self.w_z, self.w_regularizer)
-                    self.u_z = apply_reg(self.u_z, self.u_regularizer)
-
-                update_gate = Add(self.w_z, self.u_z)
-
-                output = CoupledGate(candidate_state, previous_state, update_gate)
-
-                self.w = [self.w_r, self.w_h, self.w_z]
-                self.u = [self.u_r, self.u_h, self.u_z]
-
-            return output.tensor
+    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
+        return super().reuse_with(input_layer, previous_state, regularized, name, gate_activation=self.gate_activation)
 
 
-class LSTMCell(RecurrentCell):
+class LSTMCell(BaseRNNCell):
     """ LSTM Cell
 
         Performs a single step with a gated recurrent unit where. These units have two gates:
@@ -2348,12 +2477,14 @@ class LSTMCell(RecurrentCell):
     def __init__(self, input_layer, n_units,
                  previous_state=None,
                  activation=tanh,
+                 gate_activation=sigmoid,
                  w_init=xavier_init(),
                  u_init=xavier_init(),
-                 u_regularizer=None,
-                 w_regularizer=None,
-                 out_regularizer=None,
-                 recurrent_regularizer=None,
+                 w_dropconnect=None,
+                 u_dropconnect=None,
+                 x_dropout=None,
+                 r_dropout=None,
+                 y_dropout=None,
                  regularized=False,
                  share_state_with=None,
                  name="lstm_cell"):
@@ -2366,16 +2497,20 @@ class LSTMCell(RecurrentCell):
                          dtype=dtypes.float32,
                          w_init=w_init,
                          u_init=u_init,
-                         w_regularizer=w_regularizer,
-                         u_regularizer=u_regularizer,
-                         out_regularizer=out_regularizer,
-                         recurrent_regularizer=recurrent_regularizer,
+                         w_dropconnect=w_dropconnect,
+                         u_dropconnect=u_dropconnect,
+                         x_dropout=x_dropout,
+                         r_dropout=r_dropout,
+                         y_dropout=y_dropout,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)
 
-        self.tensor, self.memory_state = self._build_graph()
-        self.state = (self, self.memory_state)
+        self.gate_activation = gate_activation
+        tensor, h, memory_state = self._build_graph()
+
+        self.tensor = tensor
+        self.state = (h, memory_state)
 
         for l in self.w:
             for v in l.variables:
@@ -2386,17 +2521,13 @@ class LSTMCell(RecurrentCell):
 
     def _build_graph(self):
         def get_inner(layers):
+            inner = []
             for layer in layers:
                 if isinstance(layer, ViewLayer):
-                    yield layer.inner_layer
+                    inner.append(layer.inner_layer)
                 else:
-                    yield layer
-
-        def reuse_view(layer, view, default):
-            if isinstance(view, ViewLayer):
-                return view.reuse_with(layer)
-            else:
-                return default(layer)
+                    inner.append(layer)
+            return inner
 
         # input layers = [input_layer, *state_layer]
         input_layer = self.input_layers[0]
@@ -2405,6 +2536,12 @@ class LSTMCell(RecurrentCell):
 
         with layer_scope(self):
             # regularize recurrent
+            # regularize inputs and recurrent inputs
+            if self.regularized:
+                if self.x_dropout and self.x_dropout > 0:
+                    input_layer = self.x_reg(input_layer)
+                if self.r_dropout and self.r_dropout > 0:
+                    previous_h = self.r_reg(previous_h)
 
             # create new weights
             if self.share_state_with is None:
@@ -2428,40 +2565,40 @@ class LSTMCell(RecurrentCell):
                 self.w = [self.w_f, self.w_i, self.w_c, self.w_o]
                 self.u = [self.u_f, self.u_i, self.u_c, self.u_o]
 
-                # if we have a layer with regularisation we want to apply the same regularizers
-                w_reg = [partial(reuse_view, view=wi, default=self.w_regularizer) for wi in self.w]
-                u_reg = [partial(reuse_view, view=ui, default=self.w_regularizer) for ui in self.u]
-
             else:
                 self.w = self.share_state_with.w
                 self.u = self.share_state_with.u
 
-                # if we have a layer with regularisation we want to apply the same regularizers
-                w_reg = [partial(reuse_view, view=wi, default=self.w_regularizer) for wi in self.w]
-                u_reg = [partial(reuse_view, view=ui, default=self.w_regularizer) for ui in self.u]
+                # get inner state of dropconnect or other views
+                if not self.regularized:
+                    self.w = get_inner(self.w)
+                    self.u = get_inner(self.u)
 
-                self.w = list(map(lambda wi: wi.reuse_with(input_layer), get_inner(self.w)))
-                self.u = list(map(lambda ui: ui.reuse_with(previous_h), get_inner(self.u)))
+                self.w = [wi.reuse_with(input_layer) for wi in self.w]
+                self.u = [ui.reuse_with(previous_h) for ui in self.u]
 
                 self.w_f, self.w_i, self.w_c, self.w_o = self.w
                 self.u_f, self.u_i, self.u_c, self.u_o = self.u
 
+            # apply regularizers to weights
             if regularized:
-                self.w = [fn(wi) for fn, wi in zip(w_reg, self.w)]
-                self.u = [fn(ui) for fn, ui in zip(u_reg, self.u)]
+                if self.w_dropconnect is not None and self.w_dropconnect > 0:
+                    self.w = self.w_reg(*self.w)
+                if self.u_dropconnect is not None and self.u_dropconnect > 0:
+                    self.u = self.u_reg(*self.u)
 
                 self.w_f, self.w_i, self.w_c, self.w_o = self.w
                 self.u_f, self.u_i, self.u_c, self.u_o = self.u
 
             with name_scope("memory_forget"):
                 gate_f = Add(self.w_f, self.u_f, name="add_f")
-                memory_state = Gate(previous_memory, gate_f, name="gated_memory")
+                memory_state = Gate(previous_memory, gate_f, gate_fn=self.gate_activation, name="gated_memory")
 
             with name_scope("candidate_store"):
                 gate_i = Add(self.w_i, self.u_i, name="candidate_gate")
                 candidate = Activation(Add(self.w_c, self.u_c), fn=self.activation,
                                        name="candidate_activation")
-                candidate = Gate(candidate, gate_i, name="gated_candidate")
+                candidate = Gate(candidate, gate_i, gate_fn=self.gate_activation, name="gated_candidate")
                 memory_state = Add(memory_state, candidate, name="add_to_memory")
                 # wrap memory transformation with something that can be treated as a layer
                 memory_state = Module(inputs=[previous_memory,
@@ -2473,9 +2610,19 @@ class LSTMCell(RecurrentCell):
             with name_scope("output"):
                 gate_o = Add(self.w_o, self.u_o, name="add_o")
                 output = Activation(memory_state, fn=self.activation, name="output")
-                output = Gate(output, gate_o, name="gated_output")
+                output = Gate(output, gate_o, gate_fn=self.gate_activation, name="gated_output")
 
-        return output.tensor, memory_state
+            current_h = Module(inputs=[input_layer, previous_h, previous_memory],
+                               output=output,
+                               name=self.name + "_h")
+            if regularized:
+                if self.y_dropout is not None and self.y_dropout > 0:
+                    current_h = self.y_reg(current_h)
+
+        return output.tensor, current_h, memory_state
+
+    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
+        return super().reuse_with(input_layer, previous_state, regularized, name, gate_activation=self.gate_activation)
 
 
 class Recurrent(Layer):
@@ -2504,7 +2651,7 @@ class Recurrent(Layer):
 
     def __init__(self,
                  input_seq,
-                 cell_proto: Callable[[Union[Layer, Tensor]], RecurrentCell],
+                 cell_proto: Callable[[Union[Layer, Tensor]], BaseRNNCell],
                  previous_state=None,
                  reverse=False,
                  regularized=False,
@@ -2622,6 +2769,91 @@ class Recurrent(Layer):
 
     def reset(self):
         return control_flow_ops.group([state.reset() for state in self.cell.previous_state])
+
+
+class SeqMap(Layer):
+    """ Applies a given layer prototype to each element in the first dimension of the input layer
+
+    """
+
+    def __init__(self,
+                 input_seq,
+                 layer_proto: Callable[[Union[Layer, Tensor]], Layer],
+                 share_vars_with: Optional['SeqMap'] = None,
+                 parallel_iterations=10,
+                 name="seq_map"):
+
+        self.layer_proto = layer_proto
+        self.share_vars_with = share_vars_with
+        self.layer_instance = None
+        self.parallel_iterations = parallel_iterations
+
+        # n_units and shape are set after the first cell is created
+        super().__init__(input_layers=[input_seq],
+                         n_units=None,
+                         shape=[input_seq.n_units, None],
+                         dtype=dtypes.float32,
+                         name=name)
+
+        tensor = self._build_graph()
+        self.tensor = tensor
+
+    def _build_graph(self):
+        input_seq = self.input_layers[0]
+
+        with layer_scope(self):
+            seq_len = array_ops.shape(input_seq)[0]
+            input_ta = ta.TensorArray(dtype=input_seq.dtype, size=seq_len, tensor_array_name="inputs",
+                                      clear_after_read=False)
+            input_ta = input_ta.unstack(input_seq)
+            output_ta = ta.TensorArray(dtype=self.dtype, size=seq_len, tensor_array_name="outputs")
+
+            i0 = 0
+            ii = i0 + 1
+            fi = seq_len
+
+            x0 = input_ta.read(i0)
+            x0 = TensorLayer(x0)
+
+            """
+            Create a layer instance at t=1 
+            """
+            if self.share_vars_with is None:
+                layer_instance = self.layer_proto(x0)
+            else:
+                layer_instance = self.share_vars_with.layer_instance
+                layer_instance = layer_instance.reuse_with(input_layer=x0)
+
+            output_ta = output_ta.write(i0, layer_instance.tensor)
+            self.layer_instance = layer_instance
+            self.n_units = layer_instance.n_units
+            self.shape[-1] = self.n_units
+
+            def compute_step(t, y):
+                xt = input_ta.read(t)
+                xt = TensorLayer(xt)
+                c = layer_instance.reuse_with(xt)
+                y = y.write(t, c.tensor)
+                t = t + 1
+                return t, y
+
+            i, out = control_flow_ops.while_loop(cond=lambda t, *_: math_ops.not_equal(t, fi),
+                                                 body=compute_step,
+                                                 loop_vars=(ii, output_ta),
+                                                 name="map_seq",
+                                                 parallel_iterations=self.parallel_iterations)
+
+            return out.stack()
+
+    def reuse_with(self, input_seq, name=None):
+        name = self.name if name is None else None
+        share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
+
+        return SeqMap(input_seq=input_seq,
+                      layer_proto=self.layer_proto,
+                      share_vars_with=share_vars_with,
+                      parallel_iterations=self.parallel_iterations,
+                      name=name)
 
 
 class Lookup(Layer):
@@ -3098,12 +3330,12 @@ class ZoneOut(Layer):
     Args:
         layer: an input layer :class:`Layer` to which ZoneOut will be applied to
         previous_layer: a layer to which ZoneOut will revert for each dropped unit in the input layer
-        keep_prob: a scalar float with the probability that each element is kept.
+        zoneout_prob: a scalar float with the probability that each element is dropped.
     """
 
-    def __init__(self, layer, previous_layer, keep_prob=0.1, seed=None, mask=None, name="zoneout"):
+    def __init__(self, layer, previous_layer, drop_prob=0.1, seed=None, mask=None, name="zoneout"):
         self.seed = seed
-        self.keep_prob = keep_prob
+        self.drop_prob = drop_prob
         self.layer = layer
         self.previous_layer = previous_layer
         self.mask = mask
@@ -3121,9 +3353,10 @@ class ZoneOut(Layer):
         with layer_scope(self):
             if self.mask is None:
                 mask_shape = array_ops.stack([array_ops.shape(layer.tensor)[0], self.n_units])
-                mask = random_bernoulli(mask_shape, prob=self.keep_prob, seed=seed)
+                mask = random_bernoulli(mask_shape, prob=1 - self.drop_prob, seed=seed)
                 self.mask = mask
 
+            # mask determines keep probability
             mask = TensorLayer(mask, n_units=self.n_units, dtype=layer.dtype)
             gate = CoupledGate(layer1=layer,
                                layer2=previous_layer,
@@ -3139,7 +3372,7 @@ class ZoneOut(Layer):
         mask = self.mask if share_mask else None
         return ZoneOut(current_layer,
                        previous_layer,
-                       keep_prob=self.keep_prob,
+                       drop_prob=self.drop_prob,
                        seed=self.seed,
                        mask=mask,
                        name=name)
@@ -3691,7 +3924,7 @@ class Transpose(Layer):
     def __init__(self, layer, perm=None, name="transpose"):
         if not isinstance(layer, Layer):
             layer = TensorLayer(layer)
-
+        self.perm = perm
         with layer_scope(self, name=name):
             if layer.is_dense():
                 output = array_ops.transpose(layer.tensor, perm)
@@ -4060,5 +4293,6 @@ __all__ = ["Input",
            "DropConnect",
            "ViewLayer",
            "DynamicParam",
-           "Param"
+           "Param",
+           "SeqMap"
            ]

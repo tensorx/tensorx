@@ -669,10 +669,10 @@ class TestLayers(test_utils.TestCase):
         inputs2 = TensorLayer(np.ones([4, 6]), dtype=tf.float32)
 
         layer = Linear(inputs, 6)
-        drop = DropConnect(layer, keep_prob=0.5)
+        drop = DropConnect(layer, probability=0.5)
         drop2 = drop.reuse_with(inputs2)
 
-        drop3 = DropConnect(layer, keep_prob=0.5)
+        drop3 = DropConnect(layer, probability=0.5)
 
         init = tf.global_variables_initializer()
         with self.cached_session(use_gpu=True):
@@ -788,28 +788,29 @@ class TestLayers(test_utils.TestCase):
 
         x2 = Activation(x1)
 
-        drop1 = Dropout(x2, keep_prob=0.5)
-        drop2 = Dropout(x2, keep_prob=0.5)
+        drop1 = Dropout(x2, probability=0.5)
+        drop2 = Dropout(x2, probability=0.5)
         drop3 = drop1.reuse_with(x1)
 
         with self.cached_session(use_gpu=True):
             # self.assertArrayEqual(drop1.dropout_mask, drop3.dropout_mask)
             d1, d2, d3 = self.eval([drop1.tensor, drop2.tensor, drop3.tensor])
 
-            self.assertIs(drop1.random_state, drop3.random_state)
-            self.assertIsNot(drop1.random_state, drop2.random_state)
+            self.assertIs(drop1.mask, drop3.mask)
+            self.assertIsNot(drop1.mask, drop2.mask)
 
             self.assertArrayEqual(d1, d3)
             self.assertArrayNotEqual(d1, d2)
 
     def test_dropout_layer(self):
         dim = 100
-        keep_prob = 0.5
+        probability = 0.5
         num_iter = 50
 
         dense_input = Input(dim)
         data = np.ones([1, dim], dtype=np.float32)
-        dropout = Dropout(dense_input, keep_prob)
+        zeros = np.zeros([1, dim], dtype=np.float32)
+        dropout = Dropout(dense_input, probability)
 
         with self.cached_session(use_gpu=True):
             # TEST DROPOUT WITH DENSE INPUTS
@@ -821,17 +822,12 @@ class TestLayers(test_utils.TestCase):
                 # test the scaling
                 sorted_result = np.unique(np.sort(result))
                 if len(sorted_result) > 1:
-                    self.assertAllClose(1 / keep_prob, sorted_result[1])
+                    self.assertAllClose(1 / (1 - probability), sorted_result[1])
 
             # Check that we are in the 10% error range
-            expected_count = dim * keep_prob * num_iter
+            expected_count = dim * (1 - probability) * num_iter
             rel_error = math.fabs(math.fabs(final_count - expected_count) / expected_count)
             self.assertLess(rel_error, 0.1)
-
-            # TEST DROPOUT WITH keep_prob = 1
-            drop_dense = Dropout(dense_input, keep_prob=1)
-            result = self.eval(drop_dense.tensor, {dense_input.placeholder: data})
-            self.assertArrayEqual(result, data)
 
             # TEST FLAT INDEX SPARSE INPUT
             n_active = 2
@@ -839,30 +835,31 @@ class TestLayers(test_utils.TestCase):
             flat_sparse = Input(dim, n_active)
             self.assertTrue(flat_sparse.is_sparse())
 
-            dropout = Dropout(flat_sparse, keep_prob)
+            dropout = Dropout(flat_sparse, probability)
             self.assertTrue(dropout.is_sparse())
 
             result = self.eval(dropout.tensor, {flat_sparse.placeholder: data})
-            self.assertAllClose(1 / keep_prob, result.values)
+            self.assertAllClose(1 / probability, result.values)
             self.assertLessEqual(len(result.values), len(data[0]))
 
             # test for keep_prob == 1
-            dropout = Dropout(flat_sparse, keep_prob=1)
+            dropout = Dropout(flat_sparse, probability=0)
             after_dropout = self.eval(dropout.tensor, {flat_sparse.placeholder: data})
             after_input = self.eval(flat_sparse.tensor, {flat_sparse.placeholder: data})
             self.assertArrayEqual(after_input.indices, after_dropout.indices)
 
             # TEST DROPOUT ON SPARSE INPUT
             sparse_data = sparse_tensor_value_one_hot(data, [1, dim])
+            sparse_zeros = sparse_tensor_value_one_hot(zeros, [1, dim])
             sparse_input = SparseInput(dim)
-            dropout = Dropout(sparse_input, keep_prob=keep_prob)
+            dropout = Dropout(sparse_input, probability=probability)
 
             # feed sparse tensor values with indices
             after_dropout = self.eval(dropout.tensor, {sparse_input.placeholder: sparse_data})
-            np.testing.assert_allclose(1 / keep_prob, after_dropout.values)
+            np.testing.assert_allclose(1 / probability, after_dropout.values)
             self.assertLessEqual(len(after_dropout.indices), len(sparse_data.indices))
 
-            dropout = Dropout(sparse_input, keep_prob=1)
+            dropout = Dropout(sparse_input, probability=0)
             before_dropout = self.eval(sparse_input.tensor, {sparse_input.placeholder: sparse_data})
             after_dropout = self.eval(dropout.tensor, {sparse_input.placeholder: sparse_data})
             self.assertArrayEqual(before_dropout.indices, after_dropout.indices)
@@ -877,7 +874,7 @@ class TestLayers(test_utils.TestCase):
 
         lookup = Lookup(tensor_input, seq_size, lookup_shape=[input_dim, embed_dim], batch_padding=False)
 
-        dropped = Dropout(lookup, keep_prob=0.5, noise_shape=[2, seq_size, embed_dim])
+        dropped = Dropout(lookup, probability=0.5, noise_shape=[2, seq_size, embed_dim])
 
         init = tf.global_variables_initializer()
 
@@ -890,8 +887,8 @@ class TestLayers(test_utils.TestCase):
         x1 = TensorLayer(np.ones(shape=[2, 4]) * 2, dtype=tf.float32)
         x2 = TensorLayer(np.ones(shape=[2, 4]), dtype=tf.float32)
 
-        zone1 = ZoneOut(x2, x1, keep_prob=0.5)
-        zone2 = ZoneOut(x2, x1, keep_prob=0.5)
+        zone1 = ZoneOut(x2, x1, drop_prob=0.5)
+        zone2 = ZoneOut(x2, x1, drop_prob=0.5)
         zone3 = zone1.reuse_with(x2, x1)
 
         with self.cached_session(use_gpu=True):
@@ -907,7 +904,7 @@ class TestLayers(test_utils.TestCase):
     def test_zoneout_layer(self):
         dim = 100
         batch_size = 1000
-        keep_prob = 0.5
+        drop_prob = 0.5
 
         current_data = np.full([batch_size, dim], fill_value=1.)
         previous_data = np.full([batch_size, dim], fill_value=-1.)
@@ -915,7 +912,7 @@ class TestLayers(test_utils.TestCase):
         current_layer = TensorLayer(tensor=current_data, n_units=dim)
         previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
 
-        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+        zoneout = ZoneOut(current_layer, previous_layer, drop_prob=drop_prob)
 
         with self.cached_session(use_gpu=True):
             self.assertAlmostEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), 0., delta=1.0)
@@ -929,7 +926,7 @@ class TestLayers(test_utils.TestCase):
         current_layer = TensorLayer(tensor=current_data, n_units=dim)
         previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
 
-        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+        zoneout = ZoneOut(current_layer, previous_layer, drop_prob=1 - keep_prob)
 
         with self.cached_session(use_gpu=True):
             self.assertEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), dim)
@@ -943,7 +940,7 @@ class TestLayers(test_utils.TestCase):
         current_layer = TensorLayer(tensor=current_data, n_units=dim)
         previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
 
-        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+        zoneout = ZoneOut(current_layer, previous_layer, drop_prob=1 - keep_prob)
 
         with self.cached_session(use_gpu=True):
             self.assertEqual(tf.reduce_mean(tf.reduce_sum(zoneout.tensor, -1), -1), -dim)
@@ -957,7 +954,7 @@ class TestLayers(test_utils.TestCase):
         current_layer = TensorLayer(tensor=current_data, n_units=dim)
         previous_layer = TensorLayer(tensor=previous_data, n_units=dim)
 
-        zoneout = ZoneOut(current_layer, previous_layer, keep_prob=keep_prob)
+        zoneout = ZoneOut(current_layer, previous_layer, drop_prob=1 - keep_prob)
 
         with self.cached_session(use_gpu=True):
             expected = (2 * dim * keep_prob) - dim
@@ -1421,6 +1418,22 @@ class TestLayers(test_utils.TestCase):
 
             self.assertArrayEqual(r1, r2)
 
+    def test_layer_proto_dropconnect(self):
+        inputs = TensorLayer(np.random.uniform(size=[2, 4]), dtype=tf.float32)
+        layer1 = Linear(inputs, 4)
+
+        drop_view = DropConnect.proto(probability=0.5)
+
+        drop = drop_view(layer1)
+
+        weight_drop = layer1.weights * drop.weight_mask
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+
+            w1, w2 = self.eval([drop.weights, weight_drop])
+            self.assertArrayEqual(w1, w2)
+
     def test_rnn_cell(self):
 
         n_inputs = 4
@@ -1459,8 +1472,9 @@ class TestLayers(test_utils.TestCase):
         inputs2 = TensorLayer(np.ones([2, 4]), dtype=tf.float32)
 
         rnn1 = RNNCell(inputs1, n_hidden,
-                       u_regularizer=partial(DropConnect, keep_prob=0.5),
-                       w_regularizer=partial(Dropout, keep_prob=0.5),
+                       r_dropout=0.2,
+                       u_dropconnect=0.5,
+                       w_dropconnect=0.5,
                        regularized=True
                        )
         rnn2 = rnn1.reuse_with(inputs2, previous_state=rnn1)
@@ -1472,7 +1486,7 @@ class TestLayers(test_utils.TestCase):
             self.eval(tf.global_variables_initializer())
 
             r1, r2, r3, r4 = self.eval([rnn1.tensor, rnn2.tensor, rnn3.tensor, rnn4.tensor])
-            mask1, mask2 = self.eval([rnn1.w.random_state, rnn2.w.random_state])
+            mask1, mask2 = self.eval([rnn1.w.weight_mask, rnn2.w.weight_mask])
 
             self.assertArrayEqual(mask1, mask2)
             self.assertArrayNotEqual(r1, r2)
@@ -1492,7 +1506,7 @@ class TestLayers(test_utils.TestCase):
         batch_size = 2
 
         inputs = Input(n_inputs)
-        rnn1 = LSTMCell(inputs, n_hidden)
+        rnn1 = LSTMCell(inputs, n_hidden, gate_activation=hard_sigmoid)
 
         rnn2 = rnn1.reuse_with(inputs,
                                previous_state=rnn1.state)
@@ -1523,11 +1537,9 @@ class TestLayers(test_utils.TestCase):
 
         inputs = Input(n_inputs)
 
-        def drop_reg(layer): return Dropout(layer, keep_prob=0.1, locked=True)
-
         rnn1 = LSTMCell(inputs, n_hidden,
-                        u_regularizer=drop_reg,
-                        w_regularizer=drop_reg,
+                        u_dropconnect=0.1,
+                        w_dropconnect=0.1,
                         name="lstm1")
 
         rnn2 = rnn1.reuse_with(inputs,
@@ -1547,7 +1559,7 @@ class TestLayers(test_utils.TestCase):
             self.eval(init)
             res1, res2, res3 = self.eval([rnn1.tensor, rnn2.tensor, rnn3.tensor], {inputs.placeholder: data})
 
-            state2, state3 = self.eval([rnn2.w_f.random_state, rnn3.w_f.random_state], {inputs.placeholder: data})
+            state2, state3 = self.eval([rnn2.w_f.weight_mask, rnn3.w_f.weight_mask], {inputs.placeholder: data})
             self.assertArrayEqual(state2, state3)
             w2, w3 = self.eval([rnn2.w_f.tensor, rnn3.w_f.tensor], {inputs.placeholder: data})
             self.assertArrayEqual(w2, w3)
