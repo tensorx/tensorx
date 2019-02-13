@@ -535,7 +535,7 @@ class VariableLayer(Layer):
 
             # ResourceVariable doesn't have a set_shape
             if input_layer is not None:
-                init_shape = [1y] + var_shape[1:] if var_shape[0] is None else var_shape
+                init_shape = [1] + var_shape[1:] if var_shape[0] is None else var_shape
                 validate_shape = False
             else:
                 init_shape = var_shape
