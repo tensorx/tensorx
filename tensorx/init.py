@@ -54,8 +54,8 @@ def random_uniform(minval=-1, maxval=1, seed=None, dtype=dt.float32):
     return init_ops.random_uniform_initializer(minval, maxval, seed=seed, dtype=dtype)
 
 
-def xavier_init(seed=None, dtype=dt.float32):
-    """ "Xavier Initialisation" - Normalised Weight Initialisation [1]
+def glorot_uniform(seed=None, dtype=dt.float32):
+    """ "glorot uniform initialisation" - Normalised Weight Initialisation [1]
 
     This initialisation keeps the scale of the gradients roughly the same in all layers to
     mitigate `vanishing` and `exploding gradients` see [1].
@@ -110,4 +110,9 @@ def he_normal_init(seed=None):
     return init_ops.he_normal(seed=seed)
 
 
-__all__ = ["zero_init", "ones_init", "random_normal", "random_uniform", "he_normal_init", "xavier_init"]
+__all__ = ["zero_init",
+           "ones_init",
+           "random_normal",
+           "random_uniform",
+           "he_normal_init",
+           "glorot_uniform"]

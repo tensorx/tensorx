@@ -1506,14 +1506,11 @@ class TestLayers(test_utils.TestCase):
         batch_size = 2
 
         inputs = Input(n_inputs)
-        rnn1 = LSTMCell(inputs, n_hidden, gate_activation=hard_sigmoid)
-
-        rnn2 = rnn1.reuse_with(inputs,
-                               previous_state=rnn1.state)
+        rnn1 = LSTMCell(inputs, n_hidden, gate_activation=sigmoid)
+        rnn2 = rnn1.reuse_with(inputs, previous_state=rnn1.state)
 
         # if we don't wipe the memory it reuses it
-        rnn3 = rnn1.reuse_with(inputs,
-                               previous_state=(None, LSTMCell.zero_state([batch_size, rnn1.n_units]))
+        rnn3 = rnn1.reuse_with(inputs, previous_state=(None, LSTMCell.zero_state([batch_size, rnn1.n_units]))
                                )
         init = tf.global_variables_initializer()
 
@@ -1592,7 +1589,7 @@ class TestLayers(test_utils.TestCase):
 
         def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
 
-        rnn1 = Recurrent(seq, cell_proto=rnn_proto, previous_state=ones_state)
+        rnn1 = RNN(seq, cell_proto=rnn_proto, previous_state=ones_state)
         rnn2 = rnn1.reuse_with(seq)
         rnn3 = rnn1.reuse_with(seq, previous_state=zero_state)
         rnn4 = rnn3.reuse_with(seq)
@@ -1640,7 +1637,7 @@ class TestLayers(test_utils.TestCase):
 
         def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
 
-        rnn1 = Recurrent(seq, cell_proto=rnn_proto, stateful=True)
+        rnn1 = RNN(seq, cell_proto=rnn_proto, stateful=True)
 
         init = tf.global_variables_initializer()
         with self.cached_session(use_gpu=True):
@@ -1655,11 +1652,13 @@ class TestLayers(test_utils.TestCase):
 
             # state after single run
             zero_state1 = self.eval(tensors=[layer.tensor for layer in rnn1.previous_state])
+            zero_state1 = zero_state1[0]
             self.assertArrayEqual(zero_state1, state1)
 
             out2, state2 = self.eval([rnn1.tensor] + [l.tensor for l in rnn1.state])
 
             zero_state2 = self.eval(tensors=[layer.tensor for layer in rnn1.previous_state])
+            zero_state2 = zero_state2[0]
             self.assertArrayEqual(zero_state2, state2)
 
             self.eval(rnn1.reset())
@@ -1681,7 +1680,7 @@ class TestLayers(test_utils.TestCase):
         # partial(LSTMCell, n_units=hdim) works
         # lambda x, **kwargs: LSTMCell(x,n_units=hdim,**kwargs) also works
 
-        lstm = Recurrent(seq, cell_proto=lambda x, **kwargs: LSTMCell(x, n_units=hdim, **kwargs))
+        lstm = RNN(seq, cell_proto=lambda x, **kwargs: LSTMCell(x, n_units=hdim, **kwargs))
 
         # static graph
         cells = []

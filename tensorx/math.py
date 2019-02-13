@@ -3,15 +3,11 @@
 Arithmetic operators, linear algebra operators, etc.
 
 """
-
-from tensorflow.python.ops import math_ops, array_ops, sparse_ops
-from tensorflow.python.ops.nn import embedding_lookup
-from tensorflow.python.framework import ops
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.sparse_tensor import SparseTensor, convert_to_tensor_or_sparse_tensor
+import tensorflow as tf
 import logging
-from tensorflow.python.ops import variables
 from tensorx.transform import sparse_overlap
+from tensorflow.python.ops.variables import PartitionedVariable
+from tensorflow.python.ops.sparse_ops import sparse_dense_cwise_mul
 
 
 def safe_div(numerator, denominator, name=None):
@@ -27,11 +23,11 @@ def safe_div(numerator, denominator, name=None):
     Returns:
       The element-wise value of the numerator divided by the denominator.
     """
-    with ops.name_scope(name, "safe_div", [numerator, denominator]):
-        res = math_ops.div(numerator,
-                           array_ops.where(math_ops.equal(denominator, 0), array_ops.ones_like(denominator),
-                                           denominator)),
-        res = array_ops.where(math_ops.is_finite(res), res, array_ops.zeros_like(res))
+    with tf.name_scope(name, "safe_div", [numerator, denominator]):
+        res = tf.math.divide(numerator,
+                          tf.where(tf.math.equal(denominator, 0), tf.ones_like(denominator),
+                                   denominator)),
+        res = tf.where(tf.math.is_finite(res), res, tf.zeros_like(res))
         return res
 
 
@@ -52,23 +48,23 @@ def gaussian(x, sigma=0.5):
         a `Tensor` with the result of the operation
 
     """
-    x = ops.convert_to_tensor(x, dtype=dtypes.float32)
-    sigma = ops.convert_to_tensor(sigma, dtype=dtypes.float32)
-    sigma = array_ops.expand_dims(sigma, -1)
+    x = tf.convert_to_tensor(x, dtype=tf.float32)
+    sigma = tf.convert_to_tensor(sigma, dtype=tf.float32)
+    sigma = tf.expand_dims(sigma, -1)
 
-    gauss = math_ops.exp(safe_div(-math_ops.pow(x, 2), math_ops.pow(sigma, 2)))
-    gauss = array_ops.squeeze(gauss, 0)
+    gauss = tf.math.exp(safe_div(-tf.math.pow(x, 2), tf.math.pow(sigma, 2)))
+    gauss = tf.squeeze(gauss, 0)
     return gauss
 
 
 def sparse_l2_norm(sp_tensor, axis, name=None, keep_sparse=False, keepdims=False):
-    with ops.name_scope(name, "l2_norm", [sp_tensor]) as name:
-        square = math_ops.square(sp_tensor)
+    with tf.name_scope(name, "l2_norm", [sp_tensor]) as name:
+        square = tf.math.square(sp_tensor)
         if not keep_sparse:
-            square_sum = sparse_ops.sparse_reduce_sum(square, axis, keepdims)
+            square_sum = tf.sparse_reduce_sum(square, axis, keepdims)
         else:
-            square_sum = sparse_ops.sparse_reduce_sum_sparse(square, axis, keepdims)
-        l2_norm = math_ops.sqrt(square_sum)
+            square_sum = tf.sparse_reduce_sum_sparse(square, axis, keepdims)
+        l2_norm = tf.math.sqrt(square_sum)
         return l2_norm
 
 
@@ -86,20 +82,20 @@ def batch_sparse_dot(sp_tensor1, tensor2, name=None, keepdims=True):
         ``Tensor``: a ``Tensor`` with the result of the dot product
 
     """
-    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
-        dot_prod = sparse_ops.sparse_tensor_dense_matmul(sp_tensor1, tensor2, adjoint_b=True)
+    with tf.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        dot_prod = tf.sparse_tensor_dense_matmul(sp_tensor1, tensor2, adjoint_b=True)
 
-        sp_shape = math_ops.cast(sp_tensor1.dense_shape, dtypes.int32)
-        dense_shape = array_ops.shape(tensor2)
+        sp_shape = tf.cast(sp_tensor1.dense_shape, tf.int32)
+        dense_shape = tf.shape(tensor2)
 
         if keepdims:
-            dot_prod = array_ops.reshape(dot_prod, [sp_shape[0], dense_shape[0], 1])
+            dot_prod = tf.reshape(dot_prod, [sp_shape[0], dense_shape[0], 1])
 
         return dot_prod
 
 
 def dot(tensor1, tensor2, name=None):
-    return math_ops.reduce_sum(math_ops.multiply(tensor1, tensor2), axis=-1)
+    return tf.math.reduce_sum(tf.math.multiply(tensor1, tensor2), axis=-1)
 
 
 def sparse_dot(sp_tensor1, tensor2, name=None):
@@ -114,16 +110,16 @@ def sparse_dot(sp_tensor1, tensor2, name=None):
         ``Tensor``: a ``Tensor`` with the result of the dot product
 
     """
-    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
-        if isinstance(tensor2, ops.Tensor):
+    with tf.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        if isinstance(tensor2, tf.Tensor):
             # sp_radial_dif = sparse_multiply(sp_tensor1,tensor2)
-            dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
-            radial_dif = math_ops.multiply(sp_tensor1.values, dense_values)
-            sp_radial_dif = SparseTensor(indices=sp_tensor1.indices, values=radial_dif,
-                                         dense_shape=sp_tensor1.dense_shape)
-            dot_prod = sparse_ops.sparse_reduce_sum(sp_radial_dif, axis=-1)
+            dense_values = tf.gather_nd(tensor2, sp_tensor1.indices)
+            radial_dif = tf.math.multiply(sp_tensor1.values, dense_values)
+            sp_radial_dif = tf.SparseTensor(indices=sp_tensor1.indices, values=radial_dif,
+                                            dense_shape=sp_tensor1.dense_shape)
+            dot_prod = tf.sparse_reduce_sum(sp_radial_dif, axis=-1)
             return dot_prod
-        elif isinstance(tensor2, SparseTensor):
+        elif isinstance(tensor2, tf.SparseTensor):
             return sparse_sparse_dot(sp_tensor1, tensor2)
         else:
             raise TypeError(
@@ -142,10 +138,10 @@ def sparse_sparse_dot(sp_tensor1, sp_tensor2, name="sparse_sparse_dot"):
         ``Tensor``: a ``Tensor`` with the result of the dot product
 
     """
-    with ops.name_scope(name, "sparse_sparse_dot", [sp_tensor1, sp_tensor2]):
+    with tf.name_scope(name, "sparse_sparse_dot", [sp_tensor1, sp_tensor2]):
         # sparse multiply computes the overlap between two sparse tensors
         radial_dif = sparse_sparse_multiply(sp_tensor1, sp_tensor2)
-        dot_prod = sparse_ops.sparse_reduce_sum(radial_dif, axis=-1)
+        dot_prod = tf.sparse_reduce_sum(radial_dif, axis=-1)
         return dot_prod
 
 
@@ -160,17 +156,17 @@ def sparse_multiply(sp_tensor1, tensor2, name="sparse_multiply"):
         a `SparseTensor` with the result of the multiplication
 
     """
-    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
-        sp_tensor1 = convert_to_tensor_or_sparse_tensor(sp_tensor1)
-        assert (isinstance(sp_tensor1, SparseTensor))
+    with tf.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        sp_tensor1 = tf.convert_to_tensor_or_sparse_tensor(sp_tensor1)
+        assert (isinstance(sp_tensor1, tf.SparseTensor))
 
-        tensor2 = convert_to_tensor_or_sparse_tensor(tensor2)
+        tensor2 = tf.convert_to_tensor_or_sparse_tensor(tensor2)
 
-        if isinstance(tensor2, ops.Tensor):
-            dense_values = array_ops.gather_nd(tensor2, sp_tensor1.indices)
-            dense_mul = math_ops.multiply(sp_tensor1.values, dense_values)
-            result = SparseTensor(sp_tensor1.indices, dense_mul, sp_tensor1.dense_shape)
-            result = sparse_ops.sparse_retain(result, math_ops.not_equal(dense_mul, 0.))
+        if isinstance(tensor2, tf.Tensor):
+            dense_values = tf.gather_nd(tensor2, sp_tensor1.indices)
+            dense_mul = tf.math.multiply(sp_tensor1.values, dense_values)
+            result = tf.SparseTensor(sp_tensor1.indices, dense_mul, sp_tensor1.dense_shape)
+            result = tf.sparse_retain(result, tf.math.not_equal(dense_mul, 0.))
 
             return result
         else:
@@ -185,13 +181,13 @@ def sparse_multiply_dense(sp_tensor1, tensor2, name="sparse_multiply"):
         also reshapes the result to match the shape of sp_tensor1
 
     """
-    with ops.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
-        mul = sparse_ops.sparse_dense_cwise_mul(sp_tensor1.indices,
-                                                sp_tensor1.values,
-                                                sp_tensor1.dense_shape,
-                                                tensor2)
+    with tf.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+        mul = sparse_dense_cwise_mul(sp_tensor1.indices,
+                                             sp_tensor1.values,
+                                             sp_tensor1.dense_shape,
+                                             tensor2)
 
-        mul = array_ops.reshape(mul, array_ops.shape(sp_tensor1))
+        mul = tf.reshape(mul, tf.shape(sp_tensor1))
         return mul
 
 
@@ -212,11 +208,11 @@ def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
     overlap1 = sparse_overlap(sp_tensor1, sp_tensor2)
     overlap2 = sparse_overlap(sp_tensor2, sp_tensor1)
 
-    values = math_ops.multiply(overlap1.values, overlap2.values)
-    return SparseTensor(overlap1.indices, values, overlap1.dense_shape)
+    values = tf.math.multiply(overlap1.values, overlap2.values)
+    return tf.SparseTensor(overlap1.indices, values, overlap1.dense_shape)
 
 
-def logit(x, dtype=dtypes.float32):
+def logit(x, dtype=tf.float32):
     """
     The logit function is defined as logit(p) = log(p/(1-p)). Note that logit(0) = -inf, logit(1) = inf, and logit(p) for p<0 or p>1 yields nan.
 
@@ -227,10 +223,10 @@ def logit(x, dtype=dtypes.float32):
     Returns:
         A Tensor of the same shape as x. Its entries are logit of the corresponding entry of x.
     """
-    x = ops.convert_to_tensor(x, dtype)
+    x = tf.convert_to_tensor(x, dtype)
 
-    x = math_ops.div(x, 1 - x)
-    return math_ops.log(x)
+    x = tf.math.divide(x, 1 - x)
+    return tf.math.log(x)
 
 
 def lookup_sparse(params, sp_tensor,
@@ -310,22 +306,22 @@ def lookup_sparse(params, sp_tensor,
         combiner = "mean"
     if combiner not in ("mean", "sqrtn", "sum"):
         raise ValueError("combiner must be one of 'mean', 'sqrtn' or 'sum'")
-    if isinstance(params, variables.PartitionedVariable):
+    if isinstance(params, PartitionedVariable):
         params = list(params)  # Iterate to get the underlying Variables.
     if not isinstance(params, list):
         params = [params]
-    if not isinstance(sp_tensor, SparseTensor):
+    if not isinstance(sp_tensor, tf.SparseTensor):
         raise TypeError("sp_mat must be SparseTensor")
 
-    with ops.name_scope(name, "embedding_lookup_sparse",
-                        params + [sp_tensor]) as name:
+    with tf.name_scope(name, "embedding_lookup_sparse",
+                       params + [sp_tensor]) as name:
         segment_ids = sp_tensor.indices[:, 0]
-        if segment_ids.dtype != dtypes.int32:
-            segment_ids = math_ops.cast(segment_ids, dtypes.int32)
+        if segment_ids.dtype != tf.int32:
+            segment_ids = tf.cast(segment_ids, tf.int32)
 
         ids = sp_tensor.indices[:, -1]
 
-        embeddings = embedding_lookup(
+        embeddings = tf.nn.embedding_lookup(
             params=params,
             ids=ids,
             partition_strategy=partition_strategy,
@@ -339,16 +335,16 @@ def lookup_sparse(params, sp_tensor,
 
         weights = sp_tensor.values
         if weights.dtype != embeddings.dtype:
-            weights = math_ops.cast(weights, embeddings.dtype)
+            weights = tf.cast(weights, embeddings.dtype)
 
         # Reshape weights to allow broadcast
-        ones = array_ops.fill(
-            array_ops.expand_dims(array_ops.rank(embeddings) - 1, 0), 1)
-        bcast_weights_shape = array_ops.concat_v2(
-            [array_ops.shape(weights), ones], 0)
+        ones = tf.fill(
+            tf.expand_dims(tf.rank(embeddings) - 1, 0), 1)
+        bcast_weights_shape = tf.concat_v2(
+            [tf.shape(weights), ones], 0)
 
         orig_weights_shape = weights.get_shape()
-        weights = array_ops.reshape(weights, bcast_weights_shape)
+        weights = tf.reshape(weights, bcast_weights_shape)
 
         # Set the weight shape, since after reshaping to bcast_weights_shape,
         # the shape becomes None.
@@ -359,17 +355,17 @@ def lookup_sparse(params, sp_tensor,
         embeddings *= weights
 
         if combiner == "sum":
-            embeddings = math_ops.segment_sum(embeddings, segment_ids, name=name)
+            embeddings = tf.math.segment_sum(embeddings, segment_ids, name=name)
         elif combiner == "mean":
-            embeddings = math_ops.segment_sum(embeddings, segment_ids)
-            weight_sum = math_ops.segment_sum(weights, segment_ids)
-            embeddings = math_ops.div_no_nan(embeddings, weight_sum, name=name)
+            embeddings = tf.math.segment_sum(embeddings, segment_ids)
+            weight_sum = tf.math.segment_sum(weights, segment_ids)
+            embeddings = tf.math.divide_no_nan(embeddings, weight_sum, name=name)
         elif combiner == "sqrtn":
-            embeddings = math_ops.segment_sum(embeddings, segment_ids)
-            weights_squared = math_ops.pow(weights, 2)
-            weight_sum = math_ops.segment_sum(weights_squared, segment_ids)
-            weight_sum_sqrt = math_ops.sqrt(weight_sum)
-            embeddings = math_ops.div_no_nan(embeddings, weight_sum_sqrt, name=name)
+            embeddings = tf.math.segment_sum(embeddings, segment_ids)
+            weights_squared = tf.math.pow(weights, 2)
+            weight_sum = tf.math.segment_sum(weights_squared, segment_ids)
+            weight_sum_sqrt = tf.math.sqrt(weight_sum)
+            embeddings = tf.math.divide_no_nan(embeddings, weight_sum_sqrt, name=name)
         else:
             assert False, "Unrecognized combiner"
 
@@ -447,15 +443,15 @@ def embedding_lookup_sparse(params,
         combiner = "mean"
     if combiner not in ("mean", "sqrtn", "sum"):
         raise ValueError("combiner must be one of 'mean', 'sqrtn' or 'sum'")
-    if isinstance(params, variables.PartitionedVariable):
+    if isinstance(params, PartitionedVariable):
         params = list(params)  # Iterate to get the underlying Variables.
     if not isinstance(params, list):
         params = [params]
-    if not isinstance(sp_ids, SparseTensor):
+    if not isinstance(sp_ids, tf.SparseTensor):
         raise TypeError("sp_ids must be SparseTensor")
     ignore_weights = sp_weights is None
     if not ignore_weights:
-        if not isinstance(sp_weights, SparseTensor):
+        if not isinstance(sp_weights, tf.SparseTensor):
             raise TypeError("sp_weights must be either None or SparseTensor")
         sp_ids.values.get_shape().assert_is_compatible_with(
             sp_weights.values.get_shape())
@@ -466,34 +462,34 @@ def embedding_lookup_sparse(params,
         # TODO(yleon): Add enhanced node assertions to verify that sp_ids and
         # sp_weights have equal indices and shapes.
 
-    with ops.name_scope(name, "embedding_lookup_sparse",
-                        params + [sp_ids]) as name:
+    with tf.name_scope(name, "embedding_lookup_sparse",
+                       params + [sp_ids]) as name:
         segment_ids = sp_ids.indices[:, 0]
-        if segment_ids.dtype != dtypes.int32:
-            segment_ids = math_ops.cast(segment_ids, dtypes.int32)
+        if segment_ids.dtype != tf.int32:
+            segment_ids = tf.cast(segment_ids, tf.int32)
 
         ids = sp_ids.values
-        unique_ids, idx = array_ops.unique(ids)
+        unique_ids, idx = tf.unique(ids)
 
         if not ignore_weights:
-            embeddings = embedding_lookup(
+            embeddings = tf.nn.embedding_lookup(
                 params, ids, partition_strategy=partition_strategy, max_norm=max_norm)
 
-            if embeddings.dtype in (dtypes.float16, dtypes.bfloat16):
-                embeddings = math_ops.to_float(embeddings)
+            if embeddings.dtype in (tf.float16, tf.bfloat16):
+                embeddings = tf.math.to_float(embeddings)
 
             weights = sp_weights.values
             if weights.dtype != embeddings.dtype:
-                weights = math_ops.cast(weights, embeddings.dtype)
+                weights = tf.cast(weights, embeddings.dtype)
 
             # Reshape weights to allow broadcast
-            ones = array_ops.fill(
-                array_ops.expand_dims(array_ops.rank(embeddings) - 1, 0), 1)
-            bcast_weights_shape = array_ops.concat([array_ops.shape(weights), ones],
-                                                   0)
+            ones = tf.fill(
+                tf.expand_dims(tf.rank(embeddings) - 1, 0), 1)
+            bcast_weights_shape = tf.concat([tf.shape(weights), ones],
+                                            0)
 
             orig_weights_shape = weights.get_shape()
-            weights = array_ops.reshape(weights, bcast_weights_shape)
+            weights = tf.reshape(weights, bcast_weights_shape)
 
             # Set the weight shape, since after reshaping to bcast_weights_shape,
             # the shape becomes None.
@@ -505,35 +501,35 @@ def embedding_lookup_sparse(params,
             embeddings *= weights
 
             if combiner == "sum":
-                embeddings = math_ops.segment_sum(embeddings, segment_ids, name=name)
+                embeddings = tf.math.segment_sum(embeddings, segment_ids, name=name)
             elif combiner == "mean":
-                embeddings = math_ops.segment_sum(embeddings, segment_ids)
-                weight_sum = math_ops.segment_sum(weights, segment_ids)
-                embeddings = math_ops.div(embeddings, weight_sum, name=name)
+                embeddings = tf.math.segment_sum(embeddings, segment_ids)
+                weight_sum = tf.math.segment_sum(weights, segment_ids)
+                embeddings = tf.math.divide(embeddings, weight_sum, name=name)
             elif combiner == "sqrtn":
-                embeddings = math_ops.segment_sum(embeddings, segment_ids)
-                weights_squared = math_ops.pow(weights, 2)
-                weight_sum = math_ops.segment_sum(weights_squared, segment_ids)
-                weight_sum_sqrt = math_ops.sqrt(weight_sum)
-                embeddings = math_ops.div(embeddings, weight_sum_sqrt, name=name)
+                embeddings = tf.math.segment_sum(embeddings, segment_ids)
+                weights_squared = tf.math.pow(weights, 2)
+                weight_sum = tf.math.segment_sum(weights_squared, segment_ids)
+                weight_sum_sqrt = tf.math.sqrt(weight_sum)
+                embeddings = tf.math.divide(embeddings, weight_sum_sqrt, name=name)
             else:
                 assert False, "Unrecognized combiner"
         else:
-            embeddings = embedding_lookup(
+            embeddings = tf.nn.embedding_lookup(
                 params, unique_ids, partition_strategy=partition_strategy, max_norm=max_norm)
 
-            if embeddings.dtype in (dtypes.float16, dtypes.bfloat16):
-                embeddings = math_ops.to_float(embeddings)
+            if embeddings.dtype in (tf.float16, tf.bfloat16):
+                embeddings = tf.math.to_float(embeddings)
 
             assert idx is not None
             if combiner == "sum":
-                embeddings = math_ops.sparse_segment_sum(
+                embeddings = tf.math.sparse_segment_sum(
                     embeddings, idx, segment_ids, name=name)
             elif combiner == "mean":
-                embeddings = math_ops.sparse_segment_mean(
+                embeddings = tf.math.sparse_segment_mean(
                     embeddings, idx, segment_ids, name=name)
             elif combiner == "sqrtn":
-                embeddings = math_ops.sparse_segment_sqrt_n(
+                embeddings = tf.math.sparse_segment_sqrt_n(
                     embeddings, idx, segment_ids, name=name)
             else:
                 assert False, "Unrecognized combiner"

@@ -1,15 +1,16 @@
 [[source]]
-url = "https://pypi.org/simple"
+url = "https://pypi.python.org/simple"
 verify_ssl = true
 name = "pypi"
 
 [packages]
-#tensorflow = ">=1.12"
-tensorflow = {path = "/home/davex32/build/tensorflow_pkg/tensorflow-1.12.0-cp36-cp36m-linux_x86_64.whl"}
+tensorflow = {file = "https://github.com/davidenunes/tensorflow-wheels/releases/download/r1.13.0rc1.cp37/tensorflow-1.13.0rc1-cp37-cp37m-linux_x86_64.whl"}
 pygraphviz = "*"
 
 [dev-packages]
 
-
 [requires]
-python_version = "3.6"
+python_version = "3.7"
+
+[pipenv]
+allow_prereleases = true

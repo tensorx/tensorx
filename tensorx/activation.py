@@ -190,4 +190,12 @@ def sparsemax(logits, name=None):
             math_ops.cast(0, logits.dtype), z - tau_z[:, array_ops.newaxis])
 
 
-__all__ = ["relu", "leaky_relu", "sigmoid", "hard_sigmoid", "tanh", "elu", "identity", "softmax", "sparsemax"]
+__all__ = ["relu",
+           "leaky_relu",
+           "sigmoid",
+           "hard_sigmoid",
+           "tanh",
+           "elu",
+           "identity",
+           "softmax",
+           "sparsemax"]

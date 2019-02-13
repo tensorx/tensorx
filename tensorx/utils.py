@@ -1,7 +1,4 @@
-from tensorflow.python.ops import math_ops, array_ops
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework.sparse_tensor import convert_to_tensor_or_sparse_tensor
-from tensorflow.python.framework import sparse_tensor
+import tensorflow as tf
 
 
 def to_tensor_cast(x, dtype=None):
@@ -14,11 +11,11 @@ def to_tensor_cast(x, dtype=None):
     Returns:
         ``Tensor``: a tensor with the given dtype
     """
-    x = convert_to_tensor_or_sparse_tensor(x)
+    x = tf.convert_to_tensor_or_sparse_tensor(x)
 
     if dtype is not None:
         if x.dtype != dtype:
-            x = math_ops.cast(x, dtype)
+            x = tf.cast(x, dtype)
     return x
 
 
@@ -39,10 +36,10 @@ def complete_shape(tensor, dtype=None):
     if shape.is_fully_defined():
         shape = shape.as_list()
     else:
-        shape = array_ops.shape(tensor)
+        shape = tf.shape(tensor)
 
     if dtype is not None:
-        if dtype != dtypes.int32 and dtype != dtypes.int64:
+        if dtype != tf.int32 and dtype != tf.int64:
             raise ValueError("Invalid dtype provided: must be int32 or int64")
         shape = to_tensor_cast(shape, dtype)
 
@@ -67,7 +64,7 @@ def as_list(elems):
     if elems is None:
         elems = []
     elif isinstance(elems, (list, tuple)) and not isinstance(elems, (
-            sparse_tensor.SparseTensorValue, sparse_tensor.SparseTensor)):
+            tf.SparseTensorValue, tf.SparseTensor)):
         elems = list(elems)
     else:
         elems = [elems]

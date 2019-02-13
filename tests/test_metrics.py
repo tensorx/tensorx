@@ -41,7 +41,7 @@ class MyTestCase(test_utils.TestCase):
             self.assertAllClose(dist0, 0, atol=1e-2)
             self.assertIsInstance(v1s, tf.SparseTensor)
             self.assertAllClose(dist1_dense, dist1_sparse, atol=1e-4)
-            self.assertEqual(dist2_dense, dist2_sparse)
+            self.assertAlmostEqual(dist2_dense, dist2_sparse,places=6)
 
     def test_sparse_cosine_distance(self):
         dense_shape1 = [10, 100]

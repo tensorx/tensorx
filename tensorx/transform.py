@@ -5,22 +5,18 @@ Utilities to create, convert between, and combine tensors
 import numbers
 
 import numpy as np
-from tensorflow import sparse
-from tensorflow.python.eager import context
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
-from tensorflow.python.framework import tensor_shape, tensor_util
-from tensorflow.python.framework.sparse_tensor import SparseTensor, SparseTensorValue
-from tensorflow.python.ops import sparse_ops, array_ops, math_ops, random_ops, nn
+
 from tensorx.utils import to_tensor_cast, complete_shape
+import tensorflow as tf
+from tensorflow.python.framework import tensor_shape, tensor_util
 
 
 def to_tensor(tensor, dtype=None):
     return to_tensor_cast(tensor, dtype)
 
 
-def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor"):
-    """ Creates an empty SparseTensor.
+def empty_sparse_tensor(dense_shape, dtype=tf.float32, name="empty_sp_tensor"):
+    """ Creates an empty tf.SparseTensor.
 
     Note:
         ``shape = [10]``
@@ -40,21 +36,21 @@ def empty_sparse_tensor(dense_shape, dtype=dtypes.float32, name="empty_sp_tensor
 
     Args:
         dense_shape: a 1-D tensor, python list, or numpy array with the output shape for the sparse tensor
-        dtype: the dtype of the values for the empty SparseTensor
+        dtype: the dtype of the values for the empty tf.SparseTensor
         name: a name for this operation (optional)
 
     Returns:
         ``SparseTensor``: an empty sparse tensor with a given shape
 
     """
-    with ops.name_scope(name):
-        dense_shape = ops.convert_to_tensor(dense_shape, name="dense_shape", dtype=dtypes.int64)
+    with tf.name_scope(name):
+        dense_shape = tf.convert_to_tensor(dense_shape, name="dense_shape", dtype=tf.int64)
 
         index_shape = dense_shape.get_shape().with_rank(1)
-        empty_indices = array_ops.ones([0, index_shape[0]], dtype=dtypes.int64)
-        empty_values = array_ops.ones([0], dtype=dtype)
+        empty_indices = tf.ones([0, index_shape[0]], dtype=tf.int64)
+        empty_values = tf.ones([0], dtype=dtype)
 
-        return SparseTensor(empty_indices, empty_values, dense_shape)
+        return tf.SparseTensor(empty_indices, empty_values, dense_shape)
 
 
 def repeat(x, n, name="repeat"):
@@ -68,17 +64,17 @@ def repeat(x, n, name="repeat"):
     Returns:
         A `Tensor` with shape [shape[:-1, ], shape[-1:, ] * n]
     """
-    with ops.name_scope(name, values=[x, n]):
-        x = ops.convert_to_tensor(x)
+    with tf.name_scope(name, values=[x, n]):
+        x = tf.convert_to_tensor(x)
         n = to_tensor_cast(n, dtype=x.dtype)
 
-        shape = array_ops.shape(x, out_type=x.dtype)
-        flat_x = array_ops.reshape(x, [-1])
+        shape = tf.shape(x, out_type=x.dtype)
+        flat_x = tf.reshape(x, [-1])
 
-        rep_x = array_ops.tile(array_ops.expand_dims(flat_x, -1), array_ops.stack([1, n]))
+        rep_x = tf.tile(tf.expand_dims(flat_x, -1), tf.stack([1, n]))
 
-        new_shape = array_ops.concat([shape[:-1, ], shape[-1:, ] * n], axis=-1)
-        rep_x = array_ops.reshape(rep_x, new_shape)
+        new_shape = tf.concat([shape[:-1, ], shape[-1:, ] * n], axis=-1)
+        rep_x = tf.reshape(rep_x, new_shape)
 
     return rep_x
 
@@ -96,55 +92,55 @@ def repeat_each(x, repeats, name="repeat_each"):
     Returns:
 
     """
-    with ops.name_scope(name, values=[x, repeats]):
-        x = ops.convert_to_tensor(x)
-        repeats = ops.convert_to_tensor(repeats)
+    with tf.name_scope(name, values=[x, repeats]):
+        x = tf.convert_to_tensor(x)
+        repeats = tf.convert_to_tensor(repeats)
 
         # get maximum repeat length in x
-        maxlen = math_ops.reduce_max(repeats)
+        maxlen = tf.math.reduce_max(repeats)
 
         # tile it to the maximum repeat length, it should be of shape [xlen, maxlen] now
-        x_repeat = array_ops.stack([1, maxlen], axis=0)
-        x_tiled = array_ops.tile(array_ops.expand_dims(x, 1), x_repeat)
+        x_repeat = tf.stack([1, maxlen], axis=0)
+        x_tiled = tf.tile(tf.expand_dims(x, 1), x_repeat)
 
         # create a sequence mask using x
         # this will create a boolean matrix of shape [xlen, maxlen]
         # where result[i,j] is true if j < x[i].
-        mask = array_ops.sequence_mask(repeats, maxlen)
+        mask = tf.sequence_mask(repeats, maxlen)
 
         # mask the elements based on the sequence mask
-        return array_ops.boolean_mask(x_tiled, mask)
+        return tf.boolean_mask(x_tiled, mask)
 
 
 def sparse_tile(sp_tensor, num, name="sparse_tile"):
-    with ops.name_scope(name, values=[sp_tensor, num]):
+    with tf.name_scope(name, values=[sp_tensor, num]):
         sp_tensor = to_tensor_cast(sp_tensor)
-        values = array_ops.tile(sp_tensor.values, [num])
-        num = to_tensor_cast(num, dtypes.int64)
+        values = tf.tile(sp_tensor.values, [num])
+        num = to_tensor_cast(num, tf.int64)
 
-        indices = array_ops.tile(sp_tensor.indices, [num, 1])
-        row_indices, col_indices = array_ops.unstack(indices, num=2, axis=-1)
+        indices = tf.tile(sp_tensor.indices, [num, 1])
+        row_indices, col_indices = tf.unstack(indices, num=2, axis=-1)
 
         # fix row indices
-        num_values = array_ops.shape(sp_tensor.values, out_type=dtypes.int64)[0]
-        batch_size = array_ops.shape(sp_tensor, out_type=dtypes.int64)[0]
+        num_values = tf.shape(sp_tensor.values, out_type=tf.int64)[0]
+        batch_size = tf.shape(sp_tensor, out_type=tf.int64)[0]
 
         # this is preferable to using dense shape directly because we need the num cols to be known
         dim = sp_tensor.get_shape().as_list()[-1]
         if dim is None:
             raise ValueError("Could not determine the last dimension of input sp_tensor")
 
-        offset = math_ops.range(start=0, limit=num * batch_size, delta=batch_size, dtype=dtypes.int64)
+        offset = tf.range(start=0, limit=num * batch_size, delta=batch_size, dtype=tf.int64)
 
         row_offset = repeat(x=offset, n=num_values)
         row_indices = row_indices + row_offset
-        indices = array_ops.stack([row_indices, col_indices], axis=-1)
+        indices = tf.stack([row_indices, col_indices], axis=-1)
 
         tile_batch_size = batch_size * num
-        tiled_dense_shape = array_ops.stack([tile_batch_size, dim], axis=0)
-        sp_tilled = SparseTensor(indices=indices,
-                                 values=values,
-                                 dense_shape=tiled_dense_shape)
+        tiled_dense_shape = tf.stack([tile_batch_size, dim], axis=0)
+        sp_tilled = tf.SparseTensor(indices=indices,
+                                    values=values,
+                                    dense_shape=tiled_dense_shape)
 
         return sp_tilled
 
@@ -172,38 +168,38 @@ def enum_each(enum_sizes, name="repeat_each"):
         A 1-D Tensor with reduce_sum(enum_sizes) dimension
 
     """
-    with ops.name_scope(name, values=[enum_sizes]):
-        enum_sizes = ops.convert_to_tensor(enum_sizes)
-        num_enums = array_ops.shape(enum_sizes)[0]
+    with tf.name_scope(name, values=[enum_sizes]):
+        enum_sizes = tf.convert_to_tensor(enum_sizes)
+        num_enums = tf.shape(enum_sizes)[0]
 
         # get maximum repeat length in x
-        maxlen = math_ops.reduce_max(enum_sizes)
-        x = math_ops.range(maxlen)
+        maxlen = tf.math.reduce_max(enum_sizes)
+        x = tf.range(maxlen)
 
         # tile it to the maximum repeat length, it should be of shape [maxlen x maxlen] now
-        x_repeat = array_ops.stack([num_enums, 1], axis=0)
-        x_tiled = array_ops.tile(array_ops.expand_dims(x, 0), x_repeat)
+        x_repeat = tf.stack([num_enums, 1], axis=0)
+        x_tiled = tf.tile(tf.expand_dims(x, 0), x_repeat)
 
         # create a sequence mask using x
         # this will create a boolean matrix of shape [xlen, maxlen]
         # where result[i,j] is true if j < x[i].
-        mask = array_ops.sequence_mask(enum_sizes, maxlen)
+        mask = tf.sequence_mask(enum_sizes, maxlen)
 
         # mask the elements based on the sequence mask
-        return array_ops.boolean_mask(x_tiled, mask)
+        return tf.boolean_mask(x_tiled, mask)
 
 
 def grid(shape, name="grid"):
-    with ops.name_scope(name):
+    with tf.name_scope(name):
         if len(shape) == 1:
-            return array_ops.expand_dims(math_ops.range(0, shape[0], 1), -1)
+            return tf.expand_dims(tf.range(0, shape[0], 1), -1)
         elif len(shape) == 2:
             max_x = shape[0]
             max_y = shape[1]
 
-            ys = math_ops.range(0, max_y, 1)
-            ys = array_ops.tile(ys, [max_x])
-            ys = array_ops.reshape(ys, shape)
+            ys = tf.range(0, max_y, 1)
+            ys = tf.tile(ys, [max_x])
+            ys = tf.reshape(ys, shape)
 
             xys = to_matrix_indices_2d(ys)
             return xys
@@ -230,18 +226,18 @@ def pairs(tensor1, tensor2, name="pairs"):
     Returns:
         ``Tensor``: a ``Tensor`` of rank 2
     """
-    with ops.name_scope(name, values=[tensor1, tensor2]):
-        tensor1 = ops.convert_to_tensor(tensor1)
-        tensor2 = ops.convert_to_tensor(tensor2)
+    with tf.name_scope(name, values=[tensor1, tensor2]):
+        tensor1 = tf.convert_to_tensor(tensor1)
+        tensor2 = tf.convert_to_tensor(tensor2)
 
-        x, y = array_ops.meshgrid(tensor1, tensor2)
+        x, y = tf.meshgrid(tensor1, tensor2)
 
-        result = array_ops.stack([x, y], axis=-1)
-        result = array_ops.reshape(result, [-1, 2])
+        result = tf.stack([x, y], axis=-1)
+        result = tf.reshape(result, [-1, 2])
         return result
 
 
-def to_matrix_indices_2d(index_tensor, dtype=dtypes.int64, sort_indices=True, name="matrix_indices"):
+def to_matrix_indices_2d(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix_indices"):
     """ converts a batch of column indices to 2d matrix indices, if the indices are out of order
     it and sorted is True, returns a batch of sorted matrix indices
 
@@ -255,31 +251,31 @@ def to_matrix_indices_2d(index_tensor, dtype=dtypes.int64, sort_indices=True, na
          ``Tensor``: a tensor with (row,column) for each index in the input tensor.
 
     """
-    with ops.name_scope(name=name, values=[index_tensor]):
+    with tf.name_scope(name=name, values=[index_tensor]):
         index_tensor = to_tensor_cast(index_tensor, dtype)
 
-        shape = array_ops.shape(index_tensor, out_type=dtype)
-        row_indices = math_ops.range(0, shape[0])
+        shape = tf.shape(index_tensor, out_type=dtype)
+        row_indices = tf.range(0, shape[0])
         row_indices = repeat(row_indices, shape[1])
 
         # sort ascending
         if sort_indices:
-            sorted_indices, _ = nn.top_k(math_ops.cast(index_tensor, dtypes.int32),
-                                         k=math_ops.cast(shape[1], dtypes.int32))
-            sorted_indices = array_ops.reverse(sorted_indices, axis=[-1])
+            sorted_indices, _ = tf.nn.top_k(tf.cast(index_tensor, tf.int32),
+                                            k=tf.cast(shape[1], tf.int32))
+            sorted_indices = tf.reverse(sorted_indices, axis=[-1])
             col_indices = sorted_indices
         else:
             col_indices = index_tensor
 
-        col_indices = array_ops.reshape(col_indices, [-1])
-        col_indices = math_ops.cast(col_indices, dtype)
+        col_indices = tf.reshape(col_indices, [-1])
+        col_indices = tf.cast(col_indices, dtype)
 
-        indices = array_ops.stack([row_indices, col_indices], axis=-1)
+        indices = tf.stack([row_indices, col_indices], axis=-1)
 
         return indices
 
 
-def to_matrix_indices(tensor, dtype=dtypes.int64, name="matrix_indices"):
+def to_matrix_indices(tensor, dtype=tf.int64, name="matrix_indices"):
     """ Converts batches of column indices to batches of [row,column] indices
 
     For a given batch of indices of shape [n,m] or [b,n,m] this op outputs a 2-D ``Tensor``
@@ -328,7 +324,7 @@ def to_matrix_indices(tensor, dtype=dtypes.int64, name="matrix_indices"):
 
     Use Case:
         Convert a batch of indices (used to slice another tensor with embedding lookup or gather)
-        to be used in a SparseTensor, so that we can change the weights of each slice.
+        to be used in a tf.SparseTensor, so that we can change the weights of each slice.
 
     Args:
         dtype: int32 or int64, the output tensor type
@@ -340,45 +336,45 @@ def to_matrix_indices(tensor, dtype=dtypes.int64, name="matrix_indices"):
             rank 3 it outputs a rank 3 tensor. It considers the last two dimensions as the ones to be converted.
 
     """
-    with ops.name_scope(name, values=[tensor]):
+    with tf.name_scope(name, values=[tensor]):
         tensor = to_tensor_cast(tensor, dtype)
-        if tensor.dtype != dtypes.int32 and tensor.dtype != dtypes.int64:
-            raise TypeError("Invalid tensor type: expected {t1} or {t2}, found {t3}".format(t1=dtypes.int32,
-                                                                                            t2=dtypes.int64,
+        if tensor.dtype != tf.int32 and tensor.dtype != tf.int64:
+            raise TypeError("Invalid tensor type: expected {t1} or {t2}, found {t3}".format(t1=tf.int32,
+                                                                                            t2=tf.int64,
                                                                                             t3=tensor.dtype))
 
         static_shape = tensor.get_shape().with_rank_at_most(3)
-        shape = array_ops.shape(tensor)
-        rows = math_ops.range(math_ops.cast(shape[-2], tensor.dtype))
+        shape = tf.shape(tensor)
+        rows = tf.range(tf.cast(shape[-2], tensor.dtype))
 
         # [0, 1] -> [[0,0,...],[1,1,...]] -> [0,0,...,1,1,...]
-        multiples = array_ops.stack([1, shape[-1]])
-        rows = array_ops.tile(array_ops.expand_dims(rows, -1), multiples)
-        rows = array_ops.reshape(rows, [-1])
+        multiples = tf.stack([1, shape[-1]])
+        rows = tf.tile(tf.expand_dims(rows, -1), multiples)
+        rows = tf.reshape(rows, [-1])
 
         if static_shape.ndims == 3:
-            multiples = array_ops.stack([1, shape[-3]])
-            rows = array_ops.tile(array_ops.expand_dims(rows, 0), multiples)
-            rows = array_ops.reshape(rows, [-1])
+            multiples = tf.stack([1, shape[-3]])
+            rows = tf.tile(tf.expand_dims(rows, 0), multiples)
+            rows = tf.reshape(rows, [-1])
 
         # determine shape for final reshape
         s = []
         if static_shape.ndims == 3:
             s.append(shape[0])
         s += [shape[-2] * shape[-1], 2]
-        s = array_ops.stack(s)
+        s = tf.stack(s)
 
         # align rows, transpose and reshape to the final shape
-        flat_tensor = array_ops.reshape(tensor, shape=[-1])
-        enum = array_ops.stack([rows, flat_tensor])
-        enum = array_ops.transpose(enum)
-        enum = array_ops.reshape(enum, shape=s)
+        flat_tensor = tf.reshape(tensor, shape=[-1])
+        enum = tf.stack([rows, flat_tensor])
+        enum = tf.transpose(enum)
+        enum = tf.reshape(enum, shape=s)
 
         return enum
 
 
 def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
-    """Changes a given SparseTensor according to the updates specified in a SparseTensor.
+    """Changes a given tf.SparseTensor according to the updates specified in a tf.SparseTensor.
 
     Creates a new tensor where the values of the updates override the
     values in the original tensor. The input tensors must have the same
@@ -392,38 +388,38 @@ def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the updated values.
     """
-    with ops.name_scope(name, values=[sp_tensor, sp_updates]):
+    with tf.name_scope(name, values=[sp_tensor, sp_updates]):
         if sp_updates.dtype != sp_tensor.dtype:
-            sp_updates = math_ops.cast(sp_updates, sp_tensor.dtype)
+            sp_updates = tf.cast(sp_updates, sp_tensor.dtype)
 
         # 1 concat indices and establish final tensor shape
-        update_shape = array_ops.shape(sp_updates.values)
-        zero_updates = SparseTensor(sp_updates.indices,
-                                    array_ops.zeros(update_shape, dtype=dtypes.float32),
-                                    sp_updates.dense_shape)
-        proto_result = sparse_ops.sparse_add(sp_tensor, zero_updates)
+        update_shape = tf.shape(sp_updates.values)
+        zero_updates = tf.SparseTensor(sp_updates.indices,
+                                       tf.zeros(update_shape, dtype=tf.float32),
+                                       sp_updates.dense_shape)
+        proto_result = tf.sparse_add(sp_tensor, zero_updates)
 
         # shape of resulting values tensor
-        proto_shape = array_ops.shape(proto_result.values)
+        proto_shape = tf.shape(proto_result.values)
 
         # 2 get mask for input tensor
-        proto_ones = SparseTensor(proto_result.indices,
-                                  array_ops.ones(proto_shape, dtypes.int32),
-                                  proto_result.dense_shape)
+        proto_ones = tf.SparseTensor(proto_result.indices,
+                                     tf.ones(proto_shape, tf.int32),
+                                     proto_result.dense_shape)
 
-        # mask_ones = math_ops.scalar_mul(-1, array_ops.ones(update_shape))
-        sp_mask = SparseTensor(sp_updates.indices,
-                               array_ops.ones_like(sp_updates.values, dtype=dtypes.int32) * -1,
-                               sp_updates.dense_shape)
+        # mask_ones = tf.math.scalar_mul(-1, tf.ones(update_shape))
+        sp_mask = tf.SparseTensor(sp_updates.indices,
+                                  tf.ones_like(sp_updates.values, dtype=tf.int32) * -1,
+                                  sp_updates.dense_shape)
 
-        to_retain = sparse_ops.sparse_add(proto_ones, sp_mask)
-        to_retain = math_ops.not_equal(to_retain.values, 0)
+        to_retain = tf.sparse_add(proto_ones, sp_mask)
+        to_retain = tf.math.not_equal(to_retain.values, 0)
 
         # get tensor with masked values
-        tensor_masked = sparse_ops.sparse_retain(proto_result, to_retain)
+        tensor_masked = tf.sparse_retain(proto_result, to_retain)
 
         # add values to entries previously set to 0
-        new_tensor = sparse_ops.sparse_add(tensor_masked, sp_updates)
+        new_tensor = tf.sparse_add(tensor_masked, sp_updates)
         return new_tensor
 
 
@@ -441,26 +437,26 @@ def dense_put(tensor, sp_updates, name="dense_put"):
     Returns:
         ``Tensor``: a ``Tensor`` with the updated values.
     """
-    with ops.name_scope(name, values=[tensor, sp_updates]):
-        tensor = ops.convert_to_tensor(tensor)
+    with tf.name_scope(name, values=[tensor, sp_updates]):
+        tensor = tf.convert_to_tensor(tensor)
         if sp_updates.dtype != tensor.dtype:
-            sp_updates = math_ops.cast(sp_updates, tensor.dtype)
+            sp_updates = tf.cast(sp_updates, tensor.dtype)
 
-        markers = array_ops.ones(shape=array_ops.shape(sp_updates.values))
-        sparse_marker_tensor = SparseTensor(indices=sp_updates.indices, values=markers,
-                                            dense_shape=sp_updates.dense_shape)
-        dense_update_marker = sparse.to_dense(sparse_marker_tensor)
-        dense_updates = sparse.to_dense(sp_updates)
+        markers = tf.ones(shape=tf.shape(sp_updates.values))
+        sparse_marker_tensor = tf.SparseTensor(indices=sp_updates.indices, values=markers,
+                                               dense_shape=sp_updates.dense_shape)
+        dense_update_marker = tf.sparse.to_dense(sparse_marker_tensor)
+        dense_updates = tf.sparse.to_dense(sp_updates)
 
-        new_tensor = array_ops.where(math_ops.not_equal(dense_update_marker, 0),
-                                     dense_updates, tensor)
+        new_tensor = tf.where(tf.math.not_equal(dense_update_marker, 0),
+                              dense_updates, tensor)
         return new_tensor
 
 
 def _get_noise_shape(x, noise_shape):
     # If noise_shape is none return immediately.
     if noise_shape is None:
-        return array_ops.shape(x)
+        return tf.shape(x)
 
     try:
         noise_shape_ = tensor_shape.as_shape(noise_shape)
@@ -474,7 +470,7 @@ def _get_noise_shape(x, noise_shape):
                 new_dims.append(dim.value)
             else:
                 new_dims.append(noise_shape_.dims[i].value)
-        return tensor_shape.TensorShape(new_dims)
+        return tf.TensorShape(new_dims)
 
     return noise_shape
 
@@ -515,14 +511,14 @@ def dropout(tensor,
     Raises:
         ValueError: If `probability` is not in `[0, 1]` or if `x` is not a floating point tensor.
     """
-    with ops.name_scope(name, "dropout", [tensor]):
-        tensor = ops.convert_to_tensor(tensor, name="x")
+    with tf.name_scope(name, "dropout", [tensor]):
+        tensor = tf.convert_to_tensor(tensor, name="x")
         if random_mask is not None:
             random_mask = to_tensor_cast(random_mask, tensor.dtype)
 
         if not tensor.dtype.is_floating:
             try:
-                tensor = math_ops.cast(tensor, dtypes.float32)
+                tensor = tf.cast(tensor, tf.float32)
             except Exception as e:
                 raise ValueError("x has to be a floating point tensor since it might be scaled"
                                  "Got a %s tensor instead. and could not cast it" % tensor.dtype)
@@ -538,13 +534,13 @@ def dropout(tensor,
             else:
                 return tensor
         elif isinstance(probability, float) and probability == 1:
-            zeros = array_ops.zeros_like(tensor)
+            zeros = tf.zeros_like(tensor)
             if return_mask:
                 return zeros, None
             else:
                 return zeros
 
-        if context.executing_eagerly():
+        if tf.executing_eagerly():
             if isinstance(probability, ops.EagerTensor):
                 if probability.numpy() == 0:
                     if return_mask:
@@ -552,13 +548,13 @@ def dropout(tensor,
                     else:
                         return tensor
                 elif probability.numpy() == 1:
-                    zeros = array_ops.zeros_like(tensor)
+                    zeros = tf.zeros_like(tensor)
                     if return_mask:
                         return zeros, None
                     else:
                         return zeros
         else:
-            probability = ops.convert_to_tensor(
+            probability = tf.convert_to_tensor(
                 probability, dtype=tensor.dtype, name="drop_probability")
             probability.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
@@ -570,7 +566,7 @@ def dropout(tensor,
                 else:
                     return tensor
             elif const_val == 1:
-                zeros = array_ops.zeros_like(tensor)
+                zeros = tf.zeros_like(tensor)
                 if return_mask:
                     return zeros, None
                 else:
@@ -579,17 +575,17 @@ def dropout(tensor,
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
         if random_mask is None:
-            with ops.name_scope("random_mask"):
+            with tf.name_scope("random_mask"):
                 keep_prob = 1 - probability
-                random_state = random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+                random_state = tf.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
                 mask = keep_prob + random_state
-                random_mask = math_ops.floor(mask, name="binary_mask")
+                random_mask = tf.math.floor(mask, name="binary_mask")
 
         if scale:
-            ret = math_ops.div(tensor, math_ops.maximum(1 - probability, 1e-10)) * random_mask
+            ret = tf.math.divide(tensor, tf.math.maximum(1 - probability, 1e-10)) * random_mask
         else:
             ret = tensor * random_mask
-        if not context.executing_eagerly():
+        if not tf.executing_eagerly():
             ret.set_shape(tensor.get_shape())
 
         if return_mask:
@@ -601,8 +597,8 @@ def dropout(tensor,
 def zoneout(tensor, zoneout_tensor, noise_shape=None, probability=0.1, seed=None, name="dropout"):
     """
     """
-    with ops.name_scope(name, "dropout", [tensor]):
-        tensor = ops.convert_to_tensor(tensor, name="x")
+    with tf.name_scope(name, "dropout", [tensor]):
+        tensor = tf.convert_to_tensor(tensor, name="x")
         if not tensor.dtype.is_floating:
             raise ValueError("x has to be a floating point tensor since it's going to"
                              " be scaled. Got a %s tensor instead." % tensor.dtype)
@@ -613,12 +609,12 @@ def zoneout(tensor, zoneout_tensor, noise_shape=None, probability=0.1, seed=None
         # Early return if nothing needs to be dropped.
         if isinstance(probability, float) and probability == 0:
             return tensor
-        if context.executing_eagerly():
+        if tf.executing_eagerly():
             if isinstance(probability, ops.EagerTensor):
                 if probability.numpy() == 0:
                     return tensor
         else:
-            probability = ops.convert_to_tensor(
+            probability = tf.convert_to_tensor(
                 probability, dtype=tensor.dtype, name="drop_probability")
             probability.get_shape().assert_is_compatible_with(tensor_shape.scalar())
 
@@ -629,14 +625,14 @@ def zoneout(tensor, zoneout_tensor, noise_shape=None, probability=0.1, seed=None
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
         keep_prob = 1 - probability
-        random_tensor = keep_prob + random_ops.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
-        mask = math_ops.floor(random_tensor)
+        random_tensor = keep_prob + tf.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+        mask = tf.math.floor(random_tensor)
 
         kept = tensor * (1 - mask)
         zoned = zoneout_tensor * mask
         ret = kept + zoned
 
-        if not context.executing_eagerly():
+        if not tf.executing_eagerly():
             ret.set_shape(tensor.get_shape())
         return ret
 
@@ -666,7 +662,7 @@ def sparse_dropout(sp_tensor,
         name: A name for this operation (optional).
 
     """
-    with ops.name_scope(name, values=[sp_tensor]):
+    with tf.name_scope(name, values=[sp_tensor]):
         dense_shape = sp_tensor.dense_shape
 
         if not sp_tensor.values.dtype.is_floating:
@@ -675,9 +671,9 @@ def sparse_dropout(sp_tensor,
         if isinstance(probability, numbers.Real) and not 0 <= probability < 1:
             raise ValueError("keep_prob must be a scalar tensor or a float in the "
                              "range (0, 1], got %g" % probability)
-        probability = ops.convert_to_tensor(probability,
-                                            dtype=sp_tensor.dtype,
-                                            name="drop_probability")
+        probability = tf.convert_to_tensor(probability,
+                                           dtype=sp_tensor.dtype,
+                                           name="drop_probability")
 
         drop_values = dropout(tensor=sp_tensor.values,
                               random_mask=mask,
@@ -689,11 +685,11 @@ def sparse_dropout(sp_tensor,
         if return_mask is not None:
             drop_values, mask = drop_values
 
-        not_zero = math_ops.not_equal(drop_values, 0)
-        values = array_ops.boolean_mask(drop_values, not_zero)
-        indices = array_ops.boolean_mask(sp_tensor.indices, not_zero)
+        not_zero = tf.math.not_equal(drop_values, 0)
+        values = tf.boolean_mask(drop_values, not_zero)
+        indices = tf.boolean_mask(sp_tensor.indices, not_zero)
 
-        new_tensor = SparseTensor(indices, values, dense_shape)
+        new_tensor = tf.SparseTensor(indices, values, dense_shape)
 
         if return_mask is not None:
             return new_tensor, mask
@@ -701,7 +697,7 @@ def sparse_dropout(sp_tensor,
             return new_tensor
 
 
-def sparse_ones(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse_ones"):
+def sparse_ones(matrix_indices, dense_shape, dtype=tf.float32, name="sparse_ones"):
     """ Creates a new ``SparseTensor`` with the given indices having value 1
 
     Args:
@@ -711,17 +707,17 @@ def sparse_ones(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse_
         name: name for this op
 
     Returns:
-        ``SparseTensor``: a new SparseTensor with the values set to 1.
+        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
     """
-    with ops.name_scope(name, values=[matrix_indices, dense_shape]):
-        matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
-        dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
+    with tf.name_scope(name, values=[matrix_indices, dense_shape]):
+        matrix_indices = to_tensor_cast(matrix_indices, tf.int64)
+        dense_shape = to_tensor_cast(dense_shape, tf.int64)
         indices_shape = complete_shape(matrix_indices)
-        values = array_ops.ones([indices_shape[0]], dtype)
-        return SparseTensor(matrix_indices, values, dense_shape)
+        values = tf.ones([indices_shape[0]], dtype)
+        return tf.SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_zeros(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse_zeros"):
+def sparse_zeros(matrix_indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
     """ Creates a new ``SparseTensor`` with the given indices having value 1
 
     Args:
@@ -731,17 +727,17 @@ def sparse_zeros(matrix_indices, dense_shape, dtype=dtypes.float32, name="sparse
         name: name for this op
 
     Returns:
-        ``SparseTensor``: a new SparseTensor with the values set to 1.
+        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
     """
-    with ops.name_scope(name, values=[matrix_indices, dense_shape]):
-        matrix_indices = to_tensor_cast(matrix_indices, dtypes.int64)
-        dense_shape = to_tensor_cast(dense_shape, dtypes.int64)
+    with tf.name_scope(name, values=[matrix_indices, dense_shape]):
+        matrix_indices = to_tensor_cast(matrix_indices, tf.int64)
+        dense_shape = to_tensor_cast(dense_shape, tf.int64)
         indices_shape = complete_shape(matrix_indices)
-        values = array_ops.zeros([indices_shape[0]], dtype)
-        return SparseTensor(matrix_indices, values, dense_shape)
+        values = tf.zeros([indices_shape[0]], dtype)
+        return tf.SparseTensor(matrix_indices, values, dense_shape)
 
 
-def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="sparse_one_hot"):
+def sparse_one_hot(column_indices, num_cols, dtype=tf.float32, name="sparse_one_hot"):
     """Transforms a batch of column indices to a one-hot encoding ``SparseTensor``.
 
         Example::
@@ -753,7 +749,7 @@ def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="sparse_
 
             sp_one_hot = sparse_one_hot(indices,dense_shape)
 
-            expected = SparseTensor(indices=[[0,0],[0,1],[0,4],[1,1],[1,2],[1,6]],
+            expected = tf.SparseTensor(indices=[[0,0],[0,1],[0,4],[1,1],[1,2],[1,6]],
                                     values=[1,1,1,1,1,1],
                                     dense_shape=[2,10])
 
@@ -766,16 +762,16 @@ def sparse_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="sparse_
         Returns:
             `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
     """
-    with ops.name_scope(name, values=[column_indices, num_cols]):
-        column_indices = to_tensor_cast(column_indices, dtypes.int64)
-        matrix_indices = to_matrix_indices_2d(column_indices, dtype=dtypes.int64)
+    with tf.name_scope(name, values=[column_indices, num_cols]):
+        column_indices = to_tensor_cast(column_indices, tf.int64)
+        matrix_indices = to_matrix_indices_2d(column_indices, dtype=tf.int64)
 
-        dense_shape = math_ops.cast([array_ops.shape(column_indices)[0], num_cols], dtype=dtypes.int64)
+        dense_shape = tf.cast([tf.shape(column_indices)[0], num_cols], dtype=tf.int64)
 
         return sparse_ones(matrix_indices, dense_shape, dtype)
 
 
-def dense_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="dense_one_hot"):
+def dense_one_hot(column_indices, num_cols, dtype=tf.float32, name="dense_one_hot"):
     """Transforms a batch of indices to a dense ``Tensor`` by adding the `one-hot` encoding for each index.
 
     Example::
@@ -794,12 +790,12 @@ def dense_one_hot(column_indices, num_cols, dtype=dtypes.float32, name="dense_on
     Returns:
         ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices.
     """
-    with ops.name_scope(name, values=[column_indices, num_cols]):
-        column_indices = to_tensor_cast(column_indices, dtypes.int64)
-        one_hot_dense = array_ops.one_hot(column_indices, depth=num_cols, dtype=dtype)
+    with tf.name_scope(name, values=[column_indices, num_cols]):
+        column_indices = to_tensor_cast(column_indices, tf.int64)
+        one_hot_dense = tf.one_hot(column_indices, depth=num_cols, dtype=dtype)
 
         if column_indices.get_shape().ndims == 2:
-            one_hot_dense = math_ops.reduce_sum(one_hot_dense, axis=1)
+            one_hot_dense = tf.math.reduce_sum(one_hot_dense, axis=1)
 
         return one_hot_dense
 
@@ -818,12 +814,12 @@ def sparse_indices(sp_values, name="sparse_indices"):
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor`` .
     """
-    with ops.name_scope(name, values=[sp_values]):
+    with tf.name_scope(name, values=[sp_values]):
         if len(sp_values.get_shape().dims) == 1:
-            [flat_indices] = array_ops.unstack(sp_values.indices, num=1, axis=-1)
+            [flat_indices] = tf.unstack(sp_values.indices, num=1, axis=-1)
         else:
-            _, flat_indices = array_ops.unstack(sp_values.indices, num=2, axis=-1)
-        sp_indices = SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
+            _, flat_indices = tf.unstack(sp_values.indices, num=2, axis=-1)
+        sp_indices = tf.SparseTensor(sp_values.indices, flat_indices, sp_values.dense_shape)
 
         return sp_indices
 
@@ -840,7 +836,7 @@ def to_sparse(tensor, name="to_sparse"):
 
         this returns an op that creates the following two ``SparseTensor``::
 
-            SparseTensor(indices = [[0,0],[1,0],[1,1]],
+            tf.SparseTensor(indices = [[0,0],[1,0],[1,1]],
                                     values = [1,2,3],
                                     dense_shape = [2,2])
 
@@ -853,12 +849,12 @@ def to_sparse(tensor, name="to_sparse"):
         with the non-zero entries of the given input.
 
     """
-    with ops.name_scope(name, values=[tensor]):
-        indices = array_ops.where(math_ops.not_equal(tensor, 0))
-        dense_shape = array_ops.shape(tensor, out_type=dtypes.int64)
+    with tf.name_scope(name, values=[tensor]):
+        indices = tf.where(tf.math.not_equal(tensor, 0))
+        dense_shape = tf.shape(tensor, out_type=tf.int64)
 
-        values = array_ops.gather_nd(tensor, indices)
-        sp_tensor = SparseTensor(indices, values, dense_shape)
+        values = tf.gather_nd(tensor, indices)
+        sp_tensor = tf.SparseTensor(indices, values, dense_shape)
 
         return sp_tensor
 
@@ -874,7 +870,7 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
 
     into a ``SparseTensorValue`` as follows::
 
-        SparseTensorValue(indices=[[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]],
+        tf.SparseTensorValue(indices=[[0,0],[0,5],[1,0],[1,2],[1,7],[2,1]],
                           values=[1,1,1,1,1,1],
                           dense_shape=[3,10])
 
@@ -889,7 +885,7 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
         ``ValueError`` exception if any index ``i`` in the list ``value >= shape[1]``
 
     Returns:
-        ``SparseTensorValue``: a SparseTensorValue with the sparse indices and the indices for each row as values.
+        ``SparseTensorValue``: a tf.SparseTensorValue with the sparse indices and the indices for each row as values.
 
     """
     idx = []
@@ -901,7 +897,7 @@ def sparse_tensor_value_one_hot(indices, dense_shape):
     idx = np.array(idx)
     values = np.ones([len(idx)])
 
-    return SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
+    return tf.SparseTensorValue(indices=idx, values=values, dense_shape=dense_shape)
 
 
 def filter_nd(condition, params, name="filter_nd"):
@@ -915,11 +911,11 @@ def filter_nd(condition, params, name="filter_nd"):
     Returns:
         ``SparseTensor``: a `SparseTensor` with the values in params filtered according to condition
     """
-    with ops.name_scope(name, [condition, params]):
-        indices = math_ops.cast(array_ops.where(condition), dtype=dtypes.int64)
-        values = array_ops.gather_nd(params, indices)
-        dense_shape = math_ops.cast(array_ops.shape(params), dtypes.int64)
-        sp_result = SparseTensor(indices, values, dense_shape)
+    with tf.name_scope(name, [condition, params]):
+        indices = tf.cast(tf.where(condition), dtype=tf.int64)
+        values = tf.gather_nd(params, indices)
+        dense_shape = tf.cast(tf.shape(params), tf.int64)
+        sp_result = tf.SparseTensor(indices, values, dense_shape)
         return sp_result
 
 
@@ -946,20 +942,20 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
         a ``SparseTensor`` with a number of rows equal to the number of ids to be gathered.
 
     """
-    with ops.name_scope(name, [sp_tensor, ids]):
-        ids = math_ops.cast(ids, dtypes.int64)
-        ids = array_ops.reshape(ids, [-1])
+    with tf.name_scope(name, [sp_tensor, ids]):
+        ids = tf.cast(ids, tf.int64)
+        ids = tf.reshape(ids, [-1])
 
         # count columns and compute row coordinates
-        sp_column_ones = sparse_ones(sp_tensor.indices, sp_tensor.dense_shape, dtype=dtypes.int64)
-        col_count = sparse_ops.sparse_reduce_sum(sp_column_ones, axis=-1)
+        sp_column_ones = sparse_ones(sp_tensor.indices, sp_tensor.dense_shape, dtype=tf.int64)
+        col_count = tf.sparse_reduce_sum(sp_column_ones, axis=-1)
         # sparse_reduce_sum sets shape to unknown
         col_count.set_shape([sp_tensor.get_shape().as_list()[0]])
-        col_count_cs = math_ops.cumsum(col_count)
+        col_count_cs = tf.math.cumsum(col_count)
         row_start_coor = col_count_cs - col_count
 
-        g_col_count = array_ops.gather(col_count, ids)
-        g_row_start_coor = array_ops.gather(row_start_coor, ids)
+        g_col_count = tf.gather(col_count, ids)
+        g_row_start_coor = tf.gather(row_start_coor, ids)
 
         row_start_coor = repeat_each(g_row_start_coor, g_col_count)
         # col_counts = repeat_each(g_col_count, g_col_count)
@@ -970,19 +966,19 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
         # gather_ids = row_start_coor + offset % col_counts
         gather_ids = row_start_coor + offset
 
-        num_ids = math_ops.cast(array_ops.shape(ids)[0], dtypes.int64)
-        new_rows = repeat_each(math_ops.range(num_ids), g_col_count)
+        num_ids = tf.cast(tf.shape(ids)[0], tf.int64)
+        new_rows = repeat_each(tf.range(num_ids), g_col_count)
 
         sp_cols = sp_tensor.indices[:, -1]
-        new_cols = array_ops.gather(sp_cols, gather_ids)
-        new_indices = array_ops.stack([new_rows, new_cols], axis=-1)
-        new_values = array_ops.gather(sp_tensor.values, gather_ids)
+        new_cols = tf.gather(sp_cols, gather_ids)
+        new_indices = tf.stack([new_rows, new_cols], axis=-1)
+        new_values = tf.gather(sp_tensor.values, gather_ids)
 
-        new_shape = array_ops.concat([array_ops.expand_dims(math_ops.cast(num_ids, dtypes.int64), -1),
-                                      sp_tensor.dense_shape[1:]],
-                                     axis=-1)
+        new_shape = tf.concat([tf.expand_dims(tf.cast(num_ids, tf.int64), -1),
+                               sp_tensor.dense_shape[1:]],
+                              axis=-1)
 
-        sp = SparseTensor(new_indices, new_values, new_shape)
+        sp = tf.SparseTensor(new_indices, new_values, new_shape)
         return sp
 
 
@@ -998,23 +994,23 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
     Returns:
         `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
     """
-    with ops.name_scope(name, [sp_tensor1, sp_tensor2]):
+    with tf.name_scope(name, [sp_tensor1, sp_tensor2]):
         ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
         ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
 
-        index_union = sparse_ops.sparse_add(ones1, ones2)
+        index_union = tf.sparse_add(ones1, ones2)
 
-        index_filter = math_ops.equal(index_union.values, 2.)
+        index_filter = tf.math.equal(index_union.values, 2.)
 
         zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
-        expand1 = sparse_ops.sparse_add(zeros1, sp_tensor1)
+        expand1 = tf.sparse_add(zeros1, sp_tensor1)
 
-        filtered = sparse_ops.sparse_retain(expand1, index_filter)
+        filtered = tf.sparse_retain(expand1, index_filter)
         return filtered
 
 
 def flatten(tensor):
-    return array_ops.reshape(tensor, [-1])
+    return tf.reshape(tensor, [-1])
 
 
 def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
@@ -1031,18 +1027,18 @@ def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
 
     """
 
-    with ops.name_scope(name, values=[tensor1, tensor2]):
+    with tf.name_scope(name, values=[tensor1, tensor2]):
         tensor1 = to_tensor_cast(tensor1)
         tensor2 = to_tensor_cast(tensor2)
 
-        sorted_tensor1, sorted_tensor1_indices = nn.top_k(tensor1, k=array_ops.shape(tensor1)[-1])
+        sorted_tensor1, sorted_tensor1_indices = tf.nn.top_k(tensor1, k=tf.shape(tensor1)[-1])
         if ascending:
-            sorted_tensor1 = array_ops.reverse(sorted_tensor1, axis=[-1])
-            sorted_tensor1_indices = array_ops.reverse(sorted_tensor1_indices, axis=[-1])
+            sorted_tensor1 = tf.reverse(sorted_tensor1, axis=[-1])
+            sorted_tensor1_indices = tf.reverse(sorted_tensor1_indices, axis=[-1])
         sorted_tensor1_indices = to_matrix_indices_2d(sorted_tensor1_indices, sort_indices=False)
 
-        sorted_values = array_ops.gather_nd(tensor2, sorted_tensor1_indices)
-        sorted_values = array_ops.reshape(sorted_values, array_ops.shape(tensor2))
+        sorted_values = tf.gather_nd(tensor2, sorted_tensor1_indices)
+        sorted_values = tf.reshape(sorted_values, tf.shape(tensor2))
 
         return sorted_tensor1, sorted_values
 
