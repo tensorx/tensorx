@@ -11,7 +11,7 @@ from tensorflow.python.ops import init_ops
 from tensorflow.python.ops.linalg_ops import qr
 
 
-def zero_init(dtype=dt.float32):
+def zeros_init(dtype=dt.float32):
     return init_ops.zeros_initializer(dtype=dtype)
 
 
@@ -110,7 +110,7 @@ def he_normal_init(seed=None):
     return init_ops.he_normal(seed=seed)
 
 
-__all__ = ["zero_init",
+__all__ = ["zeros_init",
            "ones_init",
            "random_normal",
            "random_uniform",

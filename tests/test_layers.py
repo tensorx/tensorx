@@ -1993,5 +1993,31 @@ class TestLayers(test_utils.TestCase):
             # so the inference step will give a different value again
             self.assertArrayNotEqual(r2_infer, r3_infer)
 
+    def test_multihead_attention(self):
+        n_features = 3
+        embed_size = 128
+        seq_size = 3
+        batch_size = 2
+        n_heads = 8
+
+        inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        emb = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
+
+        attention = Attention(query_layer=emb,
+                              key_layer=emb,
+                              value_layer=emb,
+                              n_units=embed_size,
+                              n_heads=n_heads,
+                              causality=False,
+                              attention_dropout=0.1,
+                              regularized=False)
+
+        attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
+
+        with self.cached_session(use_gpu=True):
+            tf.global_variables_initializer().run()
+            print(np.shape(attention.eval()))
+            print(np.shape(attention_reg.eval()))
+
     if __name__ == '__main__':
         test_utils.main()

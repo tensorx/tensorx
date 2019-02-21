@@ -13,7 +13,7 @@ from tensorx import math as mathx
 from tensorx import transform
 from tensorx import utils as tx_utils
 from tensorx.activation import sigmoid, tanh, identity
-from tensorx.init import random_uniform, zero_init, glorot_uniform, const_init, ones_init
+from tensorx.init import random_uniform, zeros_init, glorot_uniform, const_init, ones_init
 from tensorx.math import embedding_lookup_sparse
 from tensorx.random import salt_pepper_noise, sparse_random_normal, random_bernoulli
 from tensorx.utils import Graph
@@ -205,6 +205,9 @@ class LayerProto:
 class Layer:
     """ Layer.
 
+    Features:
+        Converts to input_layers to layers when these are tensors or anything convertible to tensor.
+
     Attributes:
         input_layers: a list of Layers that serve as input to the current layer
         n_units: the number of units for the current layer
@@ -229,7 +232,7 @@ class Layer:
         self.name = getattr(self, "name", name)
         self.scoped_name = name
         self.dtype = dtype
-        self._input_layers = _as_list(input_layers)
+        self._input_layers = [convert_to_layer(layer) for layer in _as_list(input_layers)]
 
         if shape is None:
             shape = [None, n_units]
@@ -521,7 +524,7 @@ class VariableLayer(Layer):
 
         self.trainable = trainable
         self.resource = resource
-        self.init = init if init is not None else zero_init(dtype=self.dtype)
+        self.init = init if init is not None else zeros_init(dtype=self.dtype)
         self.tensor = self._build_graph()
 
     def _build_graph(self):
@@ -552,7 +555,7 @@ class VariableLayer(Layer):
 
                 self.counter = tf.get_variable(name="counter",
                                                shape=[],
-                                               initializer=zero_init(dtype=tf.int32),
+                                               initializer=zeros_init(dtype=tf.int32),
                                                trainable=False,
                                                use_resource=True)
             else:
@@ -1031,7 +1034,7 @@ class Linear(Layer):
     """
 
     def __init__(self,
-                 layer,
+                 input_layer,
                  n_units,
                  weight_init=glorot_uniform(),
                  shared_weights=None,
@@ -1039,7 +1042,7 @@ class Linear(Layer):
                  transpose_weights=False,
                  sparse_weights=False,
                  add_bias=True,
-                 bias_init=zero_init(),
+                 bias_init=zeros_init(),
                  dtype=tf.float32,
                  name="linear", share_vars_with=None):
 
@@ -1052,12 +1055,12 @@ class Linear(Layer):
         self.sparse_weights = sparse_weights
         self.bias_init = bias_init
 
-        if not isinstance(layer, Layer):
-            layer = TensorLayer(layer, dtype=dtype)
+        if not isinstance(input_layer, Layer):
+            input_layer = TensorLayer(input_layer, dtype=dtype)
 
         # input_shape = layer.tensor.get_shape().as_list()
-        shape = [layer.n_units, n_units]
-        super().__init__(layer, n_units, shape, dtype, name)
+        shape = [input_layer.n_units, n_units]
+        super().__init__(input_layer, n_units, shape, dtype, name)
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Linear):
@@ -1074,16 +1077,16 @@ class Linear(Layer):
             weight_shape: tf.TensorShape = self.shared_weights.get_shape()
 
             if self.transpose_weights:
-                if not tf.TensorShape([layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[-1]])):
+                if not tf.TensorShape([input_layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[-1]])):
                     raise ValueError(
                         "weight shape mismatch: input_layer shape {} :: weights shape {} with transpose_weights=True".format(
-                            layer.shape,
+                            input_layer.shape,
                             weight_shape))
             else:
-                if not tf.TensorShape([layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[0]])):
+                if not tf.TensorShape([input_layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[0]])):
                     raise ValueError(
                         "weight shape mismatch: input_layer shape {} :: weights shape {} with transpose_weights=False".format(
-                            layer.shape,
+                            input_layer.shape,
                             weight_shape))
         if self.shared_bias is not None:
             bias_shape = self.shared_bias.get_shape().as_list()
@@ -1208,7 +1211,7 @@ class Linear(Layer):
         if sparse_weights is None:
             sparse_weights = self.sparse_weights
 
-        return Linear(layer=input_layer,
+        return Linear(input_layer=input_layer,
                       n_units=self.n_units,
                       weight_init=self.weight_init,
                       shared_weights=self.shared_weights,
@@ -1341,14 +1344,15 @@ class Dropout(Layer):
         http://www.jmlr.org/papers/volume15/srivastava14a/srivastava14a.pdf
     """
 
-    def __init__(self, layer,
+    def __init__(self, input_layer,
                  probability=0.1,
                  scale=True,
                  noise_shape=None,
                  mask=None,
-                 locked=True,
+                 locked=False,
                  seed=None,
                  name="dropout"):
+        input_layer = convert_to_layer(input_layer)
         self.seed = seed
         self.probability = probability
         self.scale = scale
@@ -1361,15 +1365,15 @@ class Dropout(Layer):
                 self.mask = tx_utils.to_tensor_cast(self.mask)
 
         if self.noise_shape is not None:
-            input_shape = tf.shape(layer.tensor)
+            input_shape = tf.shape(input_layer.tensor)
             self.noise_shape = [input_shape[axis] if dim is None else dim for axis, dim in enumerate(self.noise_shape)]
 
-        super().__init__(layer,
-                         n_units=layer.n_units,
-                         shape=[layer.n_units, layer.n_units],
-                         dtype=layer.dtype,
+        super().__init__(input_layer,
+                         n_units=input_layer.n_units,
+                         shape=[input_layer.n_units, input_layer.n_units],
+                         dtype=input_layer.dtype,
                          name=name)
-        self.tensor = self._build_graph(layer)
+        self.tensor = self._build_graph(input_layer)
 
     def _build_graph(self, layer):
         with layer_scope(self):
@@ -1420,13 +1424,13 @@ class FC(Layer):
                  shared_weights=None,
                  transpose_weights=False,
                  add_bias=True,
-                 bias_init=zero_init(),
+                 bias_init=zeros_init(),
                  dtype=tf.float32,
                  name="fn",
                  share_vars_with=None):
 
         with layer_scope(self, name=name):
-            self.linear = Linear(layer=layer,
+            self.linear = Linear(input_layer=layer,
                                  n_units=n_units,
                                  weight_init=weight_init,
                                  shared_weights=shared_weights,
@@ -1606,7 +1610,7 @@ class Conv1D(Layer):
                 self.bias = tf.get_variable("bias",
                                             shape=[self.n_units],
                                             dtype=self.dtype,
-                                            initializer=zero_init(),
+                                            initializer=zeros_init(),
                                             use_resource=True)
                 self._add_variable(self.bias)
                 tensor = tf.nn.bias_add(tensor, self.bias, name="add_b")
@@ -1852,7 +1856,7 @@ class Conv2D(Layer):
                 self.bias = tf.get_variable("bias",
                                             shape=[self.n_units],
                                             dtype=self.dtype,
-                                            initializer=zero_init(),
+                                            initializer=zeros_init(),
                                             use_resource=True)
                 self._add_variable(self.bias)
                 tensor = tf.nn.bias_add(tensor, self.bias, name="add_b")
@@ -2993,7 +2997,7 @@ class Lookup(Layer):
                 if self.shared_bias is None:
                     self.bias = tf.get_variable("bias",
                                                 shape=self.feature_shape[0],
-                                                initializer=zero_init(),
+                                                initializer=zeros_init(),
                                                 use_resource=True)
                 else:
                     self.bias = self.bias
@@ -3643,7 +3647,7 @@ class Bias(Layer):
                          var_scope_name=var_scope_name):
             self.bias = tf.get_variable("bias",
                                         shape=[self.n_units],
-                                        initializer=zero_init(),
+                                        initializer=zeros_init(),
                                         use_resource=True)
             self._add_variable(self.bias)
             if layer.is_sparse():
@@ -3797,7 +3801,7 @@ class Highway(Layer):
                  transform_bias_init=const_init(-2),
                  carry_gate=False,
                  carry_weight_init=glorot_uniform(),
-                 carry_bias_init=zero_init(),
+                 carry_bias_init=zeros_init(),
                  share_vars_with=None,
                  name="highway"):
 
@@ -4056,7 +4060,7 @@ class BatchNorm(Layer):
                  scale=False,
                  trainable=True,
                  gamma_init=ones_init(),
-                 beta_init=zero_init(),
+                 beta_init=zeros_init(),
                  decay=0.99,
                  epsilon=0.001,
                  gamma=None,
@@ -4146,7 +4150,7 @@ class BatchNorm(Layer):
             if self.moving_mean is None:
                 self.moving_mean = tf.get_variable("moving_mean",
                                                    shape=self.param_shape,
-                                                   initializer=zero_init(),
+                                                   initializer=zeros_init(),
                                                    trainable=False,
                                                    use_resource=True,
                                                    dtype=self.dtype)
@@ -4155,7 +4159,7 @@ class BatchNorm(Layer):
             if self.moving_variance is None:
                 self.moving_variance = tf.get_variable("moving_variance",
                                                        shape=self.param_shape,
-                                                       initializer=zero_init(),
+                                                       initializer=zeros_init(),
                                                        trainable=False,
                                                        use_resource=True,
                                                        dtype=self.dtype)
@@ -4220,8 +4224,180 @@ class BatchNorm(Layer):
                          name=name)
 
 
-# register Layer as Tensor
+class LayerNormalization(Layer):
+    """ Layer Normalization
 
+    References:
+        (Jimmy Lei Ba, Jamie Ryan Kiros, Geoffrey E. Hinton, 2016) "Layer Normalization"
+        https://arxiv.org/abs/1607.06450.
+
+    """
+
+    def __init__(self, input_layer, share_state_with=None):
+        super().__init__(input_layers=input_layer,
+                         n_units=input_layer.n_units,
+                         shape=[input_layer.n_units] * 2,
+                         dtype=tf.float32,
+                         name="layer_normalization"
+                         )
+
+        self.share_state_with = share_state_with
+        self.tensor = self._build_graph()
+
+    def _build_graph(self):
+        input_layer = self.input_layers[0]
+
+        with layer_scope(self):
+            if self.share_state_with is None:
+                # center
+                self.beta = tf.get_variable("beta", shape=[input_layer.n_units], initializer=zeros_init())
+                # scale
+                self.gamma = tf.get_variable("gamma", shape=[input_layer.n_units], initializer=ones_init())
+            else:
+                self.beta = self.share_state_with.beta
+                self.gamma = self.share_state_with.gamma
+
+            mean, variance = tf.nn.moments(input_layer.tensor, -1, keep_dims=True)
+            variance_epsilon = 1e-12
+
+            return tf.nn.batch_normalization(
+                input_layer.tensor,
+                mean,
+                variance,
+                offset=self.beta,
+                scale=self.gama,
+                variance_epsilon=variance_epsilon)
+
+    def reuse_with(self, input_layer, name=None):
+        return LayerNormalization(input_layer, share_state_with=self)
+
+
+class Attention(Layer):
+    """ Scaled Dot Product MultiHead Attention Layer
+
+    Args:
+        input_layer
+        n_units: output number of units, each attentio head has n_units // n_head units, meaning that n_units needs to
+        be a multiple of n_heads.
+
+    """
+
+    def __init__(self,
+                 query_layer,
+                 key_layer,
+                 value_layer,
+                 n_units=None,
+                 n_heads=1,
+                 attention_fn=tf.nn.softmax,
+                 causality=False,
+                 attention_dropout=0.0,
+                 regularized=False,
+                 name="attention",
+                 share_state_with=None):
+        self.n_heads = n_heads
+        n_units = query_layer.n_units if n_units is None else n_units
+        self.causality = causality
+        self.share_shate_with = share_state_with
+        self.regularized = regularized
+        self.attention_dropout = attention_dropout
+        self.attention_fn = attention_fn
+
+        if n_units % n_heads != 0:
+            raise ValueError(
+                "The n_units {} is not a multiple of the number of attention "
+                "heads {}".format(self.n_units, n_heads))
+
+        self.head_units = n_units // n_heads
+        super().__init__([query_layer, key_layer, value_layer], n_units, name=name)
+        self.tensor = self._build_graph()
+
+    def _build_graph(self):
+        q, k, v = self.input_layers
+        h_dim = self.n_units
+        state = self.share_shate_with
+        # input_dim = input_layer.tensor.get_shape().as_list()[-1]
+
+        with layer_scope(self):
+            if state is None:
+                # (batch_size, t, n_units)
+                self.wq = Linear(q, n_units=h_dim, add_bias=False, name="wq")
+                self.wk = Linear(k, n_units=h_dim, add_bias=False, name="wk")
+                self.wv = Linear(v, n_units=h_dim, add_bias=False, name="wv")
+                self.bv = Bias(self.wv, name="bv")
+            else:
+                self.wq = state.wq.reuse_with(q)
+                self.wk = state.wq.reuse_with(k)
+                self.wv = state.wq.reuse_with(v)
+                self.bv = state.wq.reuse_with(self.wv)
+
+            # (n_heads*batch_size, steps, n_units//n_heads)
+            qh = tf.concat(tf.split(self.wq, self.n_heads, axis=2), axis=0)
+            kh = tf.concat(tf.split(self.wk, self.n_heads, axis=2), axis=0)
+            vh = tf.concat(tf.split(self.wv, self.n_heads, axis=2), axis=0)
+
+            dotprod = tf.matmul(qh, tf.transpose(kh, [0, 2, 1]))
+            dotprod /= h_dim ** 0.5
+            output = dotprod
+
+            # mask information from the future
+            if self.causality:
+                diag_values = tf.ones_like(output[0, :, :])  # (tq, tk)
+                triangular = tf.linalg.LinearOperatorLowerTriangular(diag_values).to_dense()  # (tq, tk)
+                masks = tf.tile(tf.expand_dims(triangular, 0), [tf.shape(output)[0], 1, 1])  # (N, tq, tk)
+                # mask to - inf before softmax
+                paddings = tf.ones_like(masks) * (-2 ** 32 + 1)
+                output = tf.where(tf.equal(masks, 0), paddings, output)
+
+            attention_scores = self.attention_fn(output)
+
+            if self.attention_dropout > 0 and self.regularized:
+                attention_scores = Dropout(attention_scores,
+                                           probability=self.attention_dropout,
+                                           scale=True,
+                                           locked=False,
+                                           name="attention_dropout")
+
+            # weighted sum (context vectors) weighted by attention scores
+            context_vectors = tf.matmul(attention_scores, vh)
+            # restore shape (batch_size, tq, n_units)
+            output = tf.concat(tf.split(context_vectors, self.n_heads, axis=0), axis=2)
+
+        return output
+
+    def reuse_with(self, query_layer, key_layer, value_layer, regularized=None, name=None):
+        regularized = self.regularized if regularized is None else regularized
+        name = self.name if name is None else name
+
+        return Attention(query_layer=query_layer,
+                         key_layer=key_layer,
+                         value_layer=value_layer,
+                         n_units=self.n_units,
+                         attention_fn=self.attention_fn,
+                         n_heads=self.n_heads,
+                         attention_dropout=self.attention_dropout,
+                         regularized=regularized,
+                         name=name,
+                         share_state_with=self)
+
+
+def convert_to_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
+    """ Converts tensor or tensor convertible object to Layer
+
+    Args:
+        dtype: type for our converted layer
+        layer_or_tensor: a tensor or convertible to tensor (tx.utils.to_tensor_cast(tensor))
+
+    Returns:
+        a TensorLayer wrapping the given tensor
+    """
+    if isinstance(layer_or_tensor, Layer):
+        return layer_or_tensor
+    else:
+        tensor = tx_utils.to_tensor_cast(layer_or_tensor, dtype)
+        return TensorLayer(tensor)
+
+
+# register Layer as Tensor
 def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
     with tf.name_scope(name):
         return tx_utils.to_tensor_cast(layer.tensor, dtype=dtype)
@@ -4321,5 +4497,6 @@ __all__ = ["Input",
            "ViewLayer",
            "DynamicParam",
            "Param",
-           "SeqMap"
+           "SeqMap",
+           "Attention"
            ]
