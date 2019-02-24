@@ -18,4 +18,4 @@ tensorboard==1.12.2
 tensorflow-estimator==1.13.0rc0
 termcolor==1.1.0
 werkzeug==0.14.1
-wheel==0.33.0 ; python_version >= '3'
+wheel==0.33.0 ; python_version >= '3.7'
