@@ -2071,6 +2071,15 @@ class QRNN(Layer):
 
 
 class BaseRNNCell(Layer):
+    """
+
+    Args:
+        input_layer the input Layer for this cell
+        previous_state: the recurrent input Layer for the cell
+        state_size: list of number of units for each element in the state, default is a single state with [n_units]
+        n_units: number of activation units for the RNN cell
+        dtype: Layer (output) dtype
+    """
 
     @staticmethod
     def zero_state(state_shape, stateful=True, name="zero_state"):
@@ -2099,6 +2108,7 @@ class BaseRNNCell(Layer):
                  x_dropout=None,
                  r_dropout=None,
                  y_dropout=None,
+                 dropout_locked=True,
                  regularized=False,
                  share_state_with=None,
                  name="recurrent_cell"):
@@ -2106,6 +2116,7 @@ class BaseRNNCell(Layer):
             raise TypeError(
                 "share_state_with must be of type {} got {} instead".format(type(self), type(share_state_with)))
         self.share_state_with = share_state_with
+        self.dropout_locked = dropout_locked
 
         if state_size is None:
             state_size = [n_units]
@@ -2190,9 +2201,12 @@ class BaseRNNCell(Layer):
                 DropConnect.proto(probability=self.w_dropconnect, locked=True, name="w_dropconnect"))
             self.u_reg = Regularizer(
                 DropConnect.proto(probability=self.u_dropconnect, locked=True, name="u_dropconnect"))
-            self.x_reg = Regularizer(Dropout.proto(probability=self.x_dropout, locked=True, name="x_dropout"))
-            self.r_reg = Regularizer(Dropout.proto(probability=self.r_dropout, locked=True, name="r_dropout"))
-            self.y_reg = Regularizer(Dropout.proto(probability=self.y_dropout, locked=True, name="y_dropout"))
+            self.x_reg = Regularizer(
+                Dropout.proto(probability=self.x_dropout, locked=self.dropout_locked, name="x_dropout"))
+            self.r_reg = Regularizer(
+                Dropout.proto(probability=self.r_dropout, locked=self.dropout_locked, name="r_dropout"))
+            self.y_reg = Regularizer(
+                Dropout.proto(probability=self.y_dropout, locked=self.dropout_locked, name="y_dropout"))
         else:
             self.w_reg = self.share_state_with.w_reg
             self.u_reg = self.share_state_with.u_reg
@@ -2235,6 +2249,7 @@ class BaseRNNCell(Layer):
             x_dropout=self.x_dropout,
             r_dropout=self.r_dropout,
             y_dropout=self.y_dropout,
+            dropout_locked=self.dropout_locked,
             regularized=regularized,
             name=name,
             **kwargs
@@ -2267,6 +2282,7 @@ class RNNCell(BaseRNNCell):
                  r_dropout=None,
                  x_dropout=None,
                  y_dropout=None,
+                 dropout_locked=True,
                  regularized=False,
                  name="rnn_cell"):
 
@@ -2283,6 +2299,7 @@ class RNNCell(BaseRNNCell):
                          x_dropout=x_dropout,
                          r_dropout=r_dropout,
                          y_dropout=y_dropout,
+                         dropout_locked=dropout_locked,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)
@@ -2357,6 +2374,7 @@ class GRUCell(BaseRNNCell):
                  x_dropout=None,
                  r_dropout=None,
                  y_dropout=None,
+                 dropout_locked=True,
                  regularized=False,
                  share_state_with=None,
                  name="gru_cell"):
@@ -2374,6 +2392,7 @@ class GRUCell(BaseRNNCell):
                          x_dropout=x_dropout,
                          r_dropout=r_dropout,
                          y_dropout=y_dropout,
+                         dropout_locked=dropout_locked,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)
@@ -2490,6 +2509,7 @@ class LSTMCell(BaseRNNCell):
                  x_dropout=None,
                  r_dropout=None,
                  y_dropout=None,
+                 dropout_locked=True,
                  regularized=False,
                  share_state_with=None,
                  name="lstm_cell"):
@@ -2507,6 +2527,7 @@ class LSTMCell(BaseRNNCell):
                          x_dropout=x_dropout,
                          r_dropout=r_dropout,
                          y_dropout=y_dropout,
+                         dropout_locked=dropout_locked,
                          regularized=regularized,
                          share_state_with=share_state_with,
                          name=name)

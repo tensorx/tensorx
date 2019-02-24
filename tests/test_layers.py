@@ -230,7 +230,7 @@ class TestLayers(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             self.eval(init)
             init_value = self.eval(var_layer.variable)
-            self.assertArrayEqual(init_value, np.zeros(shape=[0, n_units]))
+            self.assertArrayEqual(init_value, np.zeros(shape=[1, n_units]))
 
             val1 = np.ones([10, n_units]) * 2
             self.eval(var_layer.tensor, {input_layer.placeholder: val1})
@@ -788,7 +788,7 @@ class TestLayers(test_utils.TestCase):
 
         x2 = Activation(x1)
 
-        drop1 = Dropout(x2, probability=0.5)
+        drop1 = Dropout(x2, probability=0.5, locked=True)
         drop2 = Dropout(x2, probability=0.5)
         drop3 = drop1.reuse_with(x1)
 
@@ -2003,6 +2003,8 @@ class TestLayers(test_utils.TestCase):
         inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         emb = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
 
+        ones = tf.ones_like(emb)
+
         attention = Attention(query_layer=emb,
                               key_layer=emb,
                               value_layer=emb,
@@ -2016,8 +2018,7 @@ class TestLayers(test_utils.TestCase):
 
         with self.cached_session(use_gpu=True):
             tf.global_variables_initializer().run()
-            print(np.shape(attention.eval()))
-            print(np.shape(attention_reg.eval()))
+            self.assertArrayEqual(np.shape(attention.eval()), np.shape(attention_reg.eval()))
 
     if __name__ == '__main__':
         test_utils.main()
