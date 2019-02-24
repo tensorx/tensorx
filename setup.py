@@ -1,9 +1,9 @@
 from distutils.core import setup
 
-_VERSION = '0.4'
+_VERSION = '0.6'
 
 install_requires = [
-    'tensorflow >= 1.12.0'
+    'tensorflow >= 1.13.0'
 ]
 
 setup(
@@ -17,6 +17,6 @@ setup(
     description='TensorX is a minimalistic utility library to '
                 'build neural network models in TensorFlow',
 
-    python_requires='>=3.6',
+    python_requires='>=3.7',
     install_requires=install_requires
 )
