@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-tensorflow = {file = "https://github.com/davidenunes/tensorflow-wheels/releases/download/r1.13.0rc1.cp37/tensorflow-1.13.0rc1-cp37-cp37m-linux_x86_64.whl"}
+tensorflow = {file = "https://github.com/davidenunes/tensorflow-wheels/releases/download/r1.13.1.cp37.gpu.xla/tensorflow-1.13.1-cp37-cp37m-linux_x86_64.whl"}
 pygraphviz = "*"
 
 [dev-packages]

@@ -1,4 +1,7 @@
 import tensorflow as tf
+from tensorflow.python.framework.tensor_util import constant_value
+
+static_value = constant_value
 
 
 def to_tensor_cast(x, dtype=None):
@@ -90,3 +93,10 @@ class Graph:
         self.add_node(node2)
         self.edges_out[node1].append(node2)
         self.edges_in[node2].append(node1)
+
+
+__all__ = ["constant_value",
+           "Graph",
+           "as_list",
+           "complete_shape",
+           "to_tensor_cast"]

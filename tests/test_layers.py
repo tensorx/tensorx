@@ -1595,6 +1595,9 @@ class TestLayers(test_utils.TestCase):
         rnn4 = rnn3.reuse_with(seq)
         rnn5 = rnn4.reuse_with(seq, previous_state=ones_state)
 
+        self.assertArrayEqual(rnn2.previous_state, rnn1.previous_state)
+        self.assertArrayEqual(rnn3.previous_state, rnn4.previous_state)
+
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())
             out1 = self.eval(rnn1.tensor)
@@ -1603,7 +1606,6 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(out1, out2)
 
             out3 = self.eval(rnn3.tensor)
-
             out4 = self.eval(rnn4.tensor)
 
             self.assertArrayEqual(out3, out4)
@@ -2003,8 +2005,6 @@ class TestLayers(test_utils.TestCase):
         inputs = TensorLayer(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         emb = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
 
-        ones = tf.ones_like(emb)
-
         attention = Attention(query_layer=emb,
                               key_layer=emb,
                               value_layer=emb,
@@ -2019,6 +2019,20 @@ class TestLayers(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             tf.global_variables_initializer().run()
             self.assertArrayEqual(np.shape(attention.eval()), np.shape(attention_reg.eval()))
+
+    def test_seq_concat(self):
+        seq = [[[1], [4], [7]], [[2], [5], [8]], [[3], [6], [9]]]
+        expected = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        seq_layer = TensorLayer(seq, n_units=1)
+        seq_concat = SeqConcat(seq_layer, time_major=True, seq_size=3)
+
+        lookup = Lookup(expected, seq_size=None, lookup_shape=[10, 2])
+        concat = lookup.as_concat()
+
+        with self.cached_session(use_gpu=True):
+            self.eval(tf.global_variables_initializer())
+            self.assertArrayEqual(seq_concat.tensor, expected)
+            self.assertEqual(seq_concat.n_units, 3 * seq_layer.n_units)
 
     if __name__ == '__main__':
         test_utils.main()

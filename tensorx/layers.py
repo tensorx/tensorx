@@ -197,7 +197,7 @@ class LayerProto:
         new_args.update(kwargs)
         return self.layer_cls(*args, **new_args)
 
-    def set(self, **kwargs):
+    def update(self, **kwargs):
         self._validate_args(**kwargs)
         self.args_set.update(kwargs)
 
@@ -1058,6 +1058,9 @@ class Linear(Layer):
         if not isinstance(input_layer, Layer):
             input_layer = TensorLayer(input_layer, dtype=dtype)
 
+        if input_layer.n_units is None or isinstance(input_layer.n_units, tf.Tensor):
+            raise ValueError("Cannot create Linear layer from unknown previous n_units")
+
         # input_shape = layer.tensor.get_shape().as_list()
         shape = [input_layer.n_units, n_units]
         super().__init__(input_layer, n_units, shape, dtype, name)
@@ -1066,8 +1069,8 @@ class Linear(Layer):
             if not isinstance(self.share_vars_with, Linear):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
-            if self.shape != self.share_vars_with.shape:
-                raise ValueError("Can only share variables with layers with the same dimension: "
+            if self.shape[-1] != self.share_vars_with.shape[-1]:
+                raise ValueError("Can only share variables with layers with the same last dimension: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
                                  "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
@@ -1632,20 +1635,6 @@ class Conv1D(Layer):
                       name=name,
                       share_state_with=share_state_with)
 
-    def as_concat(self):
-        n_units = self.n_units * self.shape[1]
-        return WrapLayer(self, n_units,
-                         wrap_fn=lambda x: tf.reshape(x, [-1, n_units]),
-                         attr_fwd=["weights", "bias", "seq_size"],
-                         name="flat_{}".format(self.name))
-
-    def as_seq(self):
-        return WrapLayer(self,
-                         n_units=self.n_units,
-                         wrap_fn=lambda x: tf.transpose(x, [1, 0, 2]),
-                         attr_fwd=["weights", "bias", "seq_size"],
-                         name="seq_{}".format(self.name))
-
 
 class CausalConv(Conv1D):
     def __init__(self, layer,
@@ -1990,9 +1979,9 @@ class QRNN(Layer):
                 prev_candidate = TensorLayer(prev_candidate, self.n_units)
 
                 # as sequence views
-                wz_seq = self.w_z.as_seq()
-                wf_seq = self.w_f.as_seq()
-                wo_seq = self.w_o.as_seq()
+                wz_seq = Transpose(self.w_z, [1, 0, 2])
+                wf_seq = Transpose(self.w_f, [1, 0, 2])
+                wo_seq = Transpose(self.w_0, [1, 0, 2])
 
                 def forget_fn(x):
                     if self.zoneout:
@@ -2001,7 +1990,7 @@ class QRNN(Layer):
                         return sigmoid(x)
 
                 if self.input_gate:
-                    wi_seq = self.w_i.as_seq()
+                    wi_seq = self.w_i.permute_batch_time()
 
                 states = []
 
@@ -2350,7 +2339,7 @@ class RNNCell(BaseRNNCell):
 
             if regularized:
                 if self.y_dropout is not None and self.y_dropout > 0:
-                    current_h = self.y_reg(current_h)
+                    output = self.y_reg(output)
 
             return output.tensor, current_h
 
@@ -2476,7 +2465,7 @@ class GRUCell(BaseRNNCell):
                                name=self.name + "_h")
             if regularized:
                 if self.y_dropout is not None and self.y_dropout > 0:
-                    current_h = self.y_reg(current_h)
+                    output = self.y_reg(output)
 
             return output.tensor, current_h
 
@@ -2642,7 +2631,7 @@ class LSTMCell(BaseRNNCell):
 
             if regularized:
                 if self.y_dropout is not None and self.y_dropout > 0:
-                    current_h = self.y_reg(current_h)
+                    output = self.y_reg(output)
 
             current_h = Module(inputs=[input_layer, previous_h, previous_memory],
                                output=current_h,
@@ -2859,7 +2848,7 @@ class SeqMap(Layer):
                 layer_instance = self.layer_proto(x0)
             else:
                 layer_instance = self.share_vars_with.layer_instance
-                layer_instance = layer_instance.reuse_with(input_layer=x0)
+                layer_instance = layer_instance.reuse_with(x0)
 
             output_ta = output_ta.write(i0, layer_instance.tensor)
             self.layer_instance = layer_instance
@@ -2883,12 +2872,11 @@ class SeqMap(Layer):
             return out.stack()
 
     def reuse_with(self, input_seq, name=None):
-        name = self.name if name is None else None
-        share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
+        name = self.name if name is None else name
 
         return SeqMap(input_seq=input_seq,
                       layer_proto=self.layer_proto,
-                      share_vars_with=share_vars_with,
+                      share_vars_with=self,
                       parallel_iterations=self.parallel_iterations,
                       name=name)
 
@@ -2931,6 +2919,8 @@ class Lookup(Layer):
                  share_vars_with=None,
                  batch_padding=True
                  ):
+
+        input_layer = convert_to_layer(input_layer)
 
         self.weight_init = weight_init
         self.feature_shape = lookup_shape
@@ -3785,6 +3775,34 @@ class Mean(Merge):
         super().__init__(*layers, weights=weights, merge_fn=partial(tf.math.reduce_mean, axis=0), name=name)
 
 
+class SeqConcat(Layer):
+    """ Concat Time-Major 3D layer representing a sequence
+
+    """
+
+    def __init__(self, input_layer, time_major=True, seq_size=None, name="seq_concat"):
+        super().__init__(input_layers=input_layer, n_units=None, name=name)
+
+        with layer_scope(self):
+            n_units = input_layer.n_units
+            if not time_major:
+                input_layer = Transpose(input_layer, [1, 0, 2])
+            computed_seq_size = tf.shape(input_layer)[0]
+            static_seq_size = tx_utils.static_value(computed_seq_size)
+            new_n_units = n_units * computed_seq_size
+
+            # if this can't be computed we can't use the static value
+            if seq_size is not None and static_seq_size is not None and seq_size != static_seq_size:
+                raise ValueError("seq_size and number of units mismatch {}!={}".format(seq_size, static_seq_size))
+
+            if static_seq_size is not None:
+                self.n_units = static_seq_size
+            elif seq_size is not None:
+                self.n_units = n_units * seq_size
+
+            self.tensor = tf.reshape(input_layer, [-1, new_n_units])
+
+
 class Concat(Layer):
     """ Concat Layer
 
@@ -4245,7 +4263,7 @@ class BatchNorm(Layer):
                          name=name)
 
 
-class LayerNormalization(Layer):
+class LayerNorm(Layer):
     """ Layer Normalization
 
     References:
@@ -4286,11 +4304,11 @@ class LayerNormalization(Layer):
                 mean,
                 variance,
                 offset=self.beta,
-                scale=self.gama,
+                scale=self.gamma,
                 variance_epsilon=variance_epsilon)
 
     def reuse_with(self, input_layer, name=None):
-        return LayerNormalization(input_layer, share_state_with=self)
+        return LayerNorm(input_layer, share_state_with=self)
 
 
 class Attention(Layer):
@@ -4519,5 +4537,7 @@ __all__ = ["Input",
            "DynamicParam",
            "Param",
            "SeqMap",
-           "Attention"
+           "Attention",
+           "SeqConcat",
+           "LayerNorm"
            ]
