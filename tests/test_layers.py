@@ -121,13 +121,22 @@ class TestLayers(test_utils.TestCase):
 
         with self.cached_session(use_gpu=False):
             self.eval(init)
-            r1, r2 = self.eval([var1.tensor, var2.tensor])
-            r3 = self.eval(var1.tensor)
-            r4 = self.eval(var3.tensor)
-            self.assertArrayEqual(r2, r3)
-            self.assertNotEqual(r1, r2)
-            # since the variable batch dimension is dynamic its shape will be different
-            self.assertArrayNotEqual(np.shape(r3), np.shape(r4))
+            v0 = self.eval(var1.tensor)
+            v1 = self.eval(var2.tensor)
+            self.assertArrayNotEqual(v0, v1)
+
+            # v0 inner variable changed when we evaluate v1
+            v2 = self.eval(var1.tensor)
+            self.assertArrayEqual(v2, v1)
+
+            v3 = self.eval(var3.tensor)
+            self.assertArrayNotEqual(v2, v3)
+            v4 = self.eval(var1.tensor)
+            self.assertArrayEqual(v3, v4)
+
+            # variable batch dimension is dynamic its shape will be different
+            self.assertArrayNotEqual(np.shape(v4), np.shape(v1))
+            self.assertArrayEqual(np.shape(v2), np.shape(v1))
 
     def test_standalone_variable_layer(self):
         var_layer = VariableLayer(var_shape=[10])
