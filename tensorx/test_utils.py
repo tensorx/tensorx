@@ -10,6 +10,7 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
 from tensorflow.python.util import compat
 from tensorflow.python.ops.variables import Variable
+import tensorflow as tf
 import logging
 import numpy as np
 
@@ -63,7 +64,7 @@ class TestCase(unittest.TestCase):
         else:
             sess = ops.get_default_session()
             if sess is None:
-                with self.test_session() as sess:
+                with self.cached_session() as sess:
                     return sess.run(tensors, feed_dict=feed_dict)
             else:
                 return sess.run(tensors, feed_dict=feed_dict)
@@ -83,6 +84,69 @@ class TestCase(unittest.TestCase):
             second = self.eval(second)
 
         super().assertEqual(first, second)
+
+    def assertShapeEqual(self, first, second):
+        first = tf.convert_to_tensor(first)
+        second = tf.convert_to_tensor(second)
+
+        self.assertAllEqual(first.get_shape().as_list(), second.get_shape().as_list())
+
+    def _GetNdArray(self, a):
+        # If a is a tensor then convert it to ndarray
+        if isinstance(a, ops.Tensor):
+            if isinstance(a, ops._EagerTensorBase):
+                a = a.numpy()
+            else:
+                a = self.evaluate(a)
+        if not isinstance(a, np.ndarray):
+            return np.array(a)
+
+        return a
+
+    def assertAllCloseAccordingToType(self,
+                                      a,
+                                      b,
+                                      rtol=1e-6,
+                                      atol=1e-6,
+                                      float_rtol=1e-6,
+                                      float_atol=1e-6,
+                                      half_rtol=1e-3,
+                                      half_atol=1e-3,
+                                      bfloat16_rtol=1e-2,
+                                      bfloat16_atol=1e-2,
+                                      msg=None):
+        """Like assertAllClose, but also suitable for comparing fp16 arrays.
+        In particular, the tolerance is reduced to 1e-3 if at least
+        one of the arguments is of type float16.
+        Args:
+          a: the expected numpy ndarray or anything can be converted to one.
+          b: the actual numpy ndarray or anything can be converted to one.
+          rtol: relative tolerance.
+          atol: absolute tolerance.
+          float_rtol: relative tolerance for float32.
+          float_atol: absolute tolerance for float32.
+          half_rtol: relative tolerance for float16.
+          half_atol: absolute tolerance for float16.
+          bfloat16_rtol: relative tolerance for bfloat16.
+          bfloat16_atol: absolute tolerance for bfloat16.
+          msg: Optional message to report on failure.
+        """
+        a = self._GetNdArray(a)
+        b = self._GetNdArray(b)
+        # types with lower tol are put later to overwrite previous ones.
+        if (a.dtype == np.float32 or b.dtype == np.float32 or
+                a.dtype == np.complex64 or b.dtype == np.complex64):
+            rtol = max(rtol, float_rtol)
+            atol = max(atol, float_atol)
+        if a.dtype == np.float16 or b.dtype == np.float16:
+            rtol = max(rtol, half_rtol)
+            atol = max(atol, half_atol)
+        if (a.dtype == tf.bfloat16.as_numpy_dtype or
+                b.dtype == tf.bfloat16.as_numpy_dtype):
+            rtol = max(rtol, bfloat16_rtol)
+            atol = max(atol, bfloat16_atol)
+
+        self.assertAllClose(a, b, rtol=rtol, atol=atol)
 
     def assertNotEqual(self, first, second, msg=None):
         if isinstance(first, (Tensor, Variable)):

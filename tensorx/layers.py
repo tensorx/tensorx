@@ -1069,8 +1069,8 @@ class Linear(Layer):
             if not isinstance(self.share_vars_with, Linear):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
-            if self.shape[-1] != self.share_vars_with.shape[-1]:
-                raise ValueError("Can only share variables with layers with the same last dimension: "
+            if self.shape != self.share_vars_with.shape:
+                raise ValueError("Can only share variables with layers with the same dimensions: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
                                  "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
@@ -1223,6 +1223,67 @@ class Linear(Layer):
                       add_bias=self.add_bias,
                       name=name,
                       share_vars_with=share_vars_with)
+
+
+class DropLookup(Layer):
+    """ Applies Dropout with a given probability to a Lookup layer by unique id
+
+    The lookup is expected to represent a sequence lookup in batch-major form
+    For each lookup sample, the dropout is applied per unique id, meaning that if
+    the lookup ids in a sample are [1,2,1] and id 1 is selected for dropout,
+    the first and last vectors will be set to 0 for this sample.
+
+    Args:
+        layer: a Lookup input layer
+        scale: if scale is True, scales the non-dropped lookups by x / (1 - probability)
+
+
+    """
+
+    def __init__(self, layer, probability=0.5, scale=True, name="drop_lookup"):
+        if not isinstance(layer, Lookup):
+            raise TypeError("input layer should be a {} layer {} found instead".format(str(Lookup), type(layer)))
+
+        self.scale = scale
+        self.probability = probability
+        super().__init__(layer, layer.n_units, name=name)
+
+        self.tensor = self._build_graph()
+
+    def _build_graph(self):
+        if self.probability == 1:
+            return tf.zeros_like(self.input_layers[0].tensor, dtype=tf.float32)
+        elif self.probability > 0:
+
+            input_indices = self.input_layers[0].input_layers[0]
+            inputs: tf.SparseTensor = input_indices.tensor
+            lookup_shape = tf.shape(self.input_layers[0].tensor)
+            batch_size, seq_size = lookup_shape[0], lookup_shape[1]
+
+            if input_indices.is_sparse():
+                _, ids = tf.split(inputs.indices, 2, axis=-1)
+            else:
+                ids = inputs
+
+            unique_ids, indices = tf.unique(tf.reshape(ids, [-1]))
+            mask_shape = tf.stack([batch_size, tf.size(unique_ids)])
+            unique_mask = tf.random_uniform(mask_shape, dtype=tf.float32)
+
+            batch_wise = tf.broadcast_to(tf.expand_dims(tf.range(batch_size), axis=-1),
+                                         tf.stack([batch_size, seq_size]))
+            unique_batch_wise = tf.reshape(indices, [batch_size, seq_size])
+
+            # gather mask and convert it to binary mask
+            mask_indices = tf.stack([batch_wise, unique_batch_wise], axis=-1)
+            binary_mask = tf.floor(tf.gather_nd(unique_mask, mask_indices) + (1 - self.probability))
+            if self.scale:
+                binary_mask /= (1 - self.probability)
+
+            dropped_lookup = self.input_layers[0].tensor * tf.expand_dims(binary_mask, axis=-1)
+        else:
+            dropped_lookup = self.input_layers[0].tensor
+
+        return dropped_lookup
 
 
 class ViewLayer(Layer):
@@ -1981,7 +2042,7 @@ class QRNN(Layer):
                 # as sequence views
                 wz_seq = Transpose(self.w_z, [1, 0, 2])
                 wf_seq = Transpose(self.w_f, [1, 0, 2])
-                wo_seq = Transpose(self.w_0, [1, 0, 2])
+                wo_seq = Transpose(self.w_o, [1, 0, 2])
 
                 def forget_fn(x):
                     if self.zoneout:
@@ -1990,7 +2051,7 @@ class QRNN(Layer):
                         return sigmoid(x)
 
                 if self.input_gate:
-                    wi_seq = self.w_i.permute_batch_time()
+                    wi_seq = Transpose(self.w_i, [1, 0, 2])
 
                 states = []
 
@@ -4539,5 +4600,6 @@ __all__ = ["Input",
            "SeqMap",
            "Attention",
            "SeqConcat",
-           "LayerNorm"
+           "LayerNorm",
+           "DropLookup"
            ]

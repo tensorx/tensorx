@@ -2024,10 +2024,9 @@ class TestLayers(test_utils.TestCase):
         seq = [[[1], [4], [7]], [[2], [5], [8]], [[3], [6], [9]]]
         expected = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
         seq_layer = TensorLayer(seq, n_units=1)
-        seq_concat = SeqConcat(seq_layer, time_major=True, seq_size=3)
+        seq_concat = SeqConcat(seq_layer, time_major=False, seq_size=3)
 
         lookup = Lookup(expected, seq_size=None, lookup_shape=[10, 2])
-        concat = lookup.as_concat()
 
         with self.cached_session(use_gpu=True):
             self.eval(tf.global_variables_initializer())

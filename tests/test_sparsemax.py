@@ -6,13 +6,13 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import gradient_checker
 from tensorflow.python.ops import gradients_impl
 from tensorflow.python.platform import test
-
+from tensorx.test_utils import TestCase
 from tensorx.activation import sparsemax
 
 test_obs = 10
 
 
-class SparsemaxTest(test.TestCase):
+class SparsemaxTest(TestCase):
     def _np_sparsemax(self, z):
         z = z - np.mean(z, axis=1)[:, np.newaxis]
 
@@ -51,7 +51,7 @@ class SparsemaxTest(test.TestCase):
         return support * (grad - v_hat[:, np.newaxis])
 
     def _tf_sparsemax(self, z, dtype, use_gpu):
-        with self.test_session(use_gpu=use_gpu):
+        with self.cached_session(use_gpu=use_gpu):
             tf_sparsemax_op = sparsemax(z.astype(dtype))
             tf_sparsemax_out = tf_sparsemax_op.eval()
 
@@ -168,7 +168,7 @@ class SparsemaxTest(test.TestCase):
         logits = array_ops.placeholder(dtype, name='z')
         sparsemax_op = sparsemax(logits)
 
-        with self.test_session(use_gpu=use_gpu):
+        with self.cached_session(use_gpu=use_gpu):
             err = gradient_checker.compute_gradient_error(
                 logits, z.shape,
                 sparsemax_op, z.shape,
@@ -185,7 +185,7 @@ class SparsemaxTest(test.TestCase):
         sparsemax_op = sparsemax(logits)
         sparsemax_grad_op = gradients_impl.gradients(sparsemax_op, [logits])[0]
 
-        with self.test_session(use_gpu=use_gpu):
+        with self.cached_session(use_gpu=use_gpu):
             tf_grad = sparsemax_grad_op.eval()
             np_grad = self._np_sparsemax_grad(z)
 

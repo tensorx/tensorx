@@ -353,8 +353,8 @@ def sparse_cnce_loss(label_features,
         )
 
         # p_m(y=1|m)
-        true_logits = tf.math.matmul(model_prediction, true_w, transpose_b=True)
-        noise_logits = tf.math.matmul(model_prediction, noise_w, transpose_b=True)
+        true_logits = tf.matmul(model_prediction, true_w, transpose_b=True)
+        noise_logits = tf.matmul(model_prediction, noise_w, transpose_b=True)
 
         # log(exp(a)/exp(b)) =  -log(exp(b)/exp(a))
         logit_ratio = true_logits - noise_logits

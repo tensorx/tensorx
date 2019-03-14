@@ -1,4 +1,3 @@
-import unittest
 import tensorflow as tf
 from tensorx import transform, metrics
 import numpy as np
