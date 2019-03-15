@@ -1,3 +1,0 @@
-pygraphviz==1.5
-tensorflow==1.13.1
-numpy>=1.16.2

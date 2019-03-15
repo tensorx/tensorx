@@ -5,14 +5,11 @@ import codecs
 import sys
 from shutil import rmtree
 
-__VERSION__ = '0.7'
 about = {}
-
 
 here = os.path.abspath(os.path.dirname(__file__))
 
-
-with open(os.path.join(here, "exp", "__version__.py")) as f:
+with open(os.path.join(here, "tensorx", "__version__.py")) as f:
     exec(f.read(), about)
 
 with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as f:
@@ -21,6 +18,7 @@ with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as f:
 if sys.argv[-1] == "publish":
     os.system("python setup.py sdist bdist_wheel upload")
     sys.exit()
+
 
 class UploadCommand(Command):
     """Support setup.py publish."""
@@ -55,13 +53,12 @@ class UploadCommand(Command):
         sys.exit()
 
 
-
 install_requires = [
-    
+
 ]
 
 extras_require = {
-	'graphviz' : ['pygraphviz']
+    'graphviz': ['pygraphviz']
 }
 
 setup(
@@ -74,15 +71,17 @@ setup(
     author_email='mail@davidenunes.com',
     description='TensorX is a minimalistic utility library to '
                 'build neural network models in TensorFlow',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     package_data={
-          "": ["LICENSE"],
+        "": ["LICENSE"],
     },
     include_package_data=True,
     classifiers=[
-          'Programming Language :: Python',
-          'Programming Language :: Python :: 3.6',
-          'Programming Language :: Python :: 3.7',
-    ]
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+    ],
     python_requires='>=3.6',
     cmdclass={"upload": UploadCommand},
     install_requires=install_requires

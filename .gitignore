@@ -55,8 +55,9 @@ target/
 _build/
 
 
-# Idea
+# IDE files
 .idea
+.vscode
 
 # org files like notes and todo lists
 *.org
