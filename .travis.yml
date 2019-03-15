@@ -1,13 +1,17 @@
 language: python
 python:
-        - "3.6"
-
-# Enable 3.7 without globally enabling sudo and dist: xenial for other build jobs
+- '3.6'
 matrix:
   include:
-    - python: 3.7
-      dist: xenial
-      sudo: true
-
+  - python: 3.7
+    dist: xenial
+    sudo: true
 script: python -m unittest
-
+deploy:
+  provider: pypi
+  user: davidenunes
+  password:
+    secure: U7WnSLiSd7YK/nfPDt6i2dojNVMNTWB1R/a/xTZjIJJvMcDk17K4mRbcJblkgmQo1Zi+EQPC62g0kXZMgEVcOGDHQV20KqbJzPYefzs1roR0ppdKh+5+nZCSuol3Xc8mEbSYeDQkkhicSTAGfN8WMyK/VPY2SSAlNs0oakfiEuISdfEkS5QjBkG1pIwvLB7FaxIyv79kBOE5Oi5fyqEVncwbWgJvtsKQSafnsER/bnF/bgOWqPLXP5jiko+akT4rKpl20Vt3FZ1zPjWnUgzQutoYiSlb4TGpmBNOPx4ZXu3PBFKFJmzR4HsdiwVsbLJ1OIssexZtHa++Y+sj96EgIGt4zl11ulV3CLehEfeTdAJ8OQviyv6EI9fStXn3qt3RBp5srRgGq3gY+lHdDAo0kdzVrfpaIuhwkwgFmOi0lPmlDTBMLX++iiF01pzsxkgKD5nrqHlKg57wIBxe45SpLyV81+dyD2W0wyFCvC15Bd2XGSj+i2LdwRr/5SCrcDSIWxGbeMxSGuu/7LPwiQ3Z3swVwcBh0rDwMI6BySbms5fAObC0dzHY1b6Rl+F2mTOPF/npZVpQ35DC2hODgUBikYppSCfCU9n9RzJNhYXJRV0vaFB3yZ3wWMZ9GvxAOupuwP1WEJpxBhN4YvSH3YxensM0btRgbTU3NQnhDTTRmNk=
+  on: 
+     tags: true
+     
