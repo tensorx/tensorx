@@ -3843,15 +3843,20 @@ class SeqConcat(Layer):
 
     def __init__(self, input_layer, time_major=True, seq_size=None, name="seq_concat"):
         super().__init__(input_layers=input_layer, n_units=None, name=name)
-
         with layer_scope(self):
             n_units = input_layer.n_units
-            if not time_major:
+            if time_major:
                 input_layer = Transpose(input_layer, [1, 0, 2])
-            computed_seq_size = tf.shape(input_layer)[0]
-            static_seq_size = tx_utils.static_value(computed_seq_size)
-            new_n_units = n_units * computed_seq_size
+                dynamic_seq_size = tf.shape(input_layer)[0]
+            else:
+                dynamic_seq_size = tf.shape(input_layer)[1]
 
+            if seq_size is None:
+                seq_size = dynamic_seq_size
+
+            new_n_units = tf.shape(input_layer.tensor)[-1] * seq_size
+
+            static_seq_size = tx_utils.static_value(dynamic_seq_size)
             # if this can't be computed we can't use the static value
             if seq_size is not None and static_seq_size is not None and seq_size != static_seq_size:
                 raise ValueError("seq_size and number of units mismatch {}!={}".format(seq_size, static_seq_size))
