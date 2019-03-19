@@ -9,3 +9,4 @@ from tensorx.math import *
 from tensorx.train import *
 from tensorx.optimizers import *
 from tensorx.struct import *
+from tensorx.data import *
