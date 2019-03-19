@@ -4,7 +4,7 @@
 [![Docs](https://readthedocs.org/projects/tensorx/badge/?version=latest)](http://tensorx.readthedocs.io/en/latest/?badge=latest)
 [![dev build](https://travis-ci.org/davidenunes/tensorx.svg?branch=dev)](https://travis-ci.org/davidenunes/tensorx)
 
-**TensorX** is an free and open-source minimalistic high-level library to build, train, and run neural network models in [TensorFlow](https://github.com/tensorflow/tensorflow). This is currently under heavy development, as such I don't recommend it's usage yet. Tensorflow is approaching a new release and there will be a split in this library as well that will accomodate both static graphs and eager execution (wich will be the new default mode)
+**TensorX** is an free and open-source minimalistic high-level library to build, train, and run neural network models in [TensorFlow](https://github.com/tensorflow/tensorflow). This is currently under heavy development, as such I don't recommend it's usage yet. Tensorflow is approaching a new release and there will be a split in this library as well that will accomodate both static graphs and eager execution (the new default mode).
 
 **Documentation** will be available at [tensorx.readthedocs.io](http://tensorx.readthedocs.io/en/latest/?badge=latest).
 
