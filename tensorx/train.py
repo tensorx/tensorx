@@ -11,10 +11,9 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 """
 
 import os
-from pygraphviz import AGraph
+
 from abc import ABCMeta, abstractmethod
 
-from tensorx.layers import DynamicParam
 from tensorx.utils import as_list
 from tensorflow.python.summary.writer.writer import FileWriter
 from tensorflow.python.client.session import Session, InteractiveSession
@@ -423,6 +422,7 @@ class LayerGraph:
         return result
 
     def draw(self, path="layer_graph.pdf"):
+        from pygraphviz import AGraph
         dg = AGraph(directed=True)
 
         for node in self.graph.nodes:
