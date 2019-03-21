@@ -1,6 +1,6 @@
 from unittest import TestCase
 import numpy as np
-from tensorx.data import itertools as itx
+from tensorx.data import iterx as itx
 import itertools as it
 
 
