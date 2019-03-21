@@ -6,7 +6,5 @@ from tensorx.random import *
 from tensorx.transform import *
 from tensorx.metrics import *
 from tensorx.math import *
-from tensorx.train import *
-from tensorx.optimizers import *
-from tensorx.struct import *
-from tensorx.data import *
+
+
