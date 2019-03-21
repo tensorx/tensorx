@@ -64,7 +64,7 @@ extras_require = {
 setup(
     name='tensorx',
     version=about["__version__"],
-    packages=['tensorx'],
+    packages=['tensorx','tensorx.data'],
     url='https://github.com/davidenunes/tensorx',
     license='Apache 2.0',
     author='Davide Nunes',
