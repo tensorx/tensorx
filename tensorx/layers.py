@@ -335,15 +335,6 @@ class Layer:
         else:
             return self.tensor.eval(feed_dict=feed_dict, session=session)
 
-    def tensor_shape(self):
-        """ Returns the layers dynamic tensor shape as a list
-
-        Returns:
-            list with the shape of this layers tensor
-
-        """
-        return self.tensor.get_shape().as_list()
-
     def __call__(self, *args, **kwargs):
         return type(self).reuse_with(*args, **kwargs)
 
@@ -418,7 +409,7 @@ class WrapLayer(Layer):
             if n_units is None:
                 n_units = fn_n_units
 
-        super().__init__(input_layers=layer, n_units=n_units,dtype=dtype, name=name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=dtype, name=name)
 
         self.tensor = tensor
 
@@ -500,9 +491,9 @@ class VariableLayer(Layer):
         if n_units is None:
             raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
 
-        #if input_layer is not None:
+        # if input_layer is not None:
         #    shape = [input_layer.n_units, input_layer.n_units]
-        #else:
+        # else:
         #    shape = [None, var_shape[-1]]
 
         super().__init__(input_layer, n_units, dtype=dtype, name=name)
@@ -1595,7 +1586,6 @@ class Conv1D(Layer):
         if self.share_state_with is not None:
             if not isinstance(self.share_state_with, Conv1D):
                 raise TypeError("Layer can only share variables with other layer of the same type")
-
 
             if self.filter_shape != self.share_state_with.filter_shape:
                 raise ValueError("Can only share variables between layers with the same kernel shape: \n"
@@ -2996,7 +2986,7 @@ class Lookup(Layer):
         # if weights are passed, check that their shape matches the layer shape
 
         self.tensor = self._build_graph()
-        self.output_shape = [self.tensor_shape()[0], self.seq_size, self.n_units]
+        self.output_shape = [self.shape[0], self.seq_size, self.n_units]
 
     def _build_graph(self):
         input_layer = self.input_layers[0]
@@ -3557,7 +3547,7 @@ class SaltPepperNoise(Layer):
 
                 noise = salt_pepper_noise(dim=self.n_units,
                                           batch_size=batch_size,
-                                          density=density, 
+                                          density=density,
                                           salt_value=salt_value,
                                           pepper_value=pepper_value,
                                           seed=seed)
