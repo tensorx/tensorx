@@ -1031,7 +1031,7 @@ class TestLayers(test_utils.TestCase):
 
         feed = {x.placeholder: data}
 
-        with  self.cached_session(use_gpu=True):
+        with self.cached_session(use_gpu=True):
             sum_res = tf.sparse_reduce_sum(n.tensor, axis=-1)
             expected = [dim * noise_density] * batch_size
             self.assertAllClose(self.eval(sum_res, feed), expected, atol=1)
@@ -1116,8 +1116,6 @@ class TestLayers(test_utils.TestCase):
             wrap2.reuse_with(input2)
 
         """
-        
-
                          +---------------------------------------+
                          | +----------------------------+        |
                          | | +------------+             |        |
@@ -1562,7 +1560,8 @@ class TestLayers(test_utils.TestCase):
         ones_state = tf.ones([batch_size, hdim])
         zero_state = (tf.zeros([batch_size, hdim]))
 
-        def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
+        def rnn_proto(x, **kwargs):
+            return RNNCell(x, n_units=hdim, **kwargs)
 
         rnn1 = RNN(seq, cell_proto=rnn_proto, previous_state=ones_state)
         rnn2 = rnn1.reuse_with(seq)
@@ -1612,7 +1611,8 @@ class TestLayers(test_utils.TestCase):
         lookup = Lookup(inputs, seq_size=seq_size, lookup_shape=[n_features, embed_size])
         seq = lookup.permute_batch_time()
 
-        def rnn_proto(x, **kwargs): return RNNCell(x, n_units=hdim, **kwargs)
+        def rnn_proto(x, **kwargs):
+            return RNNCell(x, n_units=hdim, **kwargs)
 
         rnn1 = RNN(seq, cell_proto=rnn_proto, stateful=True)
 
@@ -1783,7 +1783,6 @@ class TestLayers(test_utils.TestCase):
             self.assertArrayEqual(fl.tensor, rs.tensor)
             self.assertArrayEqual(fl.tensor, fl2.tensor)
 
-            self.assertArrayEqual(x.shape, [2])
             self.assertSequenceEqual(fl.shape, [2, 6])
 
     def test_batch_norm(self):
@@ -1826,8 +1825,8 @@ class TestLayers(test_utils.TestCase):
         # Calculate the moments based on the individual batch.
         mean, variance = tf.nn.moments(x.tensor, axis, shift=moving_mean)
 
-        """Some training algorithms, such as GradientDescent and Momentum often benefit 
-            from maintaining a moving average of variables during optimization. 
+        """Some training algorithms, such as GradientDescent and Momentum often benefit
+            from maintaining a moving average of variables during optimization.
             Using the moving averages for evaluations often improve results significantly.
         """
         from tensorflow.python.training.moving_averages import assign_moving_average

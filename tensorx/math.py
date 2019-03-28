@@ -25,8 +25,8 @@ def safe_div(numerator, denominator, name=None):
     """
     with tf.name_scope(name, "safe_div", [numerator, denominator]):
         res = tf.math.divide(numerator,
-                          tf.where(tf.math.equal(denominator, 0), tf.ones_like(denominator),
-                                   denominator)),
+                             tf.where(tf.math.equal(denominator, 0), tf.ones_like(denominator),
+                                      denominator)),
         res = tf.where(tf.math.is_finite(res), res, tf.zeros_like(res))
         return res
 
@@ -183,9 +183,9 @@ def sparse_multiply_dense(sp_tensor1, tensor2, name="sparse_multiply"):
     """
     with tf.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
         mul = sparse_dense_cwise_mul(sp_tensor1.indices,
-                                             sp_tensor1.values,
-                                             sp_tensor1.dense_shape,
-                                             tensor2)
+                                     sp_tensor1.values,
+                                     sp_tensor1.dense_shape,
+                                     tensor2)
 
         mul = tf.reshape(mul, tf.shape(sp_tensor1))
         return mul
@@ -210,11 +210,14 @@ def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
 
     values = tf.math.multiply(overlap1.values, overlap2.values)
     return tf.SparseTensor(overlap1.indices, values, overlap1.dense_shape)
-
+    
 
 def logit(x, dtype=tf.float32):
     """
-    The logit function is defined as logit(p) = log(p/(1-p)). Note that logit(0) = -inf, logit(1) = inf, and logit(p) for p<0 or p>1 yields nan.
+    logit 
+    
+    ..math::
+        logit(p) = log(p/(1-p)). Note that logit(0) = -inf, logit(1) = inf, and logit(p) for p<0 or p>1 yields nan.
 
     Args:
         dtype: input tensor dtype
@@ -459,8 +462,6 @@ def embedding_lookup_sparse(params,
             sp_weights.indices.get_shape())
         sp_ids.dense_shape.get_shape().assert_is_compatible_with(
             sp_weights.dense_shape.get_shape())
-        # TODO(yleon): Add enhanced node assertions to verify that sp_ids and
-        # sp_weights have equal indices and shapes.
 
     with tf.name_scope(name, "embedding_lookup_sparse",
                        params + [sp_ids]) as name:

@@ -7,7 +7,7 @@ import operator
 
 from contextlib import ExitStack
 from functools import partial, reduce
-from typing import Callable, Union, Optional
+from typing import Callable, Union, Optional, List
 import inspect
 from tensorx import math as mathx
 from tensorx import transform
@@ -20,7 +20,7 @@ from tensorx.utils import Graph
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_var_scope
-import sys
+from tensorx.utils import as_list
 
 
 def _validate_shape_type(x, shape, dtype=None):
@@ -108,8 +108,8 @@ layer_scope = LayerScope
 
 
 def _get_subgraph(input_layers, output_layers):
-    input_layers = _as_list(input_layers)
-    output_layers = _as_list(output_layers)
+    input_layers = as_list(input_layers)
+    output_layers = as_list(output_layers)
 
     endpoints = set()
     graph = Graph()
@@ -150,24 +150,6 @@ def _get_subgraph(input_layers, output_layers):
         raise ValueError("no path found between input and output layers: \n {}".format(failed_layers))
 
     return graph, endpoints
-
-
-def _as_list(elems):
-    """ returns a list from the given element(s)
-
-    Args:
-        elems: one or more objects
-
-    Returns:
-        a list with the elements in elems
-    """
-    if elems is None:
-        elems = []
-    elif isinstance(elems, (list, tuple)):
-        elems = list(elems)
-    else:
-        elems = [elems]
-    return elems
 
 
 class LayerProto:
@@ -221,28 +203,17 @@ class Layer:
     Args:
         input_layers: a single layer,a list of input layers, or None if no inputs are required
         n_units: dimension of input vector (dimension of columns in case batch_size != None
-        shape: [batch size, input dimension]
         dtype: expected input TensorFlow data type
         name: layer name (used to nam the placeholder)
 
     """
 
-    def __init__(self, input_layers, n_units, shape=None, dtype=tf.float32, name="layer"):
+    def __init__(self, input_layers, n_units, dtype=tf.float32, name="layer"):
         self.n_units = n_units
         self.name = getattr(self, "name", name)
         self.scoped_name = name
         self.dtype = dtype
-        self._input_layers = [convert_to_layer(layer) for layer in _as_list(input_layers)]
-
-        if shape is None:
-            shape = [None, n_units]
-        elif len(shape) != 0:
-            if shape[-1] != n_units:
-                raise ValueError("Shape mismatch: shape[-1] ({}) != n_units ({})".format(
-                    shape[-1], n_units
-                ))
-        self.shape = shape
-        # self.shape = tf.TensorShape(self.shape).as_list()
+        self._input_layers = [convert_to_layer(layer) for layer in as_list(input_layers)]
 
         # stores the variables if this layer has any
         self.variables = []
@@ -259,6 +230,22 @@ class Layer:
         if name is None:
             name = self.name
         return type(self)(*layers, name=name)
+
+    @property
+    def shape(self) -> List[Union[None, int]]:
+        """
+
+        Returns:
+            shape (list): list representing the static shape with int dimensions or None if a dimension is unknown.
+
+        """
+        static_shape = self.tensor.get_shape()
+
+        return static_shape.as_list()
+
+    @shape.setter
+    def shape(self, shape):
+        raise ValueError("a static shape cannot be set")
 
     @property
     def input_layers(self):
@@ -413,7 +400,7 @@ class WrapLayer(Layer):
         if hasattr(layer, "placeholder"):
             self.placeholder = layer.placeholder
 
-        self.attr_fwd = _as_list(attr_fwd)
+        self.attr_fwd = as_list(attr_fwd)
         for attr in self.attr_fwd:
             if hasattr(layer, attr):
                 setattr(self, attr, getattr(layer, attr))
@@ -431,11 +418,9 @@ class WrapLayer(Layer):
             if n_units is None:
                 n_units = fn_n_units
 
-        super().__init__(layer, n_units, shape=[layer.shape[0], n_units], dtype=dtype, name=name)
+        super().__init__(input_layers=layer, n_units=n_units,dtype=dtype, name=name)
 
         self.tensor = tensor
-
-        # self.shape = tensor.get_shape() if not isinstance(tensor, tf.Operation) else None
 
     def reuse_with(self, *layers, name=None):
         """ Reuse with a different input layer
@@ -515,12 +500,12 @@ class VariableLayer(Layer):
         if n_units is None:
             raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
 
-        if input_layer is not None:
-            shape = [input_layer.n_units, input_layer.n_units]
-        else:
-            shape = [None, var_shape[-1]]
+        #if input_layer is not None:
+        #    shape = [input_layer.n_units, input_layer.n_units]
+        #else:
+        #    shape = [None, var_shape[-1]]
 
-        super().__init__(input_layer, n_units, shape=shape, dtype=dtype, name=name)
+        super().__init__(input_layer, n_units, dtype=dtype, name=name)
 
         self.trainable = trainable
         self.resource = resource
@@ -571,14 +556,6 @@ class VariableLayer(Layer):
 
                     inc_counter = tf.assign_add(self.counter, 1)
                     with tf.control_dependencies([inc_counter]):
-                        """
-                        not sure if I need to do this with a variable layer
-                        a = tf.Variable(1) 
-                        b = tf.assign(a, stuff) 
-                        with tf.control_dependencies([b]): 
-                            c = tf.identity(stuff) 
-                            tf.gradients(c, ...) # this works
-                        """
                         update_var = tf.assign(self.variable, input_layer.tensor, validate_shape=False)
                     return update_var
 
@@ -643,7 +620,7 @@ class Module(Layer):
     """
 
     def __init__(self, inputs, output, name="module"):
-        inputs = _as_list(inputs)
+        inputs = as_list(inputs)
 
         graph, endpoints = _get_subgraph(inputs, output)
         self.graph = graph
@@ -652,7 +629,6 @@ class Module(Layer):
 
         super().__init__(input_layers=inputs,
                          n_units=output.n_units,
-                         shape=[[l.n_units for l in inputs], output.n_units],
                          dtype=output.dtype,
                          name=name)
 
@@ -719,10 +695,8 @@ class Compose(Layer):
         self.layers = layers
 
         in_layer, *others = layers
-        shape = in_layer.shape[0], others[-1].n_units
         super().__init__(input_layers=self.layers[0].input_layers,
                          n_units=others[-1].n_units,
-                         shape=shape,
                          dtype=self.layers[-1].dtype,
                          name=name)
 
@@ -815,14 +789,20 @@ class Input(Layer):
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
-        super().__init__(None, n_units, shape, dtype, name)
+        super().__init__(None, n_units, dtype, name)
+
+        if shape is None:
+            shape = [None, n_units]
+        else:
+            if shape[-1] != n_units:
+                raise ValueError("Shape mismatch: shape[-1] ({}) != n_units ({})".format(shape[-1], n_units))
 
         self.value = value
 
         with layer_scope(self):
             # if n_active is not None convert to tf.SparseTensor
             if n_active is None:
-                self.placeholder = tf.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
+                self.placeholder = tf.placeholder(dtype=self.dtype, shape=shape, name=self.name)
                 self.tensor = self.placeholder
             else:  # sparse
                 self.n_active = n_active
@@ -882,15 +862,19 @@ class SparseInput(Layer):
     """
 
     def __init__(self, n_units, shape=None, dtype=tf.float32, value=None, name="sparse_input"):
-        super().__init__(None, n_units, shape, dtype, name)
+        super().__init__(None, n_units, dtype, name)
         self.value = value
 
+        if shape is None:
+            shape = [None, n_units]
+        else:
+            if shape[-1] != n_units:
+                raise ValueError("Shape mismatch: shape[-1] ({}) != n_units ({})".format(shape[-1], n_units))
+
         with layer_scope(self):
-            self.placeholder = tf.sparse_placeholder(dtype, shape=self.shape, name=name)
+            self.placeholder = tf.sparse_placeholder(dtype, shape=shape, name=name)
 
             self.tensor = self.placeholder
-            # dense_shape = tf.stack([self.placeholder.dense_shape[0], tf.cast(n_units, tf.int64)])
-            # self.tensor = tf.SparseTensor(self.placeholder.indices, self.placeholder.values, self.placeholder.dense_shape)
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on SparseInput Layer: SparseInput has no input layers")
@@ -932,7 +916,7 @@ class TensorLayer(Layer):
         if n_units is None:
             n_units = output_shape[-1]
 
-        super().__init__(None, n_units, shape, dtype, name)
+        super().__init__(input_layers=None, n_units=n_units, dtype=dtype, name=name)
 
         if var_list is not None:
             for var in var_list:
@@ -975,8 +959,6 @@ class LambdaLayer(Layer):
         output_shape = tensor.get_shape().as_list()
         self.output_shape = output_shape
 
-        shape = [[layer.n_units for layer in layers], output_shape[-1] if len(output_shape) > 0 else 1]
-
         if n_units is None:
             n_units = output_shape[-1] if len(output_shape) > 0 else 1
 
@@ -986,7 +968,6 @@ class LambdaLayer(Layer):
 
         super().__init__(input_layers=layers,
                          n_units=n_units,
-                         shape=shape,
                          dtype=dtype,
                          name=name)
 
@@ -1046,7 +1027,7 @@ class Linear(Layer):
                  dtype=tf.float32,
                  name="linear", share_vars_with=None):
 
-        self.shared_weights: tf.Variable = shared_weights
+        self.shared_weights = shared_weights
         self.shared_bias = shared_bias
         self.weight_init = weight_init
         self.add_bias = add_bias
@@ -1061,23 +1042,24 @@ class Linear(Layer):
         if input_layer.n_units is None or isinstance(input_layer.n_units, tf.Tensor):
             raise ValueError("Cannot create Linear layer from unknown previous n_units")
 
-        # input_shape = layer.tensor.get_shape().as_list()
-        shape = [input_layer.n_units, n_units]
-        super().__init__(input_layer, n_units, shape, dtype, name)
+        super().__init__(input_layers=input_layer, n_units=n_units, dtype=dtype, name=name)
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Linear):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
-            if self.shape != self.share_vars_with.shape:
+            shape = [input_layer.n_units, self.n_units]
+            shared_shape = self.share_vars_with.weights.get_shape().as_list()
+
+            if shape != shared_shape:
                 raise ValueError("Can only share variables with layers with the same dimensions: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
-                                 "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
+                                 "other shape: {s1}".format(s0=shape, s1=shared_shape))
 
         # if weights are passed, check that their shape matches the layer shape
         if self.shared_weights is not None:
-            weight_shape: tf.TensorShape = self.shared_weights.get_shape()
+            weight_shape = self.shared_weights.get_shape()
 
             if self.transpose_weights:
                 if not tf.TensorShape([input_layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[-1]])):
@@ -1105,7 +1087,7 @@ class Linear(Layer):
         var_scope_name = self.share_vars_with.scoped_name if self.share_vars_with is not None else None
         var_reuse = self.share_vars_with is not None
 
-        with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name) as scope:
+        with layer_scope(self, var_scope=True, var_reuse=var_reuse, var_scope_name=var_scope_name):
             # with tf.name_scope(name) as scope, variable_scope.variable_scope(scope[:-1]):
             # init weights
 
@@ -1246,7 +1228,7 @@ class DropLookup(Layer):
 
         self.scale = scale
         self.probability = probability
-        super().__init__(layer, layer.n_units, name=name)
+        super().__init__(input_layers=layer, n_units=layer.n_units, name=name)
 
         self.tensor = self._build_graph()
 
@@ -1256,7 +1238,7 @@ class DropLookup(Layer):
         elif self.probability > 0:
 
             input_indices = self.input_layers[0].input_layers[0]
-            inputs: tf.SparseTensor = input_indices.tensor
+            inputs = input_indices.tensor
             lookup_shape = tf.shape(self.input_layers[0].tensor)
             batch_size, seq_size = lookup_shape[0], lookup_shape[1]
 
@@ -1302,11 +1284,10 @@ class ViewLayer(Layer):
         self.inner_layer = layer
         super().__init__(input_layers=layer.input_layers,
                          n_units=layer.n_units,
-                         shape=layer.shape,
                          dtype=dtype,
                          name=name)
 
-        self.attr_fwd = _as_list(attr_fwd)
+        self.attr_fwd = as_list(attr_fwd)
         for attr in self.attr_fwd:
             if hasattr(self.inner_layer, attr):
                 setattr(self, attr, getattr(self.inner_layer, attr))
@@ -1432,9 +1413,8 @@ class Dropout(Layer):
             input_shape = tf.shape(input_layer.tensor)
             self.noise_shape = [input_shape[axis] if dim is None else dim for axis, dim in enumerate(self.noise_shape)]
 
-        super().__init__(input_layer,
+        super().__init__(input_layers=input_layer,
                          n_units=input_layer.n_units,
-                         shape=[input_layer.n_units, input_layer.n_units],
                          dtype=input_layer.dtype,
                          name=name)
         self.tensor = self._build_graph(input_layer)
@@ -1509,7 +1489,6 @@ class FC(Layer):
 
         super().__init__(input_layers=layer,
                          n_units=self.activation.n_units,
-                         shape=self.activation.shape,
                          dtype=self.activation.dtype,
                          name=name)
 
@@ -1549,8 +1528,8 @@ def _conv_output_length(input_length, kernel_size, padding, stride, dilation=1):
 
 
 def _conv_out_shape(input_shape, filter_shape, padding, stride, dilation_rate):
-    stride = _as_list(stride)
-    dilation_rate = _as_list(dilation_rate)
+    stride = as_list(stride)
+    dilation_rate = as_list(dilation_rate)
 
     space = input_shape[1:-1]
     new_space = []
@@ -1617,11 +1596,6 @@ class Conv1D(Layer):
             if not isinstance(self.share_state_with, Conv1D):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
-            if shape != self.share_state_with.shape:
-                raise ValueError("Can only share variables with layers with the same shape: "
-                                 "share_vars_with is provided but \n"
-                                 "self shape: {s0} different from "
-                                 "other shape: {s1}".format(s0=shape, s1=self.share_state_with.shape))
 
             if self.filter_shape != self.share_state_with.filter_shape:
                 raise ValueError("Can only share variables between layers with the same kernel shape: \n"
@@ -1630,7 +1604,7 @@ class Conv1D(Layer):
                                                                   self.share_state_with.filter_shape)
                                  )
 
-        super().__init__(layer, n_units, shape, tf.float32, name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=tf.float32, name=name)
 
         self.tensor = self._build_graph(layer)
 
@@ -1810,17 +1784,17 @@ class Conv2D(Layer):
 
         self.same_padding = same_padding
 
-        dilation_rate = _as_list(dilation_rate)
+        dilation_rate = as_list(dilation_rate)
         if len(dilation_rate) == 1:
             dilation_rate *= 2
         self.dilation_rate = dilation_rate
 
-        stride = _as_list(stride)
+        stride = as_list(stride)
         if len(stride) == 1:
             stride *= 2
         self.stride = stride
 
-        filter_size = _as_list(filter_size)
+        filter_size = as_list(filter_size)
         if len(filter_size) == 1:
             filter_size *= 2
         self.filter_size = filter_size
@@ -1849,12 +1823,6 @@ class Conv2D(Layer):
             if not isinstance(self.share_vars_with, Conv1D):
                 raise TypeError("Layer can only share variables with other layer of the same type")
 
-            if shape != self.share_vars_with.shape:
-                raise ValueError("Can only share variables with layers with the same shape: "
-                                 "share_vars_with is provided but \n"
-                                 "self shape: {s0} different from "
-                                 "other shape: {s1}".format(s0=self.shape, s1=self.share_vars_with.shape))
-
             if self.filter_shape != self.share_vars_with.filter_shape:
                 raise ValueError("Can only share variables between layers with the same kernel shape: \n"
                                  "Current layer: {}\n"
@@ -1862,7 +1830,7 @@ class Conv2D(Layer):
                                                                   self.share_vars_with.filter_shape)
                                  )
 
-        super().__init__(layer, n_units, shape, tf.float32, name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=tf.float32, name=name)
 
         self.tensor = self._build_graph(layer)
 
@@ -1951,8 +1919,6 @@ class QRNN(Layer):
         input_tensor_shape = layer.tensor.get_shape()
         output_shape = _conv_out_shape(input_tensor_shape, filter_shape, "CAUSAL", stride, dilation_rate)
         self.output_shape = tf.TensorShape(output_shape).as_list()
-        shape = [layer.n_units, n_units]
-
         self.stride = stride
         self.dilation_rate = dilation_rate
         self.activation = activation
@@ -1970,7 +1936,7 @@ class QRNN(Layer):
             raise TypeError("shared qrnn must be of type {} got {} instead".format(QRNN, type(share_vars_with)))
         self.share_vars_with = share_vars_with
 
-        super().__init__(layer, n_units, shape, dtype=tf.float32, name=name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=tf.float32, name=name)
 
         self.tensor = self._build_graph(layer)
 
@@ -2055,7 +2021,9 @@ class QRNN(Layer):
 
                 states = []
 
-                for i in range(self.shape[1]):
+                # TODO I'm not sure this is correct
+                shape = [layer.n_units, self.n_units]
+                for i in range(shape[1]):
                     wz_i = Activation(wz_seq[i], fn=self.activation, name="z_{}".format(i + 1))
 
                     if self.input_gate:
@@ -2109,11 +2077,6 @@ class QRNN(Layer):
                     share_vars_with=share_vars_with,
                     zoneout=zoneout,
                     name=name)
-
-    def as_concat(self):
-        n_units = self.n_units * self.shape[1]
-        return WrapLayer(self, n_units, wrap_fn=lambda x: tf.reshape(x, [-1, n_units]),
-                         attr_fwd=["w_z", "w_f", "w_o"])
 
     def as_seq(self):
         return WrapLayer(self, self.n_units, lambda x: tf.transpose(x, [1, 0, 2]),
@@ -2191,7 +2154,7 @@ class BaseRNNCell(Layer):
                 return state
 
         if previous_state is not None:
-            previous_state = _as_list(previous_state)
+            previous_state = as_list(previous_state)
             if len(previous_state) != len(state_size):
                 raise ValueError(
                     "previous state should have {} states: {} passed instead".format(len(state_size),
@@ -2277,7 +2240,6 @@ class BaseRNNCell(Layer):
 
         super().__init__(input_layers=[input_layer] + self.previous_state,
                          n_units=n_units,
-                         shape=[input_layer.n_units, n_units],
                          dtype=dtype,
                          name=name)
 
@@ -2492,8 +2454,6 @@ class GRUCell(BaseRNNCell):
 
                 self.w = [self.w_r, self.w_c, self.w_z]
                 self.u = [self.u_r, self.u_c, self.u_z]
-
-
             else:
                 self.w = self.share_state_with.w
                 self.u = self.share_state_with.u
@@ -2723,9 +2683,6 @@ class RNN(Layer):
         cell_fn: a function that returns a cell when applied to a single timestep tensor of the form [batch_size,feature_size],
         the returned cell should have a ``regularized`` boolean parameter which appllies a regularized
 
-    TODO persistent: save state for the next batch, this means saving the last element in a var and using it as the previous state for the first layer
-    TODO this means persisting the entire state ? check keras documentation and paper from smerity
-
     Attributes:
         cell: a Layer of type RecurrentCell used in the unrolled steps
         cell_proto (function): a function returning a RecurrentCell when applied to an input or tensor.
@@ -2752,9 +2709,8 @@ class RNN(Layer):
         self.stateful = stateful
 
         # n_units and shape are set after the first cell is created
-        super().__init__(input_layers=[input_seq] + _as_list(previous_state),
+        super().__init__(input_layers=[input_seq] + as_list(previous_state),
                          n_units=None,
-                         shape=[input_seq.n_units, None],
                          dtype=tf.float32,
                          name=name)
 
@@ -2804,7 +2760,6 @@ class RNN(Layer):
             output_ta = output_ta.write(i0, cell.tensor)
             self.cell = cell
             self.n_units = cell.n_units
-            self.shape[-1] = self.n_units
 
             def rnn_unroll(t, y, state):
                 xt = input_ta.read(t)
@@ -2878,7 +2833,6 @@ class SeqMap(Layer):
         # n_units and shape are set after the first cell is created
         super().__init__(input_layers=[input_seq],
                          n_units=None,
-                         shape=[input_seq.n_units, None],
                          dtype=tf.float32,
                          name=name)
 
@@ -2903,7 +2857,7 @@ class SeqMap(Layer):
             x0 = TensorLayer(x0)
 
             """
-            Create a layer instance at t=1 
+            Create a layer instance at t=1
             """
             if self.share_vars_with is None:
                 layer_instance = self.layer_proto(x0)
@@ -2914,7 +2868,6 @@ class SeqMap(Layer):
             output_ta = output_ta.write(i0, layer_instance.tensor)
             self.layer_instance = layer_instance
             self.n_units = layer_instance.n_units
-            self.shape[-1] = self.n_units
 
             def compute_step(t, y):
                 xt = input_ta.read(t)
@@ -2995,7 +2948,6 @@ class Lookup(Layer):
 
         self.batch_size = batch_size
 
-        shape = [input_layer.n_units, n_units]
         self.share_vars_with = share_vars_with
         self.shared_weights = shared_weights
 
@@ -3016,7 +2968,7 @@ class Lookup(Layer):
                 raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
                                  "if n_units < seq_size the lookup will be padded".format(input_layer.n_units,
                                                                                           seq_size))
-        super().__init__(input_layer, n_units=n_units, shape=shape, dtype=dtype, name=name)
+        super().__init__(input_layers=input_layer, n_units=n_units, dtype=dtype, name=name)
 
         if self.shared_weights is not None:
             weight_shape = shared_weights.get_shape().as_list()
@@ -3294,9 +3246,8 @@ class Gate(Layer):
         #     raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
         #         layer.n_units, gate_input.n_units))
 
-        super().__init__([layer, gate_input],
-                         layer.n_units,
-                         shape=[layer.n_units, layer.n_units],
+        super().__init__(input_layers=[layer, gate_input],
+                         n_units=layer.n_units,
                          dtype=tf.float32,
                          name=name)
 
@@ -3349,7 +3300,10 @@ class CoupledGate(Layer):
             raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
                 layer1.n_units, gate_input.n_units))
 
-        super().__init__([layer1, layer2, gate_input], layer1.n_units, layer1.shape, dtype=tf.float32, name=name)
+        super().__init__(input_layers=[layer1, layer2, gate_input],
+                         n_units=layer1.n_units,
+                         dtype=tf.float32,
+                         name=name)
 
         self.gate_fn = gate_fn
         self.gate_input = gate_input
@@ -3384,7 +3338,7 @@ class ToSparse(Layer):
     """
 
     def __init__(self, layer):
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sparse")
+        super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=layer.name + "_sparse")
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -3407,7 +3361,7 @@ class ToDense(Layer):
     """
 
     def __init__(self, layer):
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_dense")
+        super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=layer.name + "_dense")
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -3450,7 +3404,6 @@ class ZoneOut(Layer):
         n_units = layer.n_units
         super().__init__(input_layers=[layer, previous_layer],
                          n_units=n_units,
-                         shape=[n_units, n_units],
                          dtype=layer.dtype,
                          name=name)
 
@@ -3508,7 +3461,6 @@ class GaussianNoise(Layer):
 
         super().__init__(input_layers=layer,
                          n_units=layer.n_units,
-                         shape=layer.shape,
                          dtype=layer.dtype,
                          name=layer.name + "_gaussian_noise")
 
@@ -3549,7 +3501,6 @@ class SparseGaussianNoise(Layer):
             self.dtype = dtype
         super().__init__(input_layers=layer,
                          n_units=layer.n_units,
-                         shape=layer.shape,
                          dtype=self.dtype,
                          name=layer.name + "_sparse_gaussian_noise")
 
@@ -3594,21 +3545,22 @@ class SaltPepperNoise(Layer):
         self.salt_value = salt_value
         self.pepper_value = pepper_value
 
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, layer.name + "_sp_noise")
+        super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=layer.name + "_sp_noise")
 
         # do nothing if amount of noise is 0
         if density == 0.0 or self.num_corrupted() == 0:
             tensor = layer.tensor
         else:
             with layer_scope(self):
-                noise_shape = layer.shape
 
-                if noise_shape[0] is None:
-                    batch_size = tf.shape(layer.tensor, out_type=tf.int64)[0]
-                else:
-                    batch_size = noise_shape[0]
+                batch_size = tf.shape(layer.tensor, out_type=tf.int64)[0]
 
-                noise = salt_pepper_noise(noise_shape[1], batch_size, density, salt_value, pepper_value, seed)
+                noise = salt_pepper_noise(dim=self.n_units,
+                                          batch_size=batch_size,
+                                          density=density, 
+                                          salt_value=salt_value,
+                                          pepper_value=pepper_value,
+                                          seed=seed)
 
                 if layer.is_sparse():
                     tensor = transform.sparse_put(layer.tensor, noise)
@@ -3619,8 +3571,7 @@ class SaltPepperNoise(Layer):
 
     def num_corrupted(self):
         """ Returns the number of entries corrupted by noise per sample"""
-        noise_shape = self.shape
-        num_noise = int(self.density * noise_shape[1])
+        num_noise = int(self.density * self.n_units)
 
         if num_noise < 2:
             num_noise = 0
@@ -3660,7 +3611,7 @@ class Activation(Layer):
     def __init__(self, layer, fn=tf.identity, name="activation", **keywords):
         self.fn = partial(fn, **keywords)
         self.kw = keywords
-        super().__init__(input_layers=layer, n_units=layer.n_units, shape=None, dtype=layer.dtype, name=name)
+        super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=name)
 
         with layer_scope(self):
             if layer.is_sparse():
@@ -3668,8 +3619,6 @@ class Activation(Layer):
             else:
                 tensor = layer.tensor
             tensor = self.fn(tensor)
-
-        self.shape = tensor.get_shape().as_list()
 
         self.tensor = tensor
 
@@ -3698,7 +3647,7 @@ class Bias(Layer):
         self.share_vars_with = share_vars_with
         bias_name = "{}_{}".format(layer.name, name)
 
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, bias_name)
+        super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=bias_name)
 
         if self.share_vars_with is not None:
             if not isinstance(self.share_vars_with, Bias):
@@ -3796,7 +3745,7 @@ class Merge(Layer):
         shape = [[layer.n_units for layer in layers], output_shape[-1]]
         n_units = output_shape[-1]
 
-        super().__init__(layers, n_units, shape, tensor.dtype, name)
+        super().__init__(input_layers=layers, n_units=n_units, dtype=tensor.dtype, name=name)
 
         self.tensor = tensor
 
@@ -3806,7 +3755,6 @@ class Merge(Layer):
         return Merge(*layers, weights=self.weights, merge_fn=self.merge_fn, name=name)
 
 
-# TODO big change new api doesnt let me add [0,something] tensors
 class Add(Merge):
     """ Adds the outputs of multiple layers with the same shape
 
@@ -3837,7 +3785,7 @@ class Mean(Merge):
 
 
 class SeqConcat(Layer):
-    """ Concat Time-Major 3D layer representing a sequence
+    """ Concat 3D Layer representing a sequence of vectors
 
     """
 
@@ -3886,7 +3834,7 @@ class Concat(Layer):
             raise ValueError("Layers must have the same type to be concatenated")
 
         total_units = sum([layer.n_units for layer in layers])
-        super().__init__(layers, total_units, dtype=first.dtype, name=name)
+        super().__init__(input_layers=layers, n_units=total_units, dtype=first.dtype, name=name)
 
         with layer_scope(self):
             tensors = [layer.tensor for layer in layers]
@@ -3933,7 +3881,6 @@ class Highway(Layer):
 
         super().__init__(input_layers=[x_layer, h_layer],
                          n_units=x_layer.n_units,
-                         shape=x_layer.shape,
                          dtype=x_layer.dtype,
                          name=name)
 
@@ -4001,7 +3948,6 @@ class Residual(Layer):
 
         super().__init__(input_layers=[x_layer, h_layer],
                          n_units=h_layer.n_units,
-                         shape=h_layer.shape,
                          dtype=h_layer.dtype,
                          name=name)
 
@@ -4046,7 +3992,7 @@ class Reshape(Layer):
         n_units = tensor.get_shape().as_list()[-1]
         shape = [layer.n_units, n_units]
 
-        super().__init__(layer, n_units=n_units, shape=shape, dtype=layer.dtype, name=name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
 
         self.tensor = tensor
 
@@ -4069,7 +4015,7 @@ class Transpose(Layer):
 
         n_units = output.get_shape().as_list()[-1]
 
-        super().__init__(layer, n_units=n_units, dtype=layer.dtype, name=name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
         self.tensor = output
 
     def reuse_with(self, layer, name=None):
@@ -4089,7 +4035,7 @@ class Flatten(Layer):
         if not isinstance(layer, Layer):
             layer = TensorLayer(layer)
         n_units = reduce(operator.mul, layer.tensor.get_shape().as_list()[1:])
-        super().__init__(layer, n_units, shape=[layer.shape[0], n_units], dtype=layer.dtype, name=name)
+        super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
 
         with layer_scope(self):
             input_shape = tf.shape(layer.tensor)
@@ -4190,7 +4136,6 @@ class BatchNorm(Layer):
         self.moving_variance = moving_variance
 
         input_shape = layer.tensor.get_shape().as_list()
-        axis = list(range(len(input_shape) - 1))
         param_shape = input_shape[-1:]
         self.param_shape = param_shape
         dtype = layer.dtype
@@ -4204,7 +4149,7 @@ class BatchNorm(Layer):
         if layer.dtype not in (tf.float32, tf.float64, tf.float16):
             raise TypeError("Expected float layer got {} instead".format(layer.dtype))
 
-        super().__init__(layer, layer.n_units, layer.shape, layer.dtype, name=name)
+        super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=name)
         self.tensor = self._build_graph()
 
     def reset_estimates(self):
@@ -4341,7 +4286,6 @@ class LayerNorm(Layer):
     def __init__(self, input_layer, share_state_with=None):
         super().__init__(input_layers=input_layer,
                          n_units=input_layer.n_units,
-                         shape=[input_layer.n_units] * 2,
                          dtype=tf.float32,
                          name="layer_normalization"
                          )
@@ -4413,7 +4357,7 @@ class Attention(Layer):
                 "heads {}".format(self.n_units, n_heads))
 
         self.head_units = n_units // n_heads
-        super().__init__([query_layer, key_layer, value_layer], n_units, name=name)
+        super().__init__(input_layers=[query_layer, key_layer, value_layer], n_units=n_units, name=name)
         self.tensor = self._build_graph()
 
     def _build_graph(self):
@@ -4526,11 +4470,11 @@ class Param(Layer):
     """
 
     def __init__(self, value=None, dtype=tf.float32, name="param"):
-        super().__init__(input_layers=[], n_units=1, shape=[], dtype=dtype, name=name)
+        super().__init__(input_layers=[], n_units=1, dtype=dtype, name=name)
         self.value = value
 
         with layer_scope(self, name=name):
-            self.placeholder = tf.placeholder(dtype=self.dtype, shape=self.shape, name=self.name)
+            self.placeholder = tf.placeholder(dtype=self.dtype, shape=[], name=self.name)
             self.tensor = self.placeholder
 
     def reuse_with(self, *layers, name=None):

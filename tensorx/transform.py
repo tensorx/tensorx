@@ -12,6 +12,17 @@ from tensorflow.python.framework import tensor_shape, tensor_util
 
 
 def to_tensor(tensor, dtype=None):
+    """
+    to_tensor Converts the input to tensor or sparse tensor and casts to the given type
+    
+    Args:
+        tensor (obj): an object convertible to tensor or sparse tensor (e.g. numpy array)
+        dtype (dtype, optional): Defaults to None. dtype for the resulting tensor
+    
+    Returns:
+        Tensor,SparseTensor: Tensor or SparseTensor
+    """
+
     return to_tensor_cast(tensor, dtype)
 
 
