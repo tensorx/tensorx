@@ -2951,7 +2951,7 @@ class Lookup(Layer):
                 tf.int64
             ))
 
-        if len(input_layer.tensor_shape()) > 2:
+        if len(input_layer.shape) > 2:
             raise ValueError("expected 1D/2D input layer")
         elif input_layer.is_dense() and input_layer.n_units is not None:
             if seq_size is not None and input_layer.n_units > seq_size:
