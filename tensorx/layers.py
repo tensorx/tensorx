@@ -1041,6 +1041,8 @@ class Linear(Layer):
 
             shape = [input_layer.n_units, self.n_units]
             shared_shape = self.share_vars_with.weights.get_shape().as_list()
+            if self.transpose_weights:
+                shared_shape = shared_shape[::-1]
 
             if shape != shared_shape:
                 raise ValueError("Can only share variables with layers with the same dimensions: "

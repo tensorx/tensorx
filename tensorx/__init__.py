@@ -6,5 +6,5 @@ from tensorx.random import *
 from tensorx.transform import *
 from tensorx.metrics import *
 from tensorx.math import *
-
+from tensorx.train import *
 
