@@ -4450,6 +4450,8 @@ tf.register_tensor_conversion_function(
     priority=100
 )
 
+from tensorx.callbacks import Property
+
 
 class Param(Layer):
     """ Param
@@ -4462,12 +4464,24 @@ class Param(Layer):
     """
 
     def __init__(self, value=None, dtype=tf.float32, name="param"):
-        super().__init__(input_layers=[], n_units=1, dtype=dtype, name=name)
-        self.value = value
+        super().__init__(input_layers=[], n_units=0, dtype=dtype, name=name)
+        self.property = Property(name=self.name, value=value)
 
         with layer_scope(self, name=name):
             self.placeholder = tf.placeholder(dtype=self.dtype, shape=[], name=self.name)
             self.tensor = self.placeholder
+
+    # forward methods to property including registry
+    @property
+    def value(self):
+        return self.property.value
+
+    @value.setter
+    def value(self, value):
+        self.property.value = value
+
+    def register(self, obs):
+        self.property.register(obs)
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on Param")
@@ -4482,16 +4496,6 @@ class Param(Layer):
 
     def __str__(self):
         return "{name}::{cname}({dtype})".format(name=self.name, cname=type(self).__name__, dtype=self.dtype)
-
-
-class DynamicParam(Param):
-    def __init__(self, value=None, dtype=tf.float32, update_fn=None, name="param_"):
-        super().__init__(value=value, dtype=dtype, name=name)
-        self.update_fn = update_fn
-
-    def update(self, *args, **kwargs):
-        if self.update_fn is not None:
-            self.value = self.update_fn(*args, **kwargs)
 
 
 __all__ = ["Input",
@@ -4536,7 +4540,6 @@ __all__ = ["Input",
            "Mean",
            "DropConnect",
            "ViewLayer",
-           "DynamicParam",
            "Param",
            "SeqMap",
            "Attention",

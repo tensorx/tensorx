@@ -121,14 +121,14 @@ class ModelRunnerTest(test_utils.TestCase):
         self.assertIsNone(model.session)
         self.assertFalse(model.vars_inited())
 
-        model.run({inputs: data})
+        model.run_step({inputs: data})
 
         self.assertIsNotNone(model.session)
         self.assertTrue(model.vars_inited())
 
         # consecutive runs do not change the session
         session1 = model.session
-        result1 = model.run({inputs: data})
+        result1 = model.run_step({inputs: data})
         # weights1 = session1.run(linear.weights, {inputs.tensor: data})
         self.assertEqual(model.session, session1)
 
@@ -142,7 +142,7 @@ class ModelRunnerTest(test_utils.TestCase):
             self.assertFalse(model.vars_inited())
 
             # different sessions init the variables again
-            result2 = model.run({inputs: data})
+            result2 = model.run_step({inputs: data})
 
             self.assertFalse(np.array_equal(result1, result2))
 
@@ -150,11 +150,11 @@ class ModelRunnerTest(test_utils.TestCase):
             # explicitly initialise variables with the new session
             model.init_vars()
             self.assertTrue(model.vars_inited())
-            result31 = model.run({inputs: data})
+            result31 = model.run_step({inputs: data})
             # if the session doesn't change and variables are not re-initialised, the result should be the same
-            result32 = model.run({inputs: data})
+            result32 = model.run_step({inputs: data})
             model.init_vars()
-            result33 = model.run({inputs: data})
+            result33 = model.run_step({inputs: data})
             self.assertTrue(np.array_equal(result31, result32))
             self.assertFalse(np.array_equal(result31, result33))
 
@@ -162,13 +162,13 @@ class ModelRunnerTest(test_utils.TestCase):
             model.reset_session()
 
         with tf.Session() as session4:
-            model.run({inputs: data})
+            model.run_step({inputs: data})
             self.assertEqual(model.session, session4)
 
         model.reset_session()
         self.assertIsNone(model.session)
         session5 = tf.InteractiveSession()
-        model.run({inputs: data})
+        model.run_step({inputs: data})
         self.assertEqual(model.session, session5)
         tf.reset_default_graph()
 
@@ -190,7 +190,7 @@ class ModelRunnerTest(test_utils.TestCase):
             self.assertFalse(session1.run(tf.is_variable_initialized(linear.bias)))
             model.init_vars()
             self.assertTrue(session1.run(tf.is_variable_initialized(linear.bias)))
-            model.run({inputs: [[1.]]})
+            model.run_step({inputs: [[1.]]})
 
         # if reset is not called, init vars tries to use session1
         model.reset_session()
@@ -213,7 +213,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
             data1 = [[1, -1, 1, -1]]
 
-            result = model.run({inputs: data1})
+            result = model.run_step({inputs: data1})
             self.assertIsInstance(result, np.ndarray)
             self.assertTrue(np.ndim(result), 2)
 
@@ -243,12 +243,12 @@ class ModelRunnerTest(test_utils.TestCase):
             # session = runner.session
             # weights = session.run(linear.weights)
             model.init_vars()
-            weights1 = model.session.run(linear.weights)
+            weights1 = model.session.run_step(linear.weights)
 
             for i in range(10):
-                model.train({input_layer: data, labels: target})
+                model.train_step({input_layer: data, labels: target})
 
-            weights2 = model.session.run(linear.weights)
+            weights2 = model.session.run_step(linear.weights)
 
             self.assertFalse(np.array_equal(weights1, weights2))
 

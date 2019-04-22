@@ -26,9 +26,12 @@ from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.training.saver import Saver, import_meta_graph, export_meta_graph
 from tensorflow.python.summary import summary
 
+import tensorflow as tf
 from tensorflow.core.protobuf.config_pb2 import RunOptions, RunMetadata
 from tensorx.layers import *
 from tensorx.utils import Graph
+from tensorx.callbacks import *
+import logging
 
 
 class VariableUpdater:
@@ -190,8 +193,8 @@ class LayerGraph:
         graph inputs.
 
         Args:
-            other_inputs (object): other inputs are just added to the graph possibly
-            to feed other tensors graph, but depdendencies are not checked.
+            other_inputs (Input,Param): other inputs are just added to the graph possibly
+            to feed other tensors, but dependencies are not checked.
             other_tensors (List[Tensor]): if supplied these are runned along with the rest of the graph in eval
             AFTER the fetches from the outputs
             inputs: a list of lists of inputs (a Input, SparseInput Layers or Param instance) for each output node
@@ -232,6 +235,7 @@ class LayerGraph:
                 current_layer = to_visit.pop(0)
                 if current_layer not in visited:
                     visited.add(current_layer)
+                    # register an end node as a dependency
                     if len(current_layer.input_layers) == 0 and hasattr(current_layer, "placeholder"):
                         if current_layer not in dependencies[output_layer]:
                             dependencies[output_layer].append(current_layer)
@@ -306,7 +310,6 @@ class LayerGraph:
         Args:
             other_tensors: runs other tensors or ops that might not be included in the graph
             use_defaults: automatically fill the default values if input layer .value attribute is not None
-            input_values: data to be fed, else it tries to match the input values with all self.input_lauyers
             feed: a feed dictionary from Input Layers or Parameters to values, if None, matches the
             inputs with self.inputs in the same order. If default values are available in the input
             layers, these are used instead.
@@ -339,39 +342,6 @@ class LayerGraph:
             output_layers = target_outputs
             # input_layers = {dep for target_out in output_layers for dep in self.dependencies[target_out]}
 
-        """
-        if feed is None:
-            if len(input_values) != len(input_layers):
-                raise ValueError("number of input values ({n_input_values}) does "
-                                 "not match number of graph input layers "
-                                 "({n_input_layers})".format(n_input_values=len(input_values),
-                                                             n_input_layers=len(input_layers)))
-
-            feed = {}
-            if use_defaults:
-                default_feedable = [feedable for feedable in input_layers if feedable.value is not None]
-            else:
-                default_feedable = []
-
-            if use_defaults:
-                required_feedable = [feedable for feedable in input_layers if feedable.value is None]
-                print("inputs")
-                print(list(map(str, required_feedable)))
-                print(input_values)
-            else:
-                required_feedable = input_layers
-
-            if use_defaults:
-                default_feed = {f_layer.placeholder: f_layer.value for f_layer in default_feedable}
-                feed.update(default_feed)
-
-            required_feed = {f_layer.placeholder: graph_input for f_layer, graph_input in
-                             zip(required_feedable, input_values)}
-
-            feed.update(required_feed)
-            print(feed)
-        else:
-        """
         inputs_fed = set(feed.keys())
 
         missing_dependencies = self.missing_dependencies(inputs_fed, output_layers)
@@ -792,7 +762,7 @@ class Model:
 
         self.train_vars = {var.name for layer in self.train_graph.layers for var in layer.variables}
 
-    def run(self, feed, write_summaries=False):
+    def run_step(self, feed, write_summaries=False):
         """ run the model (inference graph)
         """
         if self.session is None:
@@ -842,8 +812,8 @@ class Model:
             result = result[0]
         return result
 
-    def train(self, feed_dict,
-              write_summaries=False):
+    def train_step(self, feed_dict,
+                   write_summaries=False):
         """ Trains the model on the given data.
 
         Uses the configured optimiser and loss functions to train the update the model variables for n
@@ -855,12 +825,8 @@ class Model:
             You need to run :func:`config` before calling `train`.
 
         Args:
-            feed_dict:
+            feed_dict: feed dict from input layers to data samples
             write_summaries:
-            output_loss:
-            optimizer_params: values to be fed to the feedable ``Params`` specified in ``config_optimizer``
-            model_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to each model input
-            loss_input_data: a :obj:`list` of NumPy `ndarray` with the data to be fed to `self.targets`.
         """
         self.train_called = True
 
@@ -914,13 +880,13 @@ class Model:
 
         return result
 
-    def eval(self, feed, write_summaries=False):
+    def eval_step(self, feed_dict, write_summaries=False):
         """ Evaluates the model on the given data.
 
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
 
         Args:
-            feed (dict): dictionary with eval graph dependencies layer: value
+            feed_dict (dict): dictionary with eval graph dependencies layer: value
             write_summaries:
         """
 
@@ -946,7 +912,7 @@ class Model:
                 target_outputs=self.eval_score,
                 other_tensors=other_fetches,
                 use_defaults=True,
-                feed=feed,
+                feed=feed_dict,
                 session=self.session,
                 options=self.run_options,
                 run_metadata=self.run_metadata)
@@ -959,7 +925,7 @@ class Model:
         else:
             result = self.eval_graph.eval(
                 target_outputs=self.eval_score,
-                feed=feed,
+                feed=feed_dict,
                 other_tensors=other_fetches,
                 use_defaults=True,
                 session=self.session)
@@ -972,8 +938,70 @@ class Model:
 
         return result
 
+    def train(self, train_data, validation_data=None, epochs=1, steps_per_epoch=None, callbacks=[]):
+        """ Takes streams of input dictionaries
 
-class EvalStepDecayParam(DynamicParam):
+        Args:
+            train_data: an iterable whose iterator outputs feed_dicts {Input:data}. Calling iter on this object
+            should yield an iterator for a new training data
+
+            validation_data: an iterable whose iterator outputs feed_dicts {Input:data} Calling iter on this object
+            should yield an iterator for a new epoch.
+
+        """
+        # global step
+        step = Property("step", 1)
+        epoch = Property("epoch", 1)
+        epoch_step = Property("epoch_step", 1)
+        train_loss = Property("train_loss", None)
+        val_loss = Property("val_loss", None)
+        test_loss = Property("test_loss", None)
+        param_props = self.optimizer_params  # if parameters change value this will fire an event in the scheduler
+
+        scheduler = Scheduler(self, model=self,
+                              properties=[step, epoch_step, epoch, val_loss, train_loss, test_loss, param_props])
+
+        if steps_per_epoch is not None:
+            epoch_data = iter(train_data)
+
+        for cb in callbacks:
+            scheduler.register(cb)
+
+        scheduler.trigger(OnTrain(AT.START))
+        try:
+            while epoch.value <= epochs:
+                # EPOCH START
+                # restart iterator for an epoch
+                if steps_per_epoch is None:
+                    epoch_data = iter(train_data)
+
+                epoch_step.value = 1
+                scheduler.trigger(OnEpoch(epoch, AT.START))
+                while steps_per_epoch is None or epoch_step <= steps_per_epoch:
+                    try:
+                        feed_dict = next(epoch_data)
+                        scheduler.trigger(OnStep(epoch_step.value, AT.START))
+                        scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
+
+                        self.train_step(feed_dict=feed_dict)
+
+                        scheduler.trigger(OnStep(epoch_step.value, AT.END))
+                        scheduler.trigger(OnEpochStep(epoch_step.value, AT.END))
+
+                        epoch_step.value += 1
+                        step.value += 1
+                    except StopIteration:
+                        pass
+                # EPOCH END
+                scheduler.trigger(OnEpoch(epoch, AT.END))
+                epoch.value += 1
+        except Exception as e:
+            logging.exception("Error: " + str(e))
+
+        scheduler.trigger(OnTrain(AT.END))
+
+
+class EvalStepDecayParam:
     """
     Args:
         value: initial value for the dynamic param
@@ -1034,7 +1062,7 @@ class EvalStepDecayParam(DynamicParam):
         super().update(evaluation)
 
 
-class StepDecay(DynamicParam):
+class StepDecay():
     """
     """
 
