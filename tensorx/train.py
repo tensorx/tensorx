@@ -11,7 +11,7 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 """
 
 import os
-
+import csv
 from abc import ABCMeta, abstractmethod
 
 from tensorx.utils import as_list
@@ -958,7 +958,7 @@ class Model:
         test_loss = Property("test_loss", None)
         param_props = self.optimizer_params  # if parameters change value this will fire an event in the scheduler
 
-        scheduler = Scheduler(self, model=self,
+        scheduler = Scheduler(self, obj=self,
                               properties=[step, epoch_step, epoch, val_loss, train_loss, test_loss, param_props])
 
         if steps_per_epoch is not None:
@@ -1001,10 +1001,11 @@ class Model:
         scheduler.trigger(OnTrain(AT.END))
 
 
-class EvalStepDecayParam:
+class EvaluationDecay(Callback):
     """
     Args:
-        value: initial value for the dynamic param
+        on: the measure on which we want to measure the improvement, by default "validation_loss"
+        changes: the property to be changed by this callback
         decay_threshold: float value representing the difference between evaluations necessary for the update to occur
         decay_rate: rate through which the param value is reduced `(value = value * decay_rate)`
         decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
@@ -1018,78 +1019,114 @@ class EvalStepDecayParam:
         decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
     """
 
-    def __init__(self, value,
+    def __init__(self,
+                 on="validation_loss",
+                 changes="learning_rate",
                  improvement_threshold=1.0,
                  less_is_better=True,
                  decay_rate=1.0,
                  decay_threshold=1e-6,
-                 dtype=dtypes.float32,
-                 name="eval_step_decay_param"):
+                 priority=1):
         self.improvement_threshold = improvement_threshold
         self.decay_rate = decay_rate
         self.decay_threshold = decay_threshold
         self.less_is_better = less_is_better
+        self.on = on
+        self.changes = changes
         self.eval_history = []
 
-        def update_fn(evaluation):
-            self.eval_history.append(evaluation)
-            value = self.value
+        def update_fn(_, properties):
+            # get properties
+            evaluation = properties[self.on]
+            to_change = properties[self.changes]
+
+            self.eval_history.append(evaluation.value)
+
             if len(self.eval_history) > 1:
-                if self.eval_improvement() <= self.improvement_threshold:
-                    value = max(value * self.decay_rate, self.decay_threshold)
-            return value
+                evaluation = 0
+                if len(self.eval_history) > 1:
+                    evaluation = self.eval_history[-2] - self.eval_history[-1]
+                    if not self.less_is_better:
+                        evaluation = -1 * evaluation
 
-        super().__init__(value=value, dtype=dtype, update_fn=update_fn, name=name)
+            if evaluation <= self.improvement_threshold:
+                # if the target value did not improve, decay the value to be changed
+                # triggers an event
+                to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
 
-    def eval_improvement(self):
-        if len(self.eval_history) > 1:
-            improvement = self.eval_history[-2] - self.eval_history[-1]
-            if not self.less_is_better:
-                improvement = -1 * improvement
-            return improvement
-        else:
-            return 0
-
-    def update(self, evaluation):
-        """ update.
-
-        Updates the parameter value. It only makes changes to the parameter after then second update.
-        The decay decays is only applied if the current evaluation did not improve more than the `eval_threshold`.
-
-        Args:
-            evaluation: a float with the current evaluation value
-        """
-        super().update(evaluation)
+        super().__init__(trigger=OnEveryEpoch(at=AT.END),
+                         properties=[],
+                         priority=priority,
+                         fn=update_fn)
 
 
-class StepDecay():
+class DecayAfter(Callback):
     """
     """
 
-    def __init__(self, value,
+    def __init__(self,
                  decay_after=0,
+                 changes="learning_rate",
                  decay_rate=1.0,
                  decay_threshold=1e-6,
-                 dtype=dtypes.float32,
-                 name="step_decay_param"):
-
+                 priority=1):
+        self.changes = changes
         self.decay_rate = decay_rate
         self.decay_threshold = decay_threshold
         self.decay_after = decay_after
-        self.current_step = 0
+        self.current_step = 1
 
-        def update_fn():
+        def update_fn(_, properties):
             self.current_step += 1
-            if self.current_step <= decay_after:
-                new_value = self.value
-            else:
-                new_value = max(self.decay_threshold, self.value * decay_rate)
+            if not self.current_step < decay_after:
+                prop = properties[self.changes]
+                prop.value = max(self.decay_threshold, prop.value * decay_rate)
 
-            return new_value
+        super().__init__(trigger=OnEveryEpoch(at=AT.END),
+                         properties=[],
+                         fn=update_fn,
+                         priority=priority)
 
-        super().__init__(value=value, dtype=dtype, update_fn=update_fn, name=name)
+
+class CSVLogger(Callback):
+    """
+    Args:
+        properties List[str]: list of property names to be logged
+        logs: a dictionary of values to be output along with the target properties
+    """
+
+    def __init__(self, properties, out_file, trigger=OnEveryEpoch(at=AT.END), logs={}, priority=1):
+        self.properties = properties
+        self.static_values = logs
+        self.out_file = out_file
+        self.n = 0
+        self.writer = csv.DictWriter(f=self.out_file)
+
+        def log(_, props):
+            # filter properties, we only one the ones referenced in the logger
+            props = {prop_name: props[prop_name] for prop_name in self.properties}
+
+            all_props = {p.name: p.value for p in props}
+            # add values from the provided logs
+            all_props.update(self.static_values)
+
+            if self.n == 0:
+                self.writer.fieldnames = all_props.keys()
+                self.writer.writeheader()
+
+            self.writer.writerow(all_props)
+            out_file.flush()
+            self.n += 1
+
+        super().__init__(trigger=trigger,
+                         properties=None,
+                         fn=log,
+                         priority=priority)
 
 
 __all__ = ["Model",
            "LayerGraph",
-           "EvalStepDecayParam"]
+           "DecayAfter",
+           "EvaluationDecay",
+           "CSVLogger"
+           ]

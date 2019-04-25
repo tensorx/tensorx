@@ -52,7 +52,7 @@ class OnTime(Event):
     """
     __slots__ = ["at", "n"]
 
-    def __init__(self, n: int, at: Enum = AT.END):
+    def __init__(self, n: int = 1, at: Enum = AT.END):
         self.n = n
         self.at = at
 
@@ -89,7 +89,7 @@ class OnEveryEpoch(OnEpoch):
 
     Example::
 
-        t = OnEpoch(2)
+        t = OnEveryEpoch(2)
     """
 
     def __eq__(self, other):
@@ -209,12 +209,6 @@ class Property:
         for observer in self.observers:
             observer.trigger(OnValueChange(self.name))
 
-    # def __eq__(self, other):
-    #     return self.name == other.name
-    #
-    # def __hash__(self):
-    #     return hash(self.name)
-
 
 class Callback:
     """ General Purpose Callback
@@ -223,17 +217,17 @@ class Callback:
     they are also sortable by priority
 
     Args:
-        properties (List[Property]): a list of properties that will be created by this callback
+        properties (List[str]): a list of properties required by this callback
 
     """
 
-    def __init__(self, trigger: Event, properties=None, fn=None, priority=1):
+    def __init__(self, trigger: Event, fn=None, priority=1, properties=None):
         self.properties = properties
         self.trigger = trigger
         self.fn = fn
         self.priority = priority
 
-    def __call__(self, model=None, props=None, logs=None):
+    def __call__(self, obj=None, props=None):
         """ call receives an instance of the current model we're training
         along with the properties the callback is suposed to have access to
 
@@ -244,16 +238,15 @@ class Callback:
             and the props are all the properties available to the callbacks
 
         Args:
-            model: an object giving access to model attributes and methods
+            obj: an object giving access to model attributes and methods
             props: all the properties that can be monitored by callbacks
-            logs: values that are not monitored by callbacks anyway
 
         Returns:
-            a list of properties and the affected values
+            a dictionary with property names and the respective values
 
         """
         if self.fn is not None:
-            return self.fn(model)
+            return self.fn(obj, props)
 
     def __lt__(self, other):
         eq = self.priority - other.priority
@@ -263,18 +256,23 @@ class Callback:
 
 
 class Scheduler:
-    def __init__(self, model, properties):
+    def __init__(self, obj, properties=[]):
         """
 
         Args:
-            model: exposes a tensorx Model object
+            obj: exposes a tensorx Model object
             properties: exposes a list of properties
             logs: exposes a dictionary with other logs that are not being tracked as properties
         """
         self.callbacks = []
         # stores priorities by event
         self.priorities = {}
-        self.props = {}
+        self.props = {prop.name: prop for prop in properties}
+
+        for prop in self.props.values():
+            prop.register(self)
+
+        self.obj = obj
 
     def register(self, callback):
         self.callbacks.append(callback)
@@ -295,10 +293,11 @@ class Scheduler:
         Args:
             event (Event): an event to be triggered by the scheduler to trigger the respective Callbacks
         """
-        if len(self.priorities[event]) > 0:
-            callbacks = self.priorities[event]
-        else:
-            callbacks = sorted(filter(lambda c: c.trigger == event, self.callbacks))
-            self.priorities[event] = callbacks
-        for cb in callbacks:
-            cb()
+        if event in self.priorities:
+            if len(self.priorities[event]) > 0:
+                callbacks = self.priorities[event]
+            else:
+                callbacks = sorted(filter(lambda c: c.trigger == event, self.callbacks))
+                self.priorities[event] = callbacks
+            for cb in callbacks:
+                cb(self.obj, self.props)
