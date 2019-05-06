@@ -55,12 +55,14 @@ class TestCallbacks(TestCase):
         prop_a = Property("a", 1)
         prop_b = Property("b", 1)
         prop_c = Property("c", 1)
-        triggered = None
 
         scheduler = Scheduler(obj=None, properties=[prop_a, prop_b, prop_c])
 
-        cb = Callback(OnValueChange("a"), fn=lambda *_: print("a"))
-        scheduler.register(cb)
+        cb1 = Callback(OnValueChange("a"), fn=lambda *_: print("a1"), priority=-1)
+        cb2 = Callback(OnValueChange("a"), fn=lambda *_: print("a2"), priority=-2)
+        scheduler.register(cb1)
+        scheduler.register(cb2)
 
         prop_b.value = 2
+        print("called b")
         prop_a.value = 2

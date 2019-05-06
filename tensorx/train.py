@@ -13,7 +13,7 @@ with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organ
 import os
 import csv
 from abc import ABCMeta, abstractmethod
-
+import numpy as np
 from tensorx.utils import as_list
 from tensorflow.python.summary.writer.writer import FileWriter
 from tensorflow.python.client.session import Session, InteractiveSession
@@ -938,15 +938,22 @@ class Model:
 
         return result
 
-    def train(self, train_data, validation_data=None, epochs=1, steps_per_epoch=None, callbacks=[]):
+    def train(self, train_data, validation_data=None, test_data=None, epochs=1, steps_per_epoch=None, callbacks=[]):
         """ Takes streams of input dictionaries
 
         Args:
+            test_data: an iterable whose iterator outputs feed_dicts {Input:data}. Calling iter on this objects returns
+            an iterator over an epoch.
             train_data: an iterable whose iterator outputs feed_dicts {Input:data}. Calling iter on this object
             should yield an iterator for a new training data
 
             validation_data: an iterable whose iterator outputs feed_dicts {Input:data} Calling iter on this object
             should yield an iterator for a new epoch.
+
+        Properties:
+            train_loss (float): average training loss measured at the current epoch step
+            validation_loss (float): average validation loss on the given validation data
+            test_loss (float): average test loss on the given test data
 
         """
         # global step
@@ -954,18 +961,35 @@ class Model:
         epoch = Property("epoch", 1)
         epoch_step = Property("epoch_step", 1)
         train_loss = Property("train_loss", None)
-        val_loss = Property("val_loss", None)
+        # validation_loss = Property("validation_loss", None)
         test_loss = Property("test_loss", None)
         param_props = self.optimizer_params  # if parameters change value this will fire an event in the scheduler
 
         scheduler = Scheduler(self, obj=self,
-                              properties=[step, epoch_step, epoch, val_loss, train_loss, test_loss, param_props])
+                              properties=[step,
+                                          epoch_step,
+                                          epoch,
+                                          # validation_loss,
+                                          train_loss,
+                                          test_loss,
+                                          param_props])
 
         if steps_per_epoch is not None:
             epoch_data = iter(train_data)
 
         for cb in callbacks:
             scheduler.register(cb)
+
+        if validation_data:
+            validation_cb = Eval(property_name="validation_loss",
+                                 dataset=validation_data,
+                                 priority=-2)
+            scheduler.register(validation_cb)
+        if test_data:
+            test_cb = Eval(property_name="test_loss",
+                           dataset=test_data,
+                           priority=-1)
+            scheduler.register(test_cb)
 
         scheduler.trigger(OnTrain(AT.START))
         try:
@@ -976,6 +1000,7 @@ class Model:
                     epoch_data = iter(train_data)
 
                 epoch_step.value = 1
+                total_loss = 0
                 scheduler.trigger(OnEpoch(epoch, AT.START))
                 while steps_per_epoch is None or epoch_step <= steps_per_epoch:
                     try:
@@ -983,7 +1008,9 @@ class Model:
                         scheduler.trigger(OnStep(epoch_step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
-                        self.train_step(feed_dict=feed_dict)
+                        loss = self.train_step(feed_dict=feed_dict)
+                        total_loss += loss
+                        train_loss.value = total_loss / epoch_step.value
 
                         scheduler.trigger(OnStep(epoch_step.value, AT.END))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.END))
@@ -995,10 +1022,76 @@ class Model:
                 # EPOCH END
                 scheduler.trigger(OnEpoch(epoch, AT.END))
                 epoch.value += 1
+
         except Exception as e:
             logging.exception("Error: " + str(e))
 
         scheduler.trigger(OnTrain(AT.END))
+
+
+# TODO callbacks could have multiple triggers for which they have multiple functions
+class FnCallback(Callback):
+    def __init__(self, property_name="fn", fn=None, on="property", trigger=OnEveryEpoch(AT.END), priority=1):
+        self.fn = fn
+        self.property = Property(name=property_name)
+        self.on = on
+
+        def apply_fn(_, properties):
+            prop = properties[on]
+            self.property.value = self.fn(prop.value)
+
+        super().__init__(trigger=trigger, fn=apply_fn, priority=priority, properties=[self.property])
+
+
+class Perplexity(FnCallback):
+    """ Evaluates perplexity of a model
+
+    Args:
+        on (str): property name representing cross entropy loss value on which we are to compute the perplexity
+                  (this will be either validation_loss, test_loss if data is passed to train method)
+        property_name (str): name for the generated property
+        should be run after the required property values on which perplexity is computed (check priorities
+        to ensure this runs after validation loss or test loss, etc)
+    """
+
+    def __init__(self, property_name="ppl", on="validation_loss", trigger=OnEveryEpoch(AT.END), priority=1):
+        super().__init__(property_name=property_name, fn=np.exp, on=on, trigger=trigger, priority=priority)
+
+
+class Eval(Callback):
+    def __init__(self, property_name="eval", eval_fn=None, dataset=None, trigger=OnEveryEpoch(AT.END), priority=1):
+        """
+
+        Args:
+            property_name: name for the property created by this callback
+            eval_fn: function applied to the average evaluation value before updating the property
+            dataset: the dataset on which the model will be evaluated
+            trigger: trigger for when the evaluation is run
+            priority: callback priority
+        """
+        self.dataset = dataset
+        self.eval_fn = eval_fn
+        self.property = Property(name=property_name)
+
+        def eval_fn(model, _):
+            dataset_it = iter(self.dataset)
+            sum_eval = 0
+            steps = 0
+            for feed_dict in dataset_it:
+                mean_eval = model.eval_step(feed_dict=feed_dict)
+                sum_eval += mean_eval
+                steps += 1
+
+            avg_eval = sum_eval / steps
+            if self.eval_fn:
+                self.property.value = self.eval_fn(avg_eval)
+            else:
+                self.property.value = avg_eval
+
+        super().__init__(trigger=trigger,
+                         fn=eval_fn,
+                         properties=[self.property],
+                         priority=priority)
 
 
 class EvaluationDecay(Callback):
