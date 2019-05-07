@@ -29,6 +29,7 @@ from tensorflow.python.summary import summary
 import tensorflow as tf
 from tensorflow.core.protobuf.config_pb2 import RunOptions, RunMetadata
 from tensorx.layers import *
+from tensorx.layers import Layer
 from tensorx.utils import Graph
 from tensorx.callbacks import *
 import logging
@@ -471,7 +472,7 @@ class Model:
         self.optimizer_params = []
         self.joint_loss = None
         self.var_list = None
-        self.train_step = None
+        self.train_op = None
 
         # op for model saving and restoring
 
@@ -753,12 +754,12 @@ class Model:
 
             return train_step
 
-        self.train_step = minimize(self.joint_loss.tensor)
+        self.train_op = minimize(self.joint_loss.tensor)
 
         self.train_graph = LayerGraph(inputs=self.train_inputs,
                                       outputs=self.joint_loss,
                                       other_inputs=self.optimizer_params,
-                                      other_tensors=self.train_step)
+                                      other_tensors=self.train_op)
 
         self.train_vars = {var.name for layer in self.train_graph.layers for var in layer.variables}
 
@@ -942,6 +943,10 @@ class Model:
         """ Takes streams of input dictionaries
 
         Args:
+            callbacks: callbacks to be scheduled within the training loop
+            epochs: number of epochs we wish to train the model
+            steps_per_epoch: number of steps that compose an epoch, if this is not None, epochs are incremented each time
+            this number of steps pass
             test_data: an iterable whose iterator outputs feed_dicts {Input:data}. Calling iter on this objects returns
             an iterator over an epoch.
             train_data: an iterable whose iterator outputs feed_dicts {Input:data}. Calling iter on this object
@@ -965,14 +970,14 @@ class Model:
         test_loss = Property("test_loss", None)
         param_props = self.optimizer_params  # if parameters change value this will fire an event in the scheduler
 
-        scheduler = Scheduler(self, obj=self,
+        scheduler = Scheduler(model=self,
                               properties=[step,
                                           epoch_step,
                                           epoch,
                                           # validation_loss,
                                           train_loss,
                                           test_loss,
-                                          param_props])
+                                          ] + param_props)
 
         if steps_per_epoch is not None:
             epoch_data = iter(train_data)
@@ -1001,10 +1006,13 @@ class Model:
 
                 epoch_step.value = 1
                 total_loss = 0
-                scheduler.trigger(OnEpoch(epoch, AT.START))
-                while steps_per_epoch is None or epoch_step <= steps_per_epoch:
+                scheduler.trigger(OnEpoch(epoch.value, AT.START))
+                while steps_per_epoch is None or epoch_step.value <= steps_per_epoch:
                     try:
                         feed_dict = next(epoch_data)
+                        # observes new properties or update existing ones
+                        _update_data_properties(feed_dict, scheduler)
+
                         scheduler.trigger(OnStep(epoch_step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
@@ -1018,9 +1026,9 @@ class Model:
                         epoch_step.value += 1
                         step.value += 1
                     except StopIteration:
-                        pass
+                        break
                 # EPOCH END
-                scheduler.trigger(OnEpoch(epoch, AT.END))
+                scheduler.trigger(OnEpoch(epoch.value, AT.END))
                 epoch.value += 1
 
         except Exception as e:
@@ -1029,9 +1037,21 @@ class Model:
         scheduler.trigger(OnTrain(AT.END))
 
 
-# TODO callbacks could have multiple triggers for which they have multiple functions
+def _update_data_properties(feed_dict, scheduler):
+    # anything that is not a layer will be interpreted as a property
+    prop_names = [key for key in feed_dict.keys() if not isinstance(key, Layer)]
+    for prop_name in prop_names:
+        if prop_name not in scheduler.props:
+            scheduler.observe(Property(name=prop_name, value=feed_dict[prop_name]))
+        else:
+            # only update property if value changes
+            prop = scheduler.props[prop_name]
+            if prop.value != feed_dict[prop_name]:
+                prop.value = feed_dict[prop_name]
+
+
 class FnCallback(Callback):
-    def __init__(self, property_name="fn", fn=None, on="property", trigger=OnEveryEpoch(AT.END), priority=1):
+    def __init__(self, property_name="fn", fn=None, on="property", trigger=OnEveryEpoch(at=AT.END), priority=1):
         self.fn = fn
         self.property = Property(name=property_name)
         self.on = on
@@ -1054,12 +1074,12 @@ class Perplexity(FnCallback):
         to ensure this runs after validation loss or test loss, etc)
     """
 
-    def __init__(self, property_name="ppl", on="validation_loss", trigger=OnEveryEpoch(AT.END), priority=1):
+    def __init__(self, property_name="ppl", on="validation_loss", trigger=OnEveryEpoch(at=AT.END), priority=1):
         super().__init__(property_name=property_name, fn=np.exp, on=on, trigger=trigger, priority=priority)
 
 
 class Eval(Callback):
-    def __init__(self, property_name="eval", eval_fn=None, dataset=None, trigger=OnEveryEpoch(AT.END), priority=1):
+    def __init__(self, property_name="eval", eval_fn=None, dataset=None, trigger=OnEveryEpoch(at=AT.END), priority=1):
         """
 
         Args:
@@ -1165,15 +1185,18 @@ class DecayAfter(Callback):
         self.decay_rate = decay_rate
         self.decay_threshold = decay_threshold
         self.decay_after = decay_after
-        self.current_step = 1
 
         def update_fn(_, properties):
-            self.current_step += 1
-            if not self.current_step < decay_after:
+            if self.changes not in properties:
+                raise KeyError(
+                    "DecayAfter callback is trying to change a property that doesn't exist: {}".format(self.changes))
+
+            epoch = properties["epoch"].value
+            if epoch > self.decay_after:
                 prop = properties[self.changes]
                 prop.value = max(self.decay_threshold, prop.value * decay_rate)
 
-        super().__init__(trigger={OnEveryEpoch(at=AT.END): update_fn},
+        super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
                          properties=[],
                          priority=priority)
 
@@ -1181,37 +1204,44 @@ class DecayAfter(Callback):
 class CSVLogger(Callback):
     """
     Args:
-        properties List[str]: list of property names to be logged
+        logged_props List[str]: list of property names to be logged
         logs: a dictionary of values to be output along with the target properties
     """
 
-    def __init__(self, properties, out_file, logs={}, priority=1):
-        self.properties = properties
-        self.static_values = logs
-        self.out_file = out_file
+    def __init__(self, logged_props, out_filename, log_dict={}, priority=1):
+        self.property_names = as_list(logged_props)
+        self.static_values = log_dict
+        self.out_filename = out_filename
+        self.out_file = None
         self.n = 0
-        self.writer = csv.DictWriter(f=self.out_file)
+        self.writer = None
 
         def get_props(props):
-            props = {prop_name: props[prop_name] for prop_name in self.properties}
-            all_props = {p.name: p.value for p in props}
+            props = {prop_name: props[prop_name] for prop_name in self.property_names}
+            all_props = {p.name: p.value for p in props.values()}
             # add values from the provided logs
             all_props.update(self.static_values)
             return all_props
 
-        def log_init(_, props):
-            all_props = get_props(props)
-            self.writer.fieldnames = all_props.keys()
+        def log_init(model, properties):
+            self.out_file = open(self.out_filename, "w")
+            all_props = get_props(properties)
+            self.writer = csv.DictWriter(f=self.out_file, fieldnames=all_props.keys())
             self.writer.writeheader()
 
-        def log(_, props):
-            all_props = get_props(props)
+        def log_clean(model, properties):
+            self.out_file.close()
+
+        def log(model, properties):
+            print("logging epoch: " + str(properties["epoch"].value))
+            all_props = get_props(properties)
             self.writer.writerow(all_props)
-            out_file.flush()
+            self.out_file.flush()
             self.n += 1
 
-        super().__init__(trigger_dict={OnEveryEpoch(at=AT.START): log_init,
-                                       OnEveryEpoch(at=AT.END): log},
+        super().__init__(trigger_dict={OnTrain(at=AT.START): log_init,
+                                       OnEveryEpoch(at=AT.END): log,
+                                       OnTrain(at=AT.END): log_clean},
                          properties=None,
                          priority=priority)
 

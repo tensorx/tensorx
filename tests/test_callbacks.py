@@ -8,24 +8,45 @@ class TestCallbacks(TestCase):
     def test_OnEveryStep(self):
         t1 = OnStep(2)
         t2 = OnEveryStep(2)
+        t3 = OnEveryStep(1)
+        t4 = OnEveryStep(3)
+        t5 = OnStep(6, AT.END)
+        t6 = OnStep(6, AT.START)
 
-        self.assertEqual(t1, t2)
-        self.assertEqual(t2, t1)
+        self.assertNotEqual(t1, t2)
+        self.assertTrue(t2.match(t1))
+        self.assertTrue(t1.match(t2))
+        self.assertTrue(t1.match(t3))
+        self.assertTrue(t3.match(t1))
 
-        t1 = OnStep(10)
-        t2 = OnEveryStep(2)
+        self.assertTrue(t3.match(t4))
+        self.assertFalse(t4.match(t3))
 
-        self.assertEqual(t1, t2)
-        self.assertEqual(t2, t1)
+        self.assertTrue(t4.match(t5))
+        self.assertTrue(t5.match(t4))
+        self.assertFalse(t4.match(t6))
+
+    def test_OnEpoch(self):
+        t1 = OnEpoch(1)
+        t2 = OnEpoch(2)
+        t3 = OnEveryEpoch(1)
+
+        self.assertFalse(t1.match(t2))
+        self.assertTrue(t1.match(t3))
+        self.assertTrue(t3.match(t1))
+        self.assertTrue(t2.match(t3))
+        self.assertTrue(t3.match(t2))
 
     def test_OnEveryEpochStep(self):
         t1 = OnStep(2)
         t2 = OnEveryEpochStep(2)
         t3 = OnEpochStep(4)
+        t4 = OnStep(2)
 
+        self.assertEqual(t1, t4)
         self.assertNotEqual(t1, t2)
         self.assertNotEqual(t1, t3)
-        self.assertEqual(t2, t3)
+        self.assertTrue(t2.match(t3))
 
     def test_Param_Property(self):
         p1 = Param(value=3, name="test")
@@ -51,6 +72,17 @@ class TestCallbacks(TestCase):
         self.assertIn(e1, d)
         self.assertNotIn(e2, d)
 
+        e3 = OnEpoch(1)
+        e4 = OnEveryEpoch(1)
+        d = {e3: 2, e4: 3}
+
+        e5 = OnStep(2)
+        e6 = OnEveryStep(2)
+        d = {e5: 1, e6: 2}
+
+        e7 = OnTrain(at=AT.START)
+        d = {e7: 1}
+
     def test_scheduler(self):
         prop_a = Property("a", 1)
         prop_b = Property("b", 1)
@@ -59,7 +91,7 @@ class TestCallbacks(TestCase):
 
         changed = []
 
-        scheduler = Scheduler(obj=None, properties=[prop_a, prop_b, prop_a2, prop_b2])
+        scheduler = Scheduler(model=None, properties=[prop_a, prop_b, prop_a2, prop_b2])
 
         def fna(*args):
             prop_a2.value = 2
@@ -71,8 +103,11 @@ class TestCallbacks(TestCase):
 
         cb1 = Callback({OnValueChange("a"): fna}, priority=-1)
         cb2 = Callback({OnValueChange("a"): fnb}, priority=-2)
+        # if this executed fnb it would change b2 value which would result in a recursive call
+        cb3 = Callback({OnValueChange("b2"): fna})
         scheduler.register(cb1)
         scheduler.register(cb2)
+        scheduler.register(cb3)
 
         prop_a.value = 2
-        self.assertEqual(changed, [2, 1])
+        self.assertEqual(changed, [1, 2, 1])

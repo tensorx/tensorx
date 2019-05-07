@@ -4,9 +4,9 @@ import tensorflow as tf
 
 from tensorx import test_utils
 from tensorx.activation import tanh, sigmoid
-from tensorx.layers import Input, Linear, Activation, Add, LambdaLayer
+from tensorx.layers import Input, Linear, Activation, Add, LambdaLayer, Param
 from tensorx.loss import binary_cross_entropy
-from tensorx.train import Model, LayerGraph, EvalStepDecayParam
+from tensorx.train import *
 from pygraphviz import AGraph
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -243,68 +243,128 @@ class ModelRunnerTest(test_utils.TestCase):
             # session = runner.session
             # weights = session.run(linear.weights)
             model.init_vars()
-            weights1 = model.session.run_step(linear.weights)
+            weights1 = model.session.run(linear.weights)
 
             for i in range(10):
-                model.train_step({input_layer: data, labels: target})
+                model.train_op({input_layer: data, labels: target})
 
-            weights2 = model.session.run_step(linear.weights)
+            weights2 = model.session.run(linear.weights)
 
             self.assertFalse(np.array_equal(weights1, weights2))
 
     def test_eval_step_decay_param(self):
-        v1 = 4
-        decay_rate = 0.5
-        param = EvalStepDecayParam(value=v1,
-                                   decay_rate=decay_rate,
-                                   improvement_threshold=1.0,
-                                   less_is_better=True)
-        param.update(evaluation=1)
-        v2 = param.value
-        self.assertEqual(v1, v2)
+        input_layer = Input(4, name="inputs")
+        linear = Linear(input_layer, 2)
+        h = Activation(linear, fn=sigmoid)
 
-        # eval does not improve
-        param.update(evaluation=10)
-        v3 = param.value
-        self.assertNotEqual(v2, v3)
-        self.assertEqual(v3, v2 * decay_rate)
-        self.assertEqual(param.eval_improvement(), -9)
+        # configure training
+        labels = Input(2, name="labels")
+        losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
 
-        # eval improves but not more than threshold
-        v4 = param.value
-        param.update(evaluation=9)
-        self.assertEqual(v4, v3)
+        model = Model(run_inputs=input_layer,
+                      run_outputs=h,
+                      train_inputs=[input_layer, labels],
+                      train_loss=losses,
+                      eval_inputs=[input_layer, labels],
+                      eval_score=losses)
 
-        # eval does not improve
-        v5 = param.value
-        param.update(evaluation=10)
-        self.assertEqual(v5, v4 * decay_rate)
+        lr = Param(value=0.5, name="lr")
+        optimiser = tf.train.AdadeltaOptimizer(learning_rate=lr)
+        model.config_optimizer(optimiser, optimizer_params=lr)
 
-        # eval improves but within threshold
-        v6 = param.value
-        param.update(evaluation=8.9)
-        self.assertEqual(v6, v5 * decay_rate)
+        # lr will be exposed as a lr (name) parameter
 
-        # INCREASING EVAL
-        param = EvalStepDecayParam(v1, decay_rate=decay_rate, improvement_threshold=1.0, less_is_better=False)
-        param.update(evaluation=5)
-        v2 = param.value
-        self.assertEqual(v1, v2)
+        # with self.cached_session(use_gpu=True):
+        #
+        #
+        #
+        #
+        # v1 = 4
+        # decay_rate = 0.5
+        # param = EvalStepDecayParam(value=v1,
+        #                            decay_rate=decay_rate,
+        #                            improvement_threshold=1.0,
+        #                            less_is_better=True)
+        # param.update(evaluation=1)
+        # v2 = param.value
+        # self.assertEqual(v1, v2)
+        #
+        # # eval does not improve
+        # param.update(evaluation=10)
+        # v3 = param.value
+        # self.assertNotEqual(v2, v3)
+        # self.assertEqual(v3, v2 * decay_rate)
+        # self.assertEqual(param.eval_improvement(), -9)
+        #
+        # # eval improves but not more than threshold
+        # v4 = param.value
+        # param.update(evaluation=9)
+        # self.assertEqual(v4, v3)
+        #
+        # # eval does not improve
+        # v5 = param.value
+        # param.update(evaluation=10)
+        # self.assertEqual(v5, v4 * decay_rate)
+        #
+        # # eval improves but within threshold
+        # v6 = param.value
+        # param.update(evaluation=8.9)
+        # self.assertEqual(v6, v5 * decay_rate)
+        #
+        # # INCREASING EVAL
+        # param = EvalStepDecayParam(v1, decay_rate=decay_rate, improvement_threshold=1.0, less_is_better=False)
+        # param.update(evaluation=5)
+        # v2 = param.value
+        # self.assertEqual(v1, v2)
+        #
+        # # eval does not improve
+        # param.update(evaluation=4)
+        # v3 = param.value
+        # self.assertEqual(v3, v2 * decay_rate)
+        #
+        # # improvement within threshold / did not improve
+        # param.update(evaluation=5)
+        # v4 = param.value
+        # self.assertEqual(v4, v3 * decay_rate)
+        #
+        # # improvement more than threshold
+        # param.update(evaluation=6.1)
+        # v5 = param.value
+        # self.assertEqual(v5, v4)
 
-        # eval does not improve
-        param.update(evaluation=4)
-        v3 = param.value
-        self.assertEqual(v3, v2 * decay_rate)
+    def test_param_prop(self):
+        input_layer = Input(4, name="inputs")
+        linear = Linear(input_layer, 2)
+        h = Activation(linear, fn=sigmoid)
 
-        # improvement within threshold / did not improve
-        param.update(evaluation=5)
-        v4 = param.value
-        self.assertEqual(v4, v3 * decay_rate)
+        # configure training
+        labels = Input(2, name="labels")
+        losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
 
-        # improvement more than threshold
-        param.update(evaluation=6.1)
-        v5 = param.value
-        self.assertEqual(v5, v4)
+        model = Model(run_inputs=input_layer,
+                      run_outputs=h,
+                      train_inputs=[input_layer, labels],
+                      train_loss=losses,
+                      eval_inputs=[input_layer, labels],
+                      eval_score=losses)
+
+        lr = Param(value=1.0, name="lr")
+        optimiser = tf.train.GradientDescentOptimizer(learning_rate=lr)
+        model.config_optimizer(optimiser, optimizer_params=lr)
+
+        # lr will be exposed as a lr (name) parameter
+
+        with self.cached_session(use_gpu=True):
+            # dataset with a single sample
+            dataset = [{
+                input_layer: np.random.uniform(size=[2, 4]),
+                labels: np.random.uniform(size=[2, 2])
+            }]
+
+            # callbacks
+            lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
+            logger = CSVLogger(logged_props=["epoch", "lr", "step"], out_filename="test.csv")
+            model.train(train_data=dataset, epochs=4, callbacks=[lr_schedule, logger])
 
 
 if __name__ == '__main__':

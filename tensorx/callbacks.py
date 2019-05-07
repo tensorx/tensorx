@@ -1,4 +1,5 @@
 from enum import Enum
+import itertools
 
 
 class AT(Enum):
@@ -28,6 +29,9 @@ class Event:
             attrs = [(getattr(self, attr), getattr(other, attr)) for attr in self.__slots__]
             return all(x is y for x, y in attrs)
 
+    def match(self, other):
+        return self.__eq__(other)
+
     def __hash__(self):
         cls = (self.__class__.__name__,)
         attrs = tuple(getattr(self, attr) for attr in self.__slots__)
@@ -53,68 +57,27 @@ class OnTime(Event):
     __slots__ = ["at", "n"]
 
     def __init__(self, n: int = 1, at: Enum = AT.END):
-        self.n = n
+        self.n = int(n)
         self.at = at
 
     def __str__(self):
         cls = self.__class__.__name__
-        return "{cls}({n}{at})".format(cls=cls, n=self.n, at=self.at)
+        return "{cls}({n},{at})".format(cls=cls, n=self.n, at=self.at)
 
 
 class OnStep(OnTime):
-    pass
-
-
-class OnTrain(Event):
-    """ Event with one of two moments in the training loop (``AT.START``, ``AT.END``)
-    """
-    __slots__ = ["at"]
-
-    def __init__(self, at: Enum = AT.END):
-        self.at = at
-
-
-class OnEpoch(OnTime):
-    """ Event for specific epoch in the training
-
-    Example::
-
-        t = OnEpoch(2)
-    """
-    pass
-
-
-class OnEveryEpoch(OnEpoch):
-    """ Event for specific epoch in the training
-
-    Example::
-
-        t = OnEveryEpoch(2)
-    """
-
-    def __eq__(self, other):
+    def match(self, other):
         """ Matches OnStep with other.n % self.n == 0
         """
-        if type(other) not in (OnEveryEpoch, OnEpoch):
+        if type(other) not in (OnEveryStep, OnStep):
             return False
         else:
             if type(other) == type(self):
-                # equals == all attributes must be the same
-                attrs = [(getattr(self, attr), getattr(other, attr)) for attr in self.__slots__]
-                return all(x is y for x, y in attrs)
+                return self == other
             else:
                 if self.at != other.at:
                     return False
-                return other.n % self.n == 0
-
-
-class OnEpochStep(OnTime):
-    """ Event for one moment of a specific epoch step
-
-    Example::
-        t = OnEpochStep(3,AT.START)
-    """
-    pass
+                return self.n % other.n == 0
 
 
 class OnEveryStep(OnStep):
@@ -131,20 +94,90 @@ class OnEveryStep(OnStep):
 
     """
 
-    def __eq__(self, other):
+    def match(self, other):
         """ Matches OnStep with other.n % self.n == 0
         """
         if type(other) not in (OnEveryStep, OnStep):
             return False
         else:
+            if self.at != other.at:
+                return False
+            return other.n % self.n == 0
+
+
+class OnTrain(Event):
+    """ Event with one of two moments in the training loop (``AT.START``, ``AT.END``)
+    """
+    __slots__ = ["at"]
+
+    def __init__(self, at: Enum = AT.END):
+        self.at = at
+
+    def __str__(self):
+        cls = self.__class__.__name__
+        return "{cls}({at})".format(cls=cls, at=self.at)
+
+
+class OnEpoch(OnTime):
+    """ Event for specific epoch in the training
+
+    Example::
+
+        t = OnEpoch(2)
+    """
+
+    def match(self, other):
+        """ Matches OnStep with other.n % self.n == 0
+        """
+        if type(other) not in (OnEveryEpoch, OnEpoch):
+            return False
+        else:
             if type(other) == type(self):
-                # equals == all attributes must be the same
-                attrs = [(getattr(self, attr), getattr(other, attr)) for attr in self.__slots__]
-                return all(x is y for x, y in attrs)
+                return self == other
             else:
                 if self.at != other.at:
                     return False
-                return other.n % self.n == 0
+                return self.n % other.n == 0
+
+
+class OnEveryEpoch(OnEpoch):
+    """ Event for specific epoch in the training
+
+    Example::
+
+        t = OnEveryEpoch(2)
+    """
+
+    def match(self, other):
+        """ Matches OnStep with other.n % self.n == 0
+        """
+        if type(other) not in (OnEveryEpoch, OnEpoch):
+            return False
+        else:
+            if self.at != other.at:
+                return False
+            return other.n % self.n == 0
+
+
+class OnEpochStep(OnTime):
+    """ Event for one moment of a specific epoch step
+
+    Example::
+        t = OnEpochStep(3,AT.START)
+    """
+
+    def match(self, other):
+        """ Matches OnStep with other.n % self.n == 0
+        """
+        if type(other) not in (OnEveryEpochStep, OnEpochStep):
+            return False
+        else:
+            if type(other) == type(self):
+                return self == other
+            else:
+                if self.at != other.at:
+                    return False
+                return self.n % other.n == 0
 
 
 class OnEveryEpochStep(OnEpochStep):
@@ -152,20 +185,15 @@ class OnEveryEpochStep(OnEpochStep):
 
     """
 
-    def __eq__(self, other):
+    def match(self, other):
         """ Matches OnStep with other.n % self.n == 0
         """
         if type(other) not in (OnEveryEpochStep, OnEpochStep):
             return False
         else:
-            if type(other) == type(self):
-                # equals == all attributes must be the same
-                attrs = [(getattr(self, attr), getattr(other, attr)) for attr in self.__slots__]
-                return all(x is y for x, y in attrs)
-            else:
-                if self.at != other.at:
-                    return False
-                return other.n % self.n == 0
+            if self.at != other.at:
+                return False
+            return other.n % self.n == 0
 
 
 class OnValueChange(Event):
@@ -247,7 +275,7 @@ class Callback:
         """
         # equals and hash might not match, because some general events match more specific ones
         # immutable objects are not the same but they match the same event: should I have a matches method ?
-        fns = [self.trigger_dict[event] for event in self.trigger_dict.keys() if event == trigger]
+        fns = [self.trigger_dict[event] for event in self.trigger_dict.keys() if event.match(trigger)]
         return [fn(model, properties) for fn in fns]
 
     def __lt__(self, other):
@@ -258,29 +286,46 @@ class Callback:
 
 
 class Scheduler:
-    def __init__(self, obj, properties=[]):
+    def __init__(self, model, properties=[]):
         """
 
         Args:
-            obj: exposes a tensorx Model object
+            model: exposes a tensorx Model object
             properties: exposes a list of properties
             logs: exposes a dictionary with other logs that are not being tracked as properties
         """
         self.callbacks = []
         # stores priorities by event
-        self.priorities = {}
+        self.priority_cache = {}
+        self.triggers = {}
         self.props = {prop.name: prop for prop in properties}
 
         for prop in self.props.values():
             prop.register(self)
 
-        self.obj = obj
+        self.model = model
+
+    def observe(self, prop):
+        if prop.name not in self.props:
+            prop.register(self)
+            self.props[prop.name] = prop
 
     def register(self, callback):
         self.callbacks.append(callback)
+
+        # update trigger map
         for trigger in callback.trigger_dict.keys():
-            if trigger not in self.priorities:
-                self.priorities[trigger] = []
+            if trigger not in self.triggers:
+                self.triggers[trigger] = [callback]
+            else:
+                self.triggers[trigger].append(callback)
+
+        # update trigger cache
+        for cached_trigger in self.priority_cache.keys():
+            for trigger in callback.trigger_dict.keys():
+                if cached_trigger.match(trigger):
+                    cbs = self.priority_cache[cached_trigger]
+                    self.priority_cache[cached_trigger] = list(sorted(cbs + [callback]))
 
         # creates and registers properties if callbacks specify outputs
         cb_props = callback.properties if callback.properties is not None else []
@@ -297,12 +342,17 @@ class Scheduler:
         Args:
             event (Event): an event to be triggered by the scheduler to trigger the respective Callbacks
         """
-        if event in self.priorities:
-            if len(self.priorities[event]) > 0:
-                callbacks = self.priorities[event]
-            else:
-                callbacks = sorted(filter(lambda cb: any(trigger == event for trigger in cb.trigger_dict.keys()),
-                                          self.callbacks))
-                self.priorities[event] = callbacks
-            for callback in callbacks:
-                callback(event, self.obj, self.props)
+
+        if not isinstance(event, Event):
+            raise TypeError("Can only trigger the scheduler on Events, {} found".format(type(event)))
+
+        matches = [self.triggers[trigger] for trigger in self.triggers.keys() if event.match(trigger)]
+
+        if len(matches) > 0:
+            matches = itertools.chain.from_iterable(matches)
+            if event not in self.priority_cache:
+                self.priority_cache[event] = list(sorted(matches))
+            matches = self.priority_cache[event]
+
+            for callback in matches:
+                callback(event, self.model, self.props)

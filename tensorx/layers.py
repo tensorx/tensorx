@@ -21,6 +21,7 @@ import tensorflow as tf
 from tensorflow.python.training import moving_averages
 from tensorflow.python.ops.variable_scope import _pure_variable_scope as pure_var_scope
 from tensorx.utils import as_list
+from tensorx.callbacks import Property
 
 
 def _validate_shape_type(x, shape, dtype=None):
@@ -336,7 +337,7 @@ class Layer:
             return self.tensor.eval(feed_dict=feed_dict, session=session)
 
     def __call__(self, *args, **kwargs):
-        return type(self).reuse_with(*args, **kwargs)
+        return type(self).reuse_with(self, *args, **kwargs)
 
 
 class WrapLayer(Layer):
@@ -4438,21 +4439,6 @@ def convert_to_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
         return TensorLayer(tensor)
 
 
-# register Layer as Tensor
-def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
-    with tf.name_scope(name):
-        return tx_utils.to_tensor_cast(layer.tensor, dtype=dtype)
-
-
-tf.register_tensor_conversion_function(
-    base_type=Layer,
-    conversion_func=layer_to_tensor,
-    priority=100
-)
-
-from tensorx.callbacks import Property
-
-
 class Param(Layer):
     """ Param
 
@@ -4486,6 +4472,9 @@ class Param(Layer):
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on Param")
 
+    def __call__(self, *args, **kwargs):
+        return self.tensor
+
     def eval(self, feed_dict=None, session=None):
         if feed_dict is not None:
             if self.placeholder not in feed_dict:
@@ -4497,6 +4486,18 @@ class Param(Layer):
     def __str__(self):
         return "{name}::{cname}({dtype})".format(name=self.name, cname=type(self).__name__, dtype=self.dtype)
 
+
+# register Layer as Tensor
+def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
+    with tf.name_scope(name):
+        return tx_utils.to_tensor_cast(layer.tensor, dtype=dtype)
+
+
+tf.register_tensor_conversion_function(
+    base_type=Layer,
+    conversion_func=layer_to_tensor,
+    priority=100
+)
 
 __all__ = ["Input",
            "FC",
