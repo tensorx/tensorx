@@ -51,18 +51,28 @@ class TestCallbacks(TestCase):
         self.assertIn(e1, d)
         self.assertNotIn(e2, d)
 
-    def test_CSVWritter(self):
+    def test_scheduler(self):
         prop_a = Property("a", 1)
         prop_b = Property("b", 1)
-        prop_c = Property("c", 1)
+        prop_a2 = Property("a2", 1)
+        prop_b2 = Property("b2", 1)
 
-        scheduler = Scheduler(obj=None, properties=[prop_a, prop_b, prop_c])
+        changed = []
 
-        cb1 = Callback(OnValueChange("a"), fn=lambda *_: print("a1"), priority=-1)
-        cb2 = Callback(OnValueChange("a"), fn=lambda *_: print("a2"), priority=-2)
+        scheduler = Scheduler(obj=None, properties=[prop_a, prop_b, prop_a2, prop_b2])
+
+        def fna(*args):
+            prop_a2.value = 2
+            changed.append(1)
+
+        def fnb(*args):
+            prop_b2.value = 2
+            changed.append(2)
+
+        cb1 = Callback({OnValueChange("a"): fna}, priority=-1)
+        cb2 = Callback({OnValueChange("a"): fnb}, priority=-2)
         scheduler.register(cb1)
         scheduler.register(cb2)
 
-        prop_b.value = 2
-        print("called b")
         prop_a.value = 2
+        self.assertEqual(changed, [2, 1])

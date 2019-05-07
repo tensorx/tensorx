@@ -217,17 +217,17 @@ class Callback:
     they are also sortable by priority
 
     Args:
+        trigger_dict: a dictionary mapping triggers to functions to be executed
         properties (List[str]): a list of properties required by this callback
-
+        priority: int value which dictates callback execution priority (lower values take priority)
     """
 
-    def __init__(self, trigger: Event, fn=None, priority=1, properties=None):
+    def __init__(self, trigger_dict, priority=1, properties=None):
         self.properties = properties
-        self.trigger = trigger
-        self.fn = fn
+        self.trigger_dict: dict = trigger_dict
         self.priority = priority
 
-    def __call__(self, obj=None, props=None):
+    def __call__(self, trigger, model=None, properties=None):
         """ call receives an instance of the current model we're training
         along with the properties the callback is suposed to have access to
 
@@ -245,8 +245,10 @@ class Callback:
             a dictionary with property names and the respective values
 
         """
-        if self.fn is not None:
-            return self.fn(obj, props)
+        # equals and hash might not match, because some general events match more specific ones
+        # immutable objects are not the same but they match the same event: should I have a matches method ?
+        fns = [self.trigger_dict[event] for event in self.trigger_dict.keys() if event == trigger]
+        return [fn(model, properties) for fn in fns]
 
     def __lt__(self, other):
         eq = self.priority - other.priority
@@ -276,7 +278,9 @@ class Scheduler:
 
     def register(self, callback):
         self.callbacks.append(callback)
-        self.priorities[callback.trigger] = []
+        for trigger in callback.trigger_dict.keys():
+            if trigger not in self.priorities:
+                self.priorities[trigger] = []
 
         # creates and registers properties if callbacks specify outputs
         cb_props = callback.properties if callback.properties is not None else []
@@ -297,7 +301,8 @@ class Scheduler:
             if len(self.priorities[event]) > 0:
                 callbacks = self.priorities[event]
             else:
-                callbacks = sorted(filter(lambda c: c.trigger == event, self.callbacks))
+                callbacks = sorted(filter(lambda cb: any(trigger == event for trigger in cb.trigger_dict.keys()),
+                                          self.callbacks))
                 self.priorities[event] = callbacks
-            for cb in callbacks:
-                cb(self.obj, self.props)
+            for callback in callbacks:
+                callback(event, self.obj, self.props)

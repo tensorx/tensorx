@@ -1040,7 +1040,7 @@ class FnCallback(Callback):
             prop = properties[on]
             self.property.value = self.fn(prop.value)
 
-        super().__init__(trigger=trigger, fn=apply_fn, priority=priority, properties=[self.property])
+        super().__init__(trigger_dict={trigger: apply_fn}, priority=priority, properties=[self.property])
 
 
 class Perplexity(FnCallback):
@@ -1088,8 +1088,7 @@ class Eval(Callback):
             else:
                 self.property.value = avg_eval
 
-        super().__init__(trigger=trigger,
-                         fn=eval_fn,
+        super().__init__(trigger_dict={trigger: eval_fn},
                          properties=[self.property],
                          priority=priority)
 
@@ -1147,10 +1146,9 @@ class EvaluationDecay(Callback):
                 # triggers an event
                 to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
 
-        super().__init__(trigger=OnEveryEpoch(at=AT.END),
+        super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
                          properties=[],
-                         priority=priority,
-                         fn=update_fn)
+                         priority=priority)
 
 
 class DecayAfter(Callback):
@@ -1175,9 +1173,8 @@ class DecayAfter(Callback):
                 prop = properties[self.changes]
                 prop.value = max(self.decay_threshold, prop.value * decay_rate)
 
-        super().__init__(trigger=OnEveryEpoch(at=AT.END),
+        super().__init__(trigger={OnEveryEpoch(at=AT.END): update_fn},
                          properties=[],
-                         fn=update_fn,
                          priority=priority)
 
 
@@ -1188,32 +1185,34 @@ class CSVLogger(Callback):
         logs: a dictionary of values to be output along with the target properties
     """
 
-    def __init__(self, properties, out_file, trigger=OnEveryEpoch(at=AT.END), logs={}, priority=1):
+    def __init__(self, properties, out_file, logs={}, priority=1):
         self.properties = properties
         self.static_values = logs
         self.out_file = out_file
         self.n = 0
         self.writer = csv.DictWriter(f=self.out_file)
 
-        def log(_, props):
-            # filter properties, we only one the ones referenced in the logger
+        def get_props(props):
             props = {prop_name: props[prop_name] for prop_name in self.properties}
-
             all_props = {p.name: p.value for p in props}
             # add values from the provided logs
             all_props.update(self.static_values)
+            return all_props
 
-            if self.n == 0:
-                self.writer.fieldnames = all_props.keys()
-                self.writer.writeheader()
+        def log_init(_, props):
+            all_props = get_props(props)
+            self.writer.fieldnames = all_props.keys()
+            self.writer.writeheader()
 
+        def log(_, props):
+            all_props = get_props(props)
             self.writer.writerow(all_props)
             out_file.flush()
             self.n += 1
 
-        super().__init__(trigger=trigger,
+        super().__init__(trigger_dict={OnEveryEpoch(at=AT.START): log_init,
+                                       OnEveryEpoch(at=AT.END): log},
                          properties=None,
-                         fn=log,
                          priority=priority)
 
 
