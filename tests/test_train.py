@@ -7,6 +7,7 @@ from tensorx.activation import tanh, sigmoid
 from tensorx.layers import Input, Linear, Activation, Add, LambdaLayer, Param
 from tensorx.loss import binary_cross_entropy
 from tensorx.train import *
+from tensorx.callbacks import *
 from pygraphviz import AGraph
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -355,16 +356,25 @@ class ModelRunnerTest(test_utils.TestCase):
         # lr will be exposed as a lr (name) parameter
 
         with self.cached_session(use_gpu=True):
-            # dataset with a single sample
+            # dummy dataset with 2 samples
             dataset = [{
                 input_layer: np.random.uniform(size=[2, 4]),
-                labels: np.random.uniform(size=[2, 2])
-            }]
+                labels: np.random.uniform(size=[2, 2]),
+                "prop1": 0
+            },
+                {input_layer: np.random.uniform(size=[2, 4]),
+                 labels: np.random.uniform(size=[2, 2]),
+                 "prop1": 1}
+            ]
 
             # callbacks
             lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
-            logger = CSVLogger(logged_props=["epoch", "lr", "step"], out_filename="test.csv")
-            model.train(train_data=dataset, epochs=4, callbacks=[lr_schedule, logger])
+            logger = CSVLogger(logs=["epoch", "step", "lr", "prop1"],
+                               static_logs={"id": 0},
+                               out_filename="test.csv",
+                               trigger=OnEveryStep())
+
+            model.train(train_data=dataset, epochs=4, callbacks=[logger, lr_schedule])
 
 
 if __name__ == '__main__':

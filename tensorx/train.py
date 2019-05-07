@@ -829,6 +829,8 @@ class Model:
             feed_dict: feed dict from input layers to data samples
             write_summaries:
         """
+        feed_dict = {key: feed_dict[key]
+                     for key in feed_dict.keys() if isinstance(key, Layer)}
         self.train_called = True
 
         if self.session is None:
@@ -962,9 +964,9 @@ class Model:
 
         """
         # global step
-        step = Property("step", 1)
+        step = Property("step", 0)
         epoch = Property("epoch", 1)
-        epoch_step = Property("epoch_step", 1)
+        epoch_step = Property("epoch_step", 0)
         train_loss = Property("train_loss", None)
         # validation_loss = Property("validation_loss", None)
         test_loss = Property("test_loss", None)
@@ -1004,16 +1006,19 @@ class Model:
                 if steps_per_epoch is None:
                     epoch_data = iter(train_data)
 
-                epoch_step.value = 1
+                epoch_step.value = 0
                 total_loss = 0
                 scheduler.trigger(OnEpoch(epoch.value, AT.START))
                 while steps_per_epoch is None or epoch_step.value <= steps_per_epoch:
                     try:
                         feed_dict = next(epoch_data)
+
+                        epoch_step.value += 1
+                        step.value += 1
                         # observes new properties or update existing ones
                         _update_data_properties(feed_dict, scheduler)
 
-                        scheduler.trigger(OnStep(epoch_step.value, AT.START))
+                        scheduler.trigger(OnStep(step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
                         loss = self.train_step(feed_dict=feed_dict)
@@ -1022,11 +1027,9 @@ class Model:
 
                         scheduler.trigger(OnStep(epoch_step.value, AT.END))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.END))
-
-                        epoch_step.value += 1
-                        step.value += 1
                     except StopIteration:
                         break
+
                 # EPOCH END
                 scheduler.trigger(OnEpoch(epoch.value, AT.END))
                 epoch.value += 1
@@ -1204,13 +1207,13 @@ class DecayAfter(Callback):
 class CSVLogger(Callback):
     """
     Args:
-        logged_props List[str]: list of property names to be logged
-        logs: a dictionary of values to be output along with the target properties
+        logs List[str]: list of property names to be logged
+        static_logs: a dictionary of values to be output along with the target properties
     """
 
-    def __init__(self, logged_props, out_filename, log_dict={}, priority=1):
-        self.property_names = as_list(logged_props)
-        self.static_values = log_dict
+    def __init__(self, logs, out_filename, static_logs={}, trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.property_names = as_list(logs)
+        self.static_logs = static_logs
         self.out_filename = out_filename
         self.out_file = None
         self.n = 0
@@ -1220,7 +1223,7 @@ class CSVLogger(Callback):
             props = {prop_name: props[prop_name] for prop_name in self.property_names}
             all_props = {p.name: p.value for p in props.values()}
             # add values from the provided logs
-            all_props.update(self.static_values)
+            all_props.update(self.static_logs)
             return all_props
 
         def log_init(model, properties):
@@ -1233,14 +1236,13 @@ class CSVLogger(Callback):
             self.out_file.close()
 
         def log(model, properties):
-            print("logging epoch: " + str(properties["epoch"].value))
             all_props = get_props(properties)
             self.writer.writerow(all_props)
             self.out_file.flush()
             self.n += 1
 
-        super().__init__(trigger_dict={OnTrain(at=AT.START): log_init,
-                                       OnEveryEpoch(at=AT.END): log,
+        super().__init__(trigger_dict={OnStep(1, at=AT.START): log_init,
+                                       trigger: log,
                                        OnTrain(at=AT.END): log_clean},
                          properties=None,
                          priority=priority)

@@ -42,6 +42,10 @@ class TestCallbacks(TestCase):
         t2 = OnEveryEpochStep(2)
         t3 = OnEpochStep(4)
         t4 = OnStep(2)
+        t5 = OnEpochStep(2)
+
+        self.assertFalse(t1.match(t5))
+        self.assertFalse(t5.match(t1))
 
         self.assertEqual(t1, t4)
         self.assertNotEqual(t1, t2)
