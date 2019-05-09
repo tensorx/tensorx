@@ -1228,7 +1228,7 @@ class Eval(Callback):
                          priority=priority)
 
 
-class EvaluationDecay(Callback):
+class PlateauDecay(Callback):
     """
     Args:
         on: the measure on which we want to measure the improvement, by default "validation_loss"
@@ -1247,8 +1247,8 @@ class EvaluationDecay(Callback):
     """
 
     def __init__(self,
-                 on="validation_loss",
-                 changes="learning_rate",
+                 monitor="validation_loss",
+                 target="learning_rate",
                  improvement_threshold=1.0,
                  less_is_better=True,
                  decay_rate=1.0,
@@ -1258,14 +1258,14 @@ class EvaluationDecay(Callback):
         self.decay_rate = decay_rate
         self.decay_threshold = decay_threshold
         self.less_is_better = less_is_better
-        self.on = on
-        self.changes = changes
+        self.monitor = monitor
+        self.target = target
         self.eval_history = []
 
         def update_fn(_, properties):
             # get properties
-            evaluation = properties[self.on]
-            to_change = properties[self.changes]
+            evaluation = properties[self.monitor]
+            to_change = properties[self.target]
 
             self.eval_history.append(evaluation.value)
 
@@ -1276,10 +1276,10 @@ class EvaluationDecay(Callback):
                     if not self.less_is_better:
                         evaluation = -1 * evaluation
 
-            if evaluation <= self.improvement_threshold:
-                # if the target value did not improve, decay the value to be changed
-                # triggers an event
-                to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
+                if evaluation <= self.improvement_threshold:
+                    # if the target value did not improve, decay the value to be changed
+                    # triggers an event
+                    to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
 
         super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
                          properties=[],
@@ -1363,7 +1363,7 @@ class CSVLogger(Callback):
 __all__ = ["Model",
            "LayerGraph",
            "DecayAfter",
-           "EvaluationDecay",
+           "PlateauDecay",
            "CSVLogger",
            "Progress",
            "EarlyStop",

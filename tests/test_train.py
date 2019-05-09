@@ -369,21 +369,35 @@ class ModelRunnerTest(test_utils.TestCase):
 
             # callbacks
             progress = Progress(total_steps=6 * 2, monitor=["last_loss", "train_loss"])
+
             lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
+
             evaluation = Eval(property="validation_ppl",
                               fn=np.exp,
                               dataset=dataset,
                               trigger=OnEveryEpoch())
+
             # make sure this is executed after logger for example
             early_stop = EarlyStop(3, lesser_better=True, threshold=1,
                                    target="validation_ppl",
                                    trigger=OnEveryEpoch())
+
+            decay_plateau = PlateauDecay(monitor="validation_ppl", target="lr",
+                                         improvement_threshold=0.01,
+                                         decay_rate=0.5)
+
             logger = CSVLogger(logs=["epoch", "step", "lr", "prop1", "validation_ppl"],
                                static_logs={"id": 0},
                                out_filename="test.csv",
                                trigger=OnEveryEpoch(), priority=20)
 
-            model.train(train_data=dataset, epochs=6, callbacks=[progress, evaluation, early_stop, logger, lr_schedule])
+            model.train(train_data=dataset,
+                        epochs=6,
+                        callbacks=[progress,
+                                   evaluation,
+                                   logger,
+                                   decay_plateau,
+                                   ])  # progress, evaluation, logger, early_stop, lr_schedule])
 
 
 if __name__ == '__main__':
