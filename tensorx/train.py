@@ -10,6 +10,7 @@ This module contains learning procedures different from loss functions used
 with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organising Maps
 """
 
+from tqdm import tqdm
 import os
 import csv
 from abc import ABCMeta, abstractmethod
@@ -967,6 +968,7 @@ class Model:
         step = Property("step", 0)
         epoch = Property("epoch", 1)
         epoch_step = Property("epoch_step", 0)
+        last_loss = Property("last_loss", 0)
         train_loss = Property("train_loss", None)
         # validation_loss = Property("validation_loss", None)
         test_loss = Property("test_loss", None)
@@ -978,6 +980,7 @@ class Model:
                                           epoch,
                                           # validation_loss,
                                           train_loss,
+                                          last_loss,
                                           test_loss,
                                           ] + param_props)
 
@@ -1022,6 +1025,9 @@ class Model:
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
                         loss = self.train_step(feed_dict=feed_dict)
+                        if not np.isscalar(loss):
+                            loss = np.mean(loss)
+                        last_loss.value = loss
                         total_loss += loss
                         train_loss.value = total_loss / epoch_step.value
 
@@ -1033,11 +1039,16 @@ class Model:
                 # EPOCH END
                 scheduler.trigger(OnEpoch(epoch.value, AT.END))
                 epoch.value += 1
-
+        except StopTrain as e:
+            logging.info("Training stopped: {}".format(str(e)))
         except Exception as e:
             logging.exception("Error: " + str(e))
 
         scheduler.trigger(OnTrain(AT.END))
+
+
+class StopTrain(Exception):
+    pass
 
 
 def _update_data_properties(feed_dict, scheduler):
@@ -1053,47 +1064,134 @@ def _update_data_properties(feed_dict, scheduler):
                 prop.value = feed_dict[prop_name]
 
 
-class FnCallback(Callback):
-    def __init__(self, property_name="fn", fn=None, on="property", trigger=OnEveryEpoch(at=AT.END), priority=1):
-        self.fn = fn
-        self.property = Property(name=property_name)
-        self.on = on
+class EarlyStop(Callback):
+    """
+    Executes each time the target property changes
 
-        def apply_fn(_, properties):
-            prop = properties[on]
-            self.property.value = self.fn(prop.value)
-
-        super().__init__(trigger_dict={trigger: apply_fn}, priority=priority, properties=[self.property])
-
-
-class Perplexity(FnCallback):
-    """ Evaluates perplexity of a model
-
-    Args:
-        on (str): property name representing cross entropy loss value on which we are to compute the perplexity
-                  (this will be either validation_loss, test_loss if data is passed to train method)
-        property_name (str): name for the generated property
-        should be run after the required property values on which perplexity is computed (check priorities
-        to ensure this runs after validation loss or test loss, etc)
+    Note:
+        if this relies on a property doesn't exist, it throws an error and interrupts the train loop.
+        Also make sure it is executed AFTER a callback that computes a property that it needs
     """
 
-    def __init__(self, property_name="ppl", on="validation_loss", trigger=OnEveryEpoch(at=AT.END), priority=1):
-        super().__init__(property_name=property_name, fn=np.exp, on=on, trigger=trigger, priority=priority)
+    def __init__(self, patience=3, lesser_better=True, threshold=0.001, target="validation_loss",
+                 trigger=None, priority=1000):
+        self.patience = patience
+        self.threshold = threshold,
+        self.target = target
+        self.last_eval = None
+        self.patience_tick = 0
+
+        def early_stop(model, properties):
+            if self.target not in properties:
+                raise KeyError(
+                    "EarlyStop callback is trying to access a property that doesn't exist: {}".format(self.target))
+            measure = properties[target].value
+            if self.last_eval is None:
+                self.last_eval = measure
+            else:
+                improvement = self.last_eval - measure
+                if not lesser_better:
+                    improvement = -1 * improvement
+
+                if improvement < self.threshold:
+                    self.patience_tick += 1
+                    if self.patience_tick == self.patience:
+                        raise StopTrain("the model didn't improve for the last {} epochs".format(patience))
+                    else:
+                        self.patience_tick = 0
+
+        if trigger is None:
+            trigger = OnValueChange(self.target)
+
+        super().__init__(trigger_dict={trigger: early_stop}, priority=priority)
+
+
+class StopOnNaN(Callback):
+    """ StopOnNaN
+
+    This callback interrupts the training loop if
+    the last_loss property returns NaN
+
+    the only even triggering after this is OnTrain(AT.END)
+    """
+
+    def __init__(self):
+        def raise_stop(model, properties):
+            step = properties["epoch_step"].value
+            epoch = properties["epoch"].value
+            raise StopTrain("loss returned NaN on epoch {epoch} step {step}".format(epoch=epoch, step=step))
+
+        super().__init__({OnValueChange("last_loss"): raise_stop})
+
+
+class Progress(Callback):
+    """Progress Callback
+    """
+
+    def __init__(self, total_steps=None, priority=1):
+        self.total_steps = total_steps
+        self.progress = None
+
+        def progress_init(model, properties):
+            self.progress = tqdm(total=self.total_steps)
+
+        def progress_step(model, properties):
+            self.progress.update(1)
+
+        def progress_stop(model, properties):
+            self.progress.close()
+
+        trigger_dict = {OnTrain(AT.START): progress_init,
+                        OnEveryStep(at=AT.END): progress_step,
+                        OnTrain(AT.END): progress_stop}
+
+        super().__init__(trigger_dict=trigger_dict,
+                         priority=priority)
+
+
+class LambdaCallback(Callback):
+    """ LambdaCallback
+
+    takes a function and applies it to a property returning a new property on a given trigger
+    """
+
+    def __init__(self, fn=None, triggers=OnEveryEpoch(at=AT.END), properties=[], priority=1):
+        self.triggers = as_list(triggers)
+        self.properties = properties
+        self.fn = fn
+        trigger_dict = {trigger: fn for trigger in triggers}
+
+        super().__init__(trigger_dict=trigger_dict, priority=priority, properties=self.properties)
+
+
+class ResetState(LambdaCallback):
+    """ ResetState Callback
+
+    calls reset state on the model on the given triggers
+    """
+
+    def __init__(self, triggers=OnEveryEpoch(at=AT.END), priority=1):
+        triggers = as_list(triggers)
+
+        def reset(model: Model, _):
+            model.reset_state()
+
+        super().__init__(fn=reset, triggers=triggers, priority=priority)
 
 
 class Eval(Callback):
-    def __init__(self, property_name="eval", eval_fn=None, dataset=None, trigger=OnEveryEpoch(at=AT.END), priority=1):
+    def __init__(self, property_name="eval", fn=None, dataset=None, trigger=OnEveryEpoch(at=AT.END), priority=1):
         """
 
         Args:
             property_name: name for the property created by this callback
-            eval_fn: function applied to the average evaluation value before updating the property
+            fn: function applied to the average evaluation value before updating the property
             dataset: the dataset on which the model will be evaluated
             trigger: trigger for when the evaluation is run
             priority: callback priority
         """
         self.dataset = dataset
-        self.eval_fn = eval_fn
+        self.fn = fn
         self.property = Property(name=property_name)
 
         def eval_fn(model, _):
@@ -1106,8 +1204,8 @@ class Eval(Callback):
                 steps += 1
 
             avg_eval = sum_eval / steps
-            if self.eval_fn:
-                self.property.value = self.eval_fn(avg_eval)
+            if self.fn:
+                self.property.value = self.fn(avg_eval)
             else:
                 self.property.value = avg_eval
 
@@ -1252,5 +1350,8 @@ __all__ = ["Model",
            "LayerGraph",
            "DecayAfter",
            "EvaluationDecay",
-           "CSVLogger"
+           "CSVLogger",
+           "Progress",
+           "EarlyStop",
+           "StopOnNaN"
            ]

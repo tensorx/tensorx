@@ -54,6 +54,7 @@ class UploadCommand(Command):
 
 
 install_requires = [
+    "tqdm"
 
 ]
 
