@@ -893,6 +893,8 @@ class Model:
             feed_dict (dict): dictionary with eval graph dependencies layer: value
             write_summaries:
         """
+        feed_dict = {key: feed_dict[key]
+                     for key in feed_dict.keys() if isinstance(key, Layer)}
 
         if self.session is None:
             self.set_session()
@@ -991,12 +993,12 @@ class Model:
             scheduler.register(cb)
 
         if validation_data:
-            validation_cb = Eval(property_name="validation_loss",
+            validation_cb = Eval(property="validation_loss",
                                  dataset=validation_data,
                                  priority=-2)
             scheduler.register(validation_cb)
         if test_data:
-            test_cb = Eval(property_name="test_loss",
+            test_cb = Eval(property="test_loss",
                            dataset=test_data,
                            priority=-1)
             scheduler.register(test_cb)
@@ -1097,8 +1099,8 @@ class EarlyStop(Callback):
                     self.patience_tick += 1
                     if self.patience_tick == self.patience:
                         raise StopTrain("the model didn't improve for the last {} epochs".format(patience))
-                    else:
-                        self.patience_tick = 0
+                else:
+                    self.patience_tick = 0
 
         if trigger is None:
             trigger = OnValueChange(self.target)
@@ -1128,15 +1130,25 @@ class Progress(Callback):
     """Progress Callback
     """
 
-    def __init__(self, total_steps=None, priority=1):
+    def __init__(self, total_steps=None, monitor="train_loss", priority=1):
         self.total_steps = total_steps
         self.progress = None
+        self.monitor = as_list(monitor)
 
         def progress_init(model, properties):
             self.progress = tqdm(total=self.total_steps)
 
         def progress_step(model, properties):
+            postfix = {}
+            for prop_name in self.monitor:
+                if prop_name not in properties:
+                    raise KeyError(
+                        "Progress callback is trying to access a property that doesn't exist: {}".format(self.monitor))
+                prop = properties[prop_name].value
+                postfix[prop_name] = prop
             self.progress.update(1)
+            if len(postfix) > 0:
+                self.progress.set_postfix(postfix)
 
         def progress_stop(model, properties):
             self.progress.close()
@@ -1180,11 +1192,11 @@ class ResetState(LambdaCallback):
 
 
 class Eval(Callback):
-    def __init__(self, property_name="eval", fn=None, dataset=None, trigger=OnEveryEpoch(at=AT.END), priority=1):
+    def __init__(self, property="eval", fn=None, dataset=None, trigger=OnEveryEpoch(at=AT.END), priority=1):
         """
 
         Args:
-            property_name: name for the property created by this callback
+            property: name for the property created by this callback
             fn: function applied to the average evaluation value before updating the property
             dataset: the dataset on which the model will be evaluated
             trigger: trigger for when the evaluation is run
@@ -1192,7 +1204,7 @@ class Eval(Callback):
         """
         self.dataset = dataset
         self.fn = fn
-        self.property = Property(name=property_name)
+        self.property = Property(name=property)
 
         def eval_fn(model, _):
             dataset_it = iter(self.dataset)
@@ -1200,6 +1212,8 @@ class Eval(Callback):
             steps = 0
             for feed_dict in dataset_it:
                 mean_eval = model.eval_step(feed_dict=feed_dict)
+                if not np.isscalar(mean_eval):
+                    mean_eval = np.mean(mean_eval)
                 sum_eval += mean_eval
                 steps += 1
 
@@ -1353,5 +1367,6 @@ __all__ = ["Model",
            "CSVLogger",
            "Progress",
            "EarlyStop",
-           "StopOnNaN"
+           "StopOnNaN",
+           "Eval"
            ]
