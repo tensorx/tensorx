@@ -178,9 +178,30 @@ class ModelRunnerTest(test_utils.TestCase):
         in2 = Input(2, name="in2")
 
         linear1 = Linear(in1, 1)
-        linear2 = Linear(Add(in1, in2), 1)
+        linear2 = Linear(Add(in1, in2), 2)
 
-        Model(run_inputs=[in1, in2], run_outputs=[linear1, linear2])
+        loss = LambdaLayer(in2, linear2, apply_fn=binary_cross_entropy)
+
+        model = Model(run_inputs=[in1, in2],
+                      train_loss=loss,
+                      eval_score=loss,
+                      run_outputs=[linear1, linear2])
+
+        train_graph = model.train_graph
+        self.assertIsNone(train_graph)
+
+        model.config_optimizer(optimizer=tf.train.GradientDescentOptimizer(learning_rate=0.5))
+        train_graph = model.train_graph
+        self.assertIsNotNone(train_graph)
+        self.assertSetEqual(train_graph.input_layers, {in1, in2})
+
+        run_graph = model.run_graph
+        self.assertSetEqual(run_graph.input_layers, {in1, in2})
+        self.assertListEqual(run_graph.output_layers, [linear1, linear2])
+
+        eval_graph = model.eval_graph
+        self.assertIsNotNone(eval_graph)
+        self.assertSetEqual(eval_graph.input_layers, run_graph.input_layers)
 
     def test_model_var_init(self):
         inputs = Input(1)
@@ -235,7 +256,7 @@ class ModelRunnerTest(test_utils.TestCase):
                           eval_inputs=[input_layer, labels],
                           eval_score=losses)
 
-            optimiser = tf.train.AdadeltaOptimizer(learning_rate=0.5)
+            optimiser = tf.train.GradientDescentOptimizer(learning_rate=0.5)
             model.config_optimizer(optimiser)
 
             data = np.array([[1, 1, 1, 1]])
@@ -247,32 +268,41 @@ class ModelRunnerTest(test_utils.TestCase):
             weights1 = model.session.run(linear.weights)
 
             for i in range(10):
-                model.train_op({input_layer: data, labels: target})
+                model.train_step({input_layer: data, labels: target})
 
             weights2 = model.session.run(linear.weights)
 
             self.assertFalse(np.array_equal(weights1, weights2))
 
     def test_eval_step_decay_param(self):
-        input_layer = Input(4, name="inputs")
+        input_layer = Input(4, name="inputs", value=[[1, 1, 1, 1]])
         linear = Linear(input_layer, 2)
-        h = Activation(linear, fn=sigmoid)
 
         # configure training
-        labels = Input(2, name="labels")
-        losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
+        labels = Input(2, name="labels", value=[[1, 1]])
+        losses = LambdaLayer(labels, linear, apply_fn=binary_cross_entropy)
 
         model = Model(run_inputs=input_layer,
-                      run_outputs=h,
+                      run_outputs=linear,
                       train_inputs=[input_layer, labels],
                       train_loss=losses,
                       eval_inputs=[input_layer, labels],
                       eval_score=losses)
 
-        lr = Param(value=0.5, name="lr")
+        lr = Param(value=1, name="lr")
         optimiser = tf.train.AdadeltaOptimizer(learning_rate=lr)
         model.config_optimizer(optimiser, optimizer_params=lr)
 
+        logger = DictLogger(["lr", "step", "epoch"], OnEveryStep())
+        decay = DecayAfter(2, "lr", decay_rate=0.5)
+        model.train(train_data=None, epochs=4, steps_per_epoch=1, callbacks=[decay,logger])
+
+        self.assertEqual(len(logger.logs), 3)
+        self.assertIn("lr", logger.logs)
+        self.assertIn("step", logger.logs)
+        self.assertIn("epoch", logger.logs)
+
+        self.assertEqual(logger.logs["lr"][2:],[0.5,0.25])
         # lr will be exposed as a lr (name) parameter
 
         # with self.cached_session(use_gpu=True):
@@ -386,7 +416,7 @@ class ModelRunnerTest(test_utils.TestCase):
                                          improvement_threshold=0.01,
                                          decay_rate=0.5)
 
-            logger = CSVLogger(logs=["epoch", "step", "lr", "prop1", "validation_ppl"],
+            logger = CSVLogger(monitors=["epoch", "step", "lr", "prop1", "validation_ppl"],
                                static_logs={"id": 0},
                                out_filename="test.csv",
                                trigger=OnEveryEpoch(), priority=20)

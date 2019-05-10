@@ -10,7 +10,7 @@ This module contains learning procedures different from loss functions used
 with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organising Maps
 """
 
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 import os
 import csv
 from abc import ABCMeta, abstractmethod
@@ -276,7 +276,7 @@ class LayerGraph:
                              "Unused inputs: \n {unused}".format(unused=missing_str))
 
         if len(self.input_layers) == 0:
-            self.input_layers = list(all_dependencies)
+            self.input_layers = set(all_dependencies)
 
     def missing_dependencies(self, inputs, outputs=None) -> dict:
         """ given a list of input layers, checks if any input dependency is missing from the graph
@@ -986,7 +986,7 @@ class Model:
                                           test_loss,
                                           ] + param_props)
 
-        if steps_per_epoch is not None:
+        if steps_per_epoch is not None and train_data is not None:
             epoch_data = iter(train_data)
 
         for cb in callbacks:
@@ -1008,15 +1008,18 @@ class Model:
             while epoch.value <= epochs:
                 # EPOCH START
                 # restart iterator for an epoch
-                if steps_per_epoch is None:
+                if steps_per_epoch is None and train_data is not None:
                     epoch_data = iter(train_data)
 
                 epoch_step.value = 0
                 total_loss = 0
                 scheduler.trigger(OnEpoch(epoch.value, AT.START))
-                while steps_per_epoch is None or epoch_step.value <= steps_per_epoch:
+                while steps_per_epoch is None or epoch_step.value < steps_per_epoch:
                     try:
-                        feed_dict = next(epoch_data)
+                        if train_data is not None:
+                            feed_dict = next(epoch_data)
+                        else:
+                            feed_dict = {}
 
                         epoch_step.value += 1
                         step.value += 1
@@ -1305,15 +1308,40 @@ class DecayAfter(Callback):
             if self.changes not in properties:
                 raise KeyError(
                     "DecayAfter callback is trying to change a property that doesn't exist: {}".format(self.changes))
-
             epoch = properties["epoch"].value
-            if epoch > self.decay_after:
+
+            if epoch >= self.decay_after:
                 prop = properties[self.changes]
                 prop.value = max(self.decay_threshold, prop.value * decay_rate)
 
         super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
                          properties=[],
                          priority=priority)
+
+
+class DictLogger(Callback):
+    def __init__(self, monitors, trigger=OnEveryEpoch(at=AT.END), priority=1):
+        """
+
+        Args:
+            monitors: names of properties to monitor
+            trigger:
+            priority:
+
+        Attributes:
+            logs: dictionary with log values
+        """
+        self.monitors = as_list(monitors)
+        self.logs = {name: [] for name in self.monitors}
+
+        def get_props(model, properties):
+            for prop_name in self.monitors:
+                if prop_name not in properties:
+                    raise KeyError("DictLogger tried to access a property that doesn't exist: {}".format(prop_name))
+                prop = properties[prop_name]
+                self.logs[prop_name].append(prop.value)
+
+        super().__init__(trigger_dict={trigger: get_props}, priority=priority)
 
 
 class CSVLogger(Callback):
@@ -1323,8 +1351,8 @@ class CSVLogger(Callback):
         static_logs: a dictionary of values to be output along with the target properties
     """
 
-    def __init__(self, logs, out_filename, static_logs={}, trigger=OnEveryEpoch(at=AT.END), priority=1):
-        self.property_names = as_list(logs)
+    def __init__(self, monitors, out_filename, static_logs={}, trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.property_names = as_list(monitors)
         self.static_logs = static_logs
         self.out_filename = out_filename
         self.out_file = None
@@ -1365,6 +1393,7 @@ __all__ = ["Model",
            "DecayAfter",
            "PlateauDecay",
            "CSVLogger",
+           "DictLogger",
            "Progress",
            "EarlyStop",
            "StopOnNaN",
