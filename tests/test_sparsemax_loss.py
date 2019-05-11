@@ -64,7 +64,7 @@ class TestSparseMaxLoss(TestCase):
     def _tf_sparsemax(self, z, dtype, use_gpu):
         with self.cached_session(use_gpu=use_gpu):
             tf_sparsemax_op = sparsemax(z.astype(dtype))
-            tf_sparsemax_out = tf_sparsemax_op.eval_step()
+            tf_sparsemax_out = tf_sparsemax_op.eval()
 
         return tf_sparsemax_op, tf_sparsemax_out
 
@@ -75,7 +75,7 @@ class TestSparseMaxLoss(TestCase):
         with self.cached_session(use_gpu=use_gpu):
             tf_sparsemax_op = sparsemax(z)
             tf_loss_op = sparsemax_loss(z, tf_sparsemax_op, q)
-            tf_loss_out = tf_loss_op.eval_step()
+            tf_loss_out = tf_loss_op.eval()
 
         return tf_loss_op, tf_loss_out
 
@@ -166,7 +166,7 @@ class TestSparseMaxLoss(TestCase):
         loss_grad_op = gradients_impl.gradients(loss_op, [logits])[0]
 
         with self.cached_session(use_gpu=use_gpu):
-            tf_grad = loss_grad_op.eval_step()
+            tf_grad = loss_grad_op.eval()
             np_grad = self._np_sparsemax_loss_grad(z, q).astype(dtype)
 
             self.assertShapeEqual(np_grad, loss_grad_op)

@@ -53,7 +53,7 @@ class SparsemaxTest(TestCase):
     def _tf_sparsemax(self, z, dtype, use_gpu):
         with self.cached_session(use_gpu=use_gpu):
             tf_sparsemax_op = sparsemax(z.astype(dtype))
-            tf_sparsemax_out = tf_sparsemax_op.eval_step()
+            tf_sparsemax_out = tf_sparsemax_op.eval()
 
         return tf_sparsemax_op, tf_sparsemax_out
 
@@ -186,7 +186,7 @@ class SparsemaxTest(TestCase):
         sparsemax_grad_op = gradients_impl.gradients(sparsemax_op, [logits])[0]
 
         with self.cached_session(use_gpu=use_gpu):
-            tf_grad = sparsemax_grad_op.eval_step()
+            tf_grad = sparsemax_grad_op.eval()
             np_grad = self._np_sparsemax_grad(z)
 
             self.assertAllCloseAccordingToType(np_grad, tf_grad)

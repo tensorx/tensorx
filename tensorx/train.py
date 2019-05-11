@@ -1021,6 +1021,8 @@ class Model:
                         else:
                             feed_dict = {}
 
+                        # updated here because we want this property to give us the current step, to know when
+                        # a step ends use OnEveryStep(at=AT.END)
                         epoch_step.value += 1
                         step.value += 1
                         # observes new properties or update existing ones
@@ -1250,8 +1252,8 @@ class PlateauDecay(Callback):
     """
 
     def __init__(self,
-                 monitor="validation_loss",
-                 target="learning_rate",
+                 monitor,
+                 target,
                  improvement_threshold=1.0,
                  less_is_better=True,
                  decay_rate=1.0,

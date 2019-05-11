@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from tensorx import test_utils
 from tensorx.activation import tanh, sigmoid
-from tensorx.layers import Input, Linear, Activation, Add, LambdaLayer, Param
+from tensorx.layers import *
 from tensorx.loss import binary_cross_entropy
 from tensorx.train import *
 from tensorx.callbacks import *
@@ -264,17 +264,18 @@ class ModelRunnerTest(test_utils.TestCase):
 
             # session = runner.session
             # weights = session.run(linear.weights)
-            model.init_vars()
-            weights1 = model.session.run(linear.weights)
+            with self.cached_session(use_gpu=True):
+                model.init_vars()
+                weights1 = model.session.run(linear.weights)
 
-            for i in range(10):
-                model.train_step({input_layer: data, labels: target})
+                for i in range(10):
+                    model.train_step({input_layer: data, labels: target})
 
-            weights2 = model.session.run(linear.weights)
+                weights2 = model.session.run(linear.weights)
 
-            self.assertFalse(np.array_equal(weights1, weights2))
+                self.assertFalse(np.array_equal(weights1, weights2))
 
-    def test_eval_step_decay_param(self):
+    def test_decay_after(self):
         input_layer = Input(4, name="inputs", value=[[1, 1, 1, 1]])
         linear = Linear(input_layer, 2)
 
@@ -290,78 +291,50 @@ class ModelRunnerTest(test_utils.TestCase):
                       eval_score=losses)
 
         lr = Param(value=1, name="lr")
-        optimiser = tf.train.AdadeltaOptimizer(learning_rate=lr)
+        optimiser = tf.train.GradientDescentOptimizer(learning_rate=lr)
         model.config_optimizer(optimiser, optimizer_params=lr)
 
         logger = DictLogger(["lr", "step", "epoch"], OnEveryStep())
         decay = DecayAfter(2, "lr", decay_rate=0.5)
-        model.train(train_data=None, epochs=4, steps_per_epoch=1, callbacks=[decay,logger])
+
+        with self.cached_session(use_gpu=True):
+            model.train(train_data=None, epochs=4, steps_per_epoch=1, callbacks=[decay, logger])
 
         self.assertEqual(len(logger.logs), 3)
         self.assertIn("lr", logger.logs)
         self.assertIn("step", logger.logs)
         self.assertIn("epoch", logger.logs)
 
-        self.assertEqual(logger.logs["lr"][2:],[0.5,0.25])
-        # lr will be exposed as a lr (name) parameter
+        self.assertEqual(logger.logs["lr"][2:], [0.5, 0.25])
 
-        # with self.cached_session(use_gpu=True):
-        #
-        #
-        #
-        #
-        # v1 = 4
-        # decay_rate = 0.5
-        # param = EvalStepDecayParam(value=v1,
-        #                            decay_rate=decay_rate,
-        #                            improvement_threshold=1.0,
-        #                            less_is_better=True)
-        # param.update(evaluation=1)
-        # v2 = param.value
-        # self.assertEqual(v1, v2)
-        #
-        # # eval does not improve
-        # param.update(evaluation=10)
-        # v3 = param.value
-        # self.assertNotEqual(v2, v3)
-        # self.assertEqual(v3, v2 * decay_rate)
-        # self.assertEqual(param.eval_improvement(), -9)
-        #
-        # # eval improves but not more than threshold
-        # v4 = param.value
-        # param.update(evaluation=9)
-        # self.assertEqual(v4, v3)
-        #
-        # # eval does not improve
-        # v5 = param.value
-        # param.update(evaluation=10)
-        # self.assertEqual(v5, v4 * decay_rate)
-        #
-        # # eval improves but within threshold
-        # v6 = param.value
-        # param.update(evaluation=8.9)
-        # self.assertEqual(v6, v5 * decay_rate)
-        #
-        # # INCREASING EVAL
-        # param = EvalStepDecayParam(v1, decay_rate=decay_rate, improvement_threshold=1.0, less_is_better=False)
-        # param.update(evaluation=5)
-        # v2 = param.value
-        # self.assertEqual(v1, v2)
-        #
-        # # eval does not improve
-        # param.update(evaluation=4)
-        # v3 = param.value
-        # self.assertEqual(v3, v2 * decay_rate)
-        #
-        # # improvement within threshold / did not improve
-        # param.update(evaluation=5)
-        # v4 = param.value
-        # self.assertEqual(v4, v3 * decay_rate)
-        #
-        # # improvement more than threshold
-        # param.update(evaluation=6.1)
-        # v5 = param.value
-        # self.assertEqual(v5, v4)
+    def test_plateau_decay(self):
+        # if I supply this as an input it will complain that it's not a dependency so it doesn't need to be added
+        input_layer = TensorLayer(tf.random.uniform([1, 4]), 4)
+
+        linear = Linear(input_layer, 2)
+
+        # configure training
+        labels = Input(2, name="labels", value=[[1, 1]])
+        losses = LambdaLayer(labels, linear, apply_fn=binary_cross_entropy)
+
+        model = Model(run_inputs=None,
+                      run_outputs=linear,
+                      train_inputs=[labels],
+                      train_loss=losses,
+                      eval_inputs=[labels],
+                      eval_score=losses)
+
+        init_lr = 0.001
+        lr = Param(value=init_lr, name="lr")
+        optimiser = tf.train.GradientDescentOptimizer(learning_rate=lr)
+        model.config_optimizer(optimiser, optimizer_params=lr)
+
+        logger = DictLogger(["lr", "train_loss", "step", "epoch"], OnEveryStep())
+        decay = PlateauDecay(monitor="last_loss", target="lr", improvement_threshold=0.5, decay_rate=0.5)
+        with self.cached_session(use_gpu=True):
+            model.train(train_data=None, epochs=4, steps_per_epoch=1, callbacks=[decay, logger])
+
+        self.assertLessEqual(lr.value, init_lr)
 
     def test_param_prop(self):
         input_layer = Input(4, name="inputs")
@@ -398,7 +371,7 @@ class ModelRunnerTest(test_utils.TestCase):
             ]
 
             # callbacks
-            progress = Progress(total_steps=6 * 2, monitor=["last_loss", "train_loss"])
+            # progress = Progress(total_steps=6 * 2, monitor=["last_loss", "train_loss"])
 
             lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
 
@@ -423,11 +396,11 @@ class ModelRunnerTest(test_utils.TestCase):
 
             model.train(train_data=dataset,
                         epochs=6,
-                        callbacks=[progress,
-                                   evaluation,
-                                   logger,
-                                   decay_plateau,
-                                   ])  # progress, evaluation, logger, early_stop, lr_schedule])
+                        callbacks=[  # progress,
+                            evaluation,
+                            # logger,
+                            decay_plateau,
+                        ])  # progress, evaluation, logger, early_stop, lr_schedule])
 
 
 if __name__ == '__main__':
