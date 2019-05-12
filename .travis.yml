@@ -9,6 +9,7 @@ matrix:
 install:
   - pip install tensorflow
   - pip install pygraphviz
+  - pip install tqdm
 
 script: python -m unittest
 

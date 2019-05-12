@@ -10,7 +10,7 @@ This module contains learning procedures different from loss functions used
 with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organising Maps
 """
 
-from tqdm.autonotebook import tqdm
+import importlib
 import os
 import csv
 from abc import ABCMeta, abstractmethod
@@ -1140,8 +1140,12 @@ class Progress(Callback):
         self.progress = None
         self.monitor = as_list(monitor)
 
+        # optional, only tries to import it when we create a progress callback
+        from tqdm.autonotebook import tqdm
+        self.tqdm = tqdm
+
         def progress_init(model, properties):
-            self.progress = tqdm(total=self.total_steps)
+            self.progress = self.tqdm(total=self.total_steps)
 
         def progress_step(model, properties):
             postfix = {}

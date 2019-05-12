@@ -371,7 +371,7 @@ class ModelRunnerTest(test_utils.TestCase):
             ]
 
             # callbacks
-            # progress = Progress(total_steps=6 * 2, monitor=["last_loss", "train_loss"])
+            progress = Progress(total_steps=6 * 2, monitor=["last_loss", "train_loss"])
 
             lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
 
@@ -396,7 +396,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
             model.train(train_data=dataset,
                         epochs=6,
-                        callbacks=[  # progress,
+                        callbacks=[  progress,
                             evaluation,
                             # logger,
                             decay_plateau,
