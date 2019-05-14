@@ -1136,8 +1136,10 @@ class Plot(Callback):
     """
 
     # noinspection PyBroadException
-    def __init__(self, monitor, cols=3, fig_size=(7, 3), save_plot=True, trigger=OnEveryEpoch(at=AT.END), priority=1):
+    def __init__(self, monitor, cols=3, fig_size=(7, 3), save_plot=True, output_file=None,
+                 trigger=OnEveryEpoch(at=AT.END), priority=1):
         self.monitor = set(as_list(monitor))
+        self.output_file = output_file
 
         import matplotlib.pyplot as plt
 
@@ -1208,7 +1210,9 @@ class Plot(Callback):
             self.plt.ioff()
 
             if save_plot:
-                self.plt.savefig("train_run_{}.pdf".format(str(os.getpid())), format="pdf")
+                if self.output_file is None:
+                    self.output_file = "train_run_{}.pdf".format(str(os.getpid()))
+                self.plt.savefig(output_file)
 
             # self.plt.show()
             self.plt.close(self.fig)

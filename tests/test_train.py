@@ -394,14 +394,14 @@ class ModelRunnerTest(test_utils.TestCase):
                                out_filename="test.csv",
                                trigger=OnEveryEpoch(), priority=20)
 
-            #plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2, save_plot=False)
+            # plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2, save_plot=True,output_file="test.png")
 
             model.train(train_data=dataset,
                         epochs=24,
                         callbacks=[progress,
                                    evaluation,
                                    # logger,
-                                   #plot,
+                                   # plot,
                                    decay_plateau,
                                    ])  # progress, evaluation, logger, early_stop, lr_schedule])
 
