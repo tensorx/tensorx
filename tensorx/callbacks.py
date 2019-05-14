@@ -238,6 +238,19 @@ class Property:
             observer.trigger(OnValueChange(self.name))
 
 
+class StaticProperty(Property):
+    def register(self, obs):
+        pass
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        self._value = value
+
+
 class Callback:
     """ General Purpose Callback
 

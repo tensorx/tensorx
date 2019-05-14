@@ -9,6 +9,8 @@ from tensorx.loss import binary_cross_entropy
 from tensorx.train import *
 from tensorx.callbacks import *
 from pygraphviz import AGraph
+import tensorx as tx
+import time
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -371,7 +373,7 @@ class ModelRunnerTest(test_utils.TestCase):
             ]
 
             # callbacks
-            progress = Progress(total_steps=24 * 2, monitor=["last_loss", "train_loss"])
+            progress = Progress(monitor=["last_loss", "train_loss"])
 
             lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
 
@@ -394,14 +396,13 @@ class ModelRunnerTest(test_utils.TestCase):
                                out_filename="test.csv",
                                trigger=OnEveryEpoch(), priority=20)
 
-            # plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2, save_plot=True,output_file="test.png")
+            plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2, save_plot=True,output_file="test.png")
 
             model.train(train_data=dataset,
-                        epochs=24,
+                        epochs=12,
                         callbacks=[progress,
                                    evaluation,
-                                   # logger,
-                                   # plot,
+                                   plot,
                                    decay_plateau,
                                    ])  # progress, evaluation, logger, early_stop, lr_schedule])
 

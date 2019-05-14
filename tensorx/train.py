@@ -971,6 +971,7 @@ class Model:
         epoch_step = Property("epoch_step", 0)
         last_loss = Property("last_loss", 0)
         train_loss = Property("train_loss", None)
+        total_epochs = StaticProperty("total_epochs", value=epochs)
         # validation_loss = Property("validation_loss", None)
         test_loss = Property("test_loss", None)
         param_props = self.optimizer_params  # if parameters change value this will fire an event in the scheduler
@@ -979,10 +980,10 @@ class Model:
                               properties=[step,
                                           epoch_step,
                                           epoch,
-                                          # validation_loss,
                                           train_loss,
                                           last_loss,
                                           test_loss,
+                                          total_epochs,
                                           ] + param_props)
 
         if steps_per_epoch is not None and train_data is not None:
@@ -1256,6 +1257,14 @@ class Progress(Callback):
         trigger_dict = {OnTrain(AT.START): progress_init,
                         OnEveryStep(at=AT.END): progress_step,
                         OnTrain(AT.END): progress_stop}
+
+        def progress_update(model, properties):
+            if self.total_steps is None:
+                self.total_steps = self.progress.n * properties["total_epochs"].value
+                self.progress.total = self.total_steps
+
+        if self.total_steps is None:
+            trigger_dict[OnEveryEpoch(at=AT.END)] = progress_update
 
         super().__init__(trigger_dict=trigger_dict,
                          priority=priority)
