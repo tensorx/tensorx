@@ -80,7 +80,7 @@ class LayerScope:
             # this guarantees that reuse will not chain scoped names
             # like scope2/layer1/scope1/layer1 ...
 
-            layer_name_scope = tf.name_scope(self.layer.name, values=self.values)
+            layer_name_scope = tf.name_scope(self.layer.name)
 
             scoped_name = stack.enter_context(layer_name_scope)
             scoped_name = scoped_name[:-1]
