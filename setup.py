@@ -54,12 +54,12 @@ class UploadCommand(Command):
 
 
 install_requires = [
-    "tqdm"
 
 ]
 
 extras_require = {
-    'graphviz': ['pygraphviz']
+    'graphviz': ['pygraphviz'],
+    'tqdm': ['tqdm']
 }
 
 setup(

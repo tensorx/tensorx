@@ -337,19 +337,19 @@ class ModelRunnerTest(test_utils.TestCase):
         self.assertLessEqual(lr.value, init_lr)
 
     def test_param_prop(self):
-        input_layer = Input(4, name="inputs")
-        linear = Linear(input_layer, 2)
+        x = Input(4, name="inputs")
+        linear = Linear(x, 2)
         h = Activation(linear, fn=sigmoid)
 
         # configure training
-        labels = Input(2, name="labels")
-        losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
+        y = Input(2, name="labels")
+        losses = LambdaLayer(y, h, apply_fn=binary_cross_entropy)
 
-        model = Model(run_inputs=input_layer,
+        model = Model(run_inputs=x,
                       run_outputs=h,
-                      train_inputs=[input_layer, labels],
+                      train_inputs=[x, y],
                       train_loss=losses,
-                      eval_inputs=[input_layer, labels],
+                      eval_inputs=[x, y],
                       eval_score=losses)
 
         lr = Param(value=1.0, name="lr")
@@ -361,17 +361,17 @@ class ModelRunnerTest(test_utils.TestCase):
         with self.cached_session(use_gpu=True):
             # dummy dataset with 2 samples
             dataset = [{
-                input_layer: np.random.uniform(size=[2, 4]),
-                labels: np.random.uniform(size=[2, 2]),
+                x: np.random.uniform(size=[2, 4]),
+                y: np.random.uniform(size=[2, 2]),
                 "prop1": 0
             },
-                {input_layer: np.random.uniform(size=[2, 4]),
-                 labels: np.random.uniform(size=[2, 2]),
+                {x: np.random.uniform(size=[2, 4]),
+                 y: np.random.uniform(size=[2, 2]),
                  "prop1": 1}
             ]
 
             # callbacks
-            progress = Progress(total_steps=6 * 2, monitor=["last_loss", "train_loss"])
+            progress = Progress(total_steps=24 * 2, monitor=["last_loss", "train_loss"])
 
             lr_schedule = DecayAfter(2, decay_rate=0.5, changes="lr")
 
@@ -394,13 +394,16 @@ class ModelRunnerTest(test_utils.TestCase):
                                out_filename="test.csv",
                                trigger=OnEveryEpoch(), priority=20)
 
+            plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2, save_plot=False)
+
             model.train(train_data=dataset,
-                        epochs=6,
-                        callbacks=[  progress,
-                            evaluation,
-                            # logger,
-                            decay_plateau,
-                        ])  # progress, evaluation, logger, early_stop, lr_schedule])
+                        epochs=24,
+                        callbacks=[progress,
+                                   evaluation,
+                                   # logger,
+                                   plot,
+                                   decay_plateau,
+                                   ])  # progress, evaluation, logger, early_stop, lr_schedule])
 
 
 if __name__ == '__main__':

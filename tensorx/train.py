@@ -10,7 +10,6 @@ This module contains learning procedures different from loss functions used
 with gradient descend methods such Winner-Takes-All (WTA) methods for Self-Organising Maps
 """
 
-import importlib
 import os
 import csv
 from abc import ABCMeta, abstractmethod
@@ -27,12 +26,12 @@ from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.training.saver import Saver, import_meta_graph, export_meta_graph
 from tensorflow.python.summary import summary
 
-import tensorflow as tf
 from tensorflow.core.protobuf.config_pb2 import RunOptions, RunMetadata
 from tensorx.layers import *
 from tensorx.layers import Layer
 from tensorx.utils import Graph
 from tensorx.callbacks import *
+
 import logging
 
 
@@ -1131,6 +1130,94 @@ class StopOnNaN(Callback):
         super().__init__({OnValueChange("last_loss"): raise_stop})
 
 
+class Plot(Callback):
+    """ Callback that plots the given properties in real time
+
+    """
+
+    # noinspection PyBroadException
+    def __init__(self, monitor, cols=3, fig_size=(7, 3), save_plot=True, trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.monitor = set(as_list(monitor))
+
+        import matplotlib.pyplot as plt
+
+        # only use the TkAgg backend if in console
+        try:
+            from IPython import get_ipython
+            if 'IPKernelApp' not in get_ipython().config:  # pragma: no cover
+                raise ImportError("console")
+        except Exception:
+            import matplotlib
+            matplotlib.use('TkAgg')
+
+        self.cols = cols
+        self.plt = plt
+        self.fig = None
+        self.ax = {}
+        self.i = 1
+
+        def plot_init(model, properties):
+            self.plt.ion()
+            self.fig = self.plt.figure(figsize=fig_size)
+
+            num_props = len(self.monitor)
+            rows = np.ceil(num_props / 3)
+
+            for i, prop_name in enumerate(self.monitor):
+                self.ax[prop_name] = self.fig.add_subplot(rows, self.cols, i + 1)  # i + 1)
+                self.ax[prop_name].set_xlabel("step")
+
+        def plot_props(model, properties):
+            for prop_name in self.monitor:
+                if prop_name not in properties:
+                    raise KeyError("Plot callback tried to access a property that doesn't exist: {}".format(prop_name))
+
+                y = properties[prop_name].value
+
+                ax = self.ax[prop_name]
+
+                if len(ax.lines) == 0:
+                    xs = [self.i]
+                    ys = [y]
+
+                else:
+                    line = ax.lines[0]
+                    xs = np.append(line.get_xdata(), [self.i])
+                    ys = np.append(line.get_ydata(), [y])
+
+                    line.set_xdata(xs)
+                    line.set_ydata(ys)
+
+                ax.clear()
+                # this is updating the entire plot, could be better, but we don't need to do that many updates
+                # it should be once per epoch or trigger anyway
+                ax.plot(xs, ys, color="#FF2400", linestyle="solid")
+                ax.set_title(prop_name)
+
+                self.fig.tight_layout()
+
+                # self.plt.title(prop_name)
+
+            self.i += 1
+
+            self.fig.canvas.draw()
+            # self.fig.canvas.draw_idle()
+            # self.fig.canvas.flush_events()
+
+        def plot_clean(model, properties):
+            self.plt.ioff()
+
+            if save_plot:
+                self.plt.savefig("train_run_{}.pdf".format(str(os.getpid())), format="pdf")
+
+            # self.plt.show()
+            self.plt.close(self.fig)
+
+        super().__init__(trigger_dict={OnTrain(at=AT.START): plot_init,
+                                       trigger: plot_props,
+                                       OnTrain(at=AT.END): plot_clean}, priority=1)
+
+
 class Progress(Callback):
     """Progress Callback
     """
@@ -1401,6 +1488,7 @@ __all__ = ["Model",
            "CSVLogger",
            "DictLogger",
            "Progress",
+           "Plot",
            "EarlyStop",
            "StopOnNaN",
            "Eval"
