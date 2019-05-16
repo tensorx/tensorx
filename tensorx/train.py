@@ -208,7 +208,7 @@ class LayerGraph:
         """
         self.other_tensors = as_list(other_tensors)
         self.other_inputs = as_list(other_inputs)
-        self.input_layers = set(as_list(inputs))
+        self.input_layers = as_list(inputs)
         self.output_layers = as_list(outputs)
 
         dependencies = {}
@@ -275,7 +275,7 @@ class LayerGraph:
                              "Unused inputs: \n {unused}".format(unused=missing_str))
 
         if len(self.input_layers) == 0:
-            self.input_layers = set(all_dependencies)
+            self.input_layers = list(all_dependencies)
 
     def missing_dependencies(self, inputs, outputs=None) -> dict:
         """ given a list of input layers, checks if any input dependency is missing from the graph
@@ -763,9 +763,22 @@ class Model:
 
         self.train_vars = {var.name for layer in self.train_graph.layers for var in layer.variables}
 
-    def run_step(self, feed, write_summaries=False):
-        """ run the model (inference graph)
+    def run_step(self, data_feed, write_summaries=False):
+        """ run step. executes the inference part of the model
+
+        Args:
+            write_summaries: if true adds summaries to the graph fetches
+            data_feed: a dict with Layer to data or tuple with a dimension and order matching the inference graph
+            input layer order
+
         """
+        if not isinstance(data_feed, dict):
+            inputs = self.run_graph.input_layers
+            data_feed = dict(zip(inputs, data_feed))
+
+        data_feed = {key: data_feed[key]
+                     for key in data_feed.keys() if isinstance(key, Layer)}
+
         if self.session is None:
             self.set_session()
 
@@ -784,7 +797,7 @@ class Model:
             other_fetches = [summary.merge_all()]
 
         if self.runtime_stats:
-            result = self.run_graph.eval(feed=feed,
+            result = self.run_graph.eval(feed=data_feed,
                                          other_tensors=other_fetches,
                                          use_defaults=True,
                                          session=self.session,
@@ -797,7 +810,7 @@ class Model:
             self.log_writer.add_run_metadata(self.run_metadata, tag="run step {}".format(self.run_steps + 1),
                                              global_step=self.run_steps + 1)
         else:
-            result = self.run_graph.eval(feed=feed,
+            result = self.run_graph.eval(feed=data_feed,
                                          other_tensors=other_fetches,
                                          use_defaults=True,
                                          session=self.session)
@@ -813,7 +826,7 @@ class Model:
             result = result[0]
         return result
 
-    def train_step(self, feed_dict,
+    def train_step(self, data_feed,
                    write_summaries=False):
         """ Trains the model on the given data.
 
@@ -826,11 +839,17 @@ class Model:
             You need to run :func:`config` before calling `train`.
 
         Args:
-            feed_dict: feed dict from input layers to data samples
-            write_summaries:
+            data_feed: feed dict from input layers to data samples
+            write_summaries: if True adds all summaries to the graph fetches
         """
-        feed_dict = {key: feed_dict[key]
-                     for key in feed_dict.keys() if isinstance(key, Layer)}
+        # if data is not a dict, we must create one using input layers
+        if not isinstance(data_feed, dict):
+            inputs = self.train_graph.input_layers
+            data_feed = dict(zip(inputs, data_feed))
+
+        data_feed = {key: data_feed[key]
+                     for key in data_feed.keys() if isinstance(key, Layer)}
+
         self.train_called = True
 
         if self.session is None:
@@ -855,7 +874,7 @@ class Model:
             results = self.train_graph.eval(
                 target_outputs=self.joint_loss,
                 other_tensors=other_fetches,
-                feed=feed_dict,
+                feed=data_feed,
                 use_defaults=True,
                 session=self.session,
                 options=self.run_options,
@@ -869,7 +888,7 @@ class Model:
             results = self.train_graph.eval(
                 target_outputs=self.joint_loss,
                 other_tensors=other_fetches,
-                feed=feed_dict,
+                feed=data_feed,
                 use_defaults=True,
                 session=self.session)
 
@@ -883,17 +902,21 @@ class Model:
 
         return result
 
-    def eval_step(self, feed_dict, write_summaries=False):
+    def eval_step(self, data_feed, write_summaries=False):
         """ Evaluates the model on the given data.
 
         If multiple loss functions are provided, it performs joint training by summing the loss functions.
 
         Args:
-            feed_dict (dict): dictionary with eval graph dependencies layer: value
+            data_feed (dict): dictionary with eval graph dependencies layer: value
             write_summaries:
         """
-        feed_dict = {key: feed_dict[key]
-                     for key in feed_dict.keys() if isinstance(key, Layer)}
+        if not isinstance(data_feed, dict):
+            inputs = self.eval_graph.input_layers
+            data_feed = dict(zip(inputs, data_feed))
+
+        data_feed = {key: data_feed[key]
+                     for key in data_feed.keys() if isinstance(key, Layer)}
 
         if self.session is None:
             self.set_session()
@@ -917,7 +940,7 @@ class Model:
                 target_outputs=self.eval_score,
                 other_tensors=other_fetches,
                 use_defaults=True,
-                feed=feed_dict,
+                feed=data_feed,
                 session=self.session,
                 options=self.run_options,
                 run_metadata=self.run_metadata)
@@ -930,7 +953,7 @@ class Model:
         else:
             result = self.eval_graph.eval(
                 target_outputs=self.eval_score,
-                feed=feed_dict,
+                feed=data_feed,
                 other_tensors=other_fetches,
                 use_defaults=True,
                 session=self.session)
@@ -1021,6 +1044,11 @@ class Model:
                         else:
                             feed_dict = {}
 
+                        # if data is not a dict, we must create one using input layers
+                        if not isinstance(feed_dict, dict):
+                            inputs = self.train_graph.input_layers
+                            feed_dict = dict(zip(inputs, feed_dict))
+
                         # updated here because we want this property to give us the current step, to know when
                         # a step ends use OnEveryStep(at=AT.END)
                         epoch_step.value += 1
@@ -1031,7 +1059,7 @@ class Model:
                         scheduler.trigger(OnStep(step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
-                        loss = self.train_step(feed_dict=feed_dict)
+                        loss = self.train_step(data_feed=feed_dict)
                         if not np.isscalar(loss):
                             loss = np.mean(loss)
                         last_loss.value = loss
@@ -1320,7 +1348,12 @@ class Eval(Callback):
             sum_eval = 0
             steps = 0
             for feed_dict in dataset_it:
-                mean_eval = model.eval_step(feed_dict=feed_dict)
+                # if feed dict is not a feed dict, it should be a tuple or another iterable
+                if not isinstance(feed_dict, dict):
+                    inputs = model.eval_graph.input_layers
+                    feed_dict = dict(zip(inputs, feed_dict))
+
+                mean_eval = model.eval_step(data_feed=feed_dict)
                 if not np.isscalar(mean_eval):
                     mean_eval = np.mean(mean_eval)
                 sum_eval += mean_eval

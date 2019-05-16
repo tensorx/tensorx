@@ -195,15 +195,53 @@ class ModelRunnerTest(test_utils.TestCase):
         model.config_optimizer(optimizer=tf.train.GradientDescentOptimizer(learning_rate=0.5))
         train_graph = model.train_graph
         self.assertIsNotNone(train_graph)
-        self.assertSetEqual(train_graph.input_layers, {in1, in2})
+        self.assertSetEqual(set(train_graph.input_layers), {in1, in2})
 
         run_graph = model.run_graph
-        self.assertSetEqual(run_graph.input_layers, {in1, in2})
+        self.assertSetEqual(set(run_graph.input_layers), {in1, in2})
         self.assertListEqual(run_graph.output_layers, [linear1, linear2])
 
         eval_graph = model.eval_graph
         self.assertIsNotNone(eval_graph)
-        self.assertSetEqual(eval_graph.input_layers, run_graph.input_layers)
+        self.assertSetEqual(set(eval_graph.input_layers), set(run_graph.input_layers))
+
+    def test_model_train_feed_data(self):
+        input_layer = Input(4, name="inputs")
+        linear = Linear(input_layer, 2)
+        h = Activation(linear, fn=sigmoid)
+
+        # configure training
+        labels = Input(2, name="labels")
+        losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
+
+        model = Model(run_inputs=input_layer,
+                      run_outputs=h,
+                      train_inputs=[input_layer, labels],
+                      train_loss=losses,
+                      eval_inputs=[input_layer, labels],
+                      eval_score=losses)
+
+        lr = Param(name="lr", value=.5)
+        optimiser = tf.train.GradientDescentOptimizer(learning_rate=lr.tensor)
+        model.config_optimizer(optimiser, optimizer_params=[lr])
+
+        data = np.array([[1, 1, 1, 1]])
+        target = np.array([[1.0, 0.0]])
+
+        dataset = [(data, target)]
+
+        # session = runner.session
+        # weights = session.run(linear.weights)
+        with self.cached_session(use_gpu=True):
+            model.init_vars()
+            weights1 = model.session.run(linear.weights)
+
+            for i in range(10):
+                model.train_step(data_feed=(data, target))
+            model.train(dataset)
+            weights2 = model.session.run(linear.weights)
+
+            self.assertFalse(np.array_equal(weights1, weights2))
 
     def test_model_var_init(self):
         inputs = Input(1)
