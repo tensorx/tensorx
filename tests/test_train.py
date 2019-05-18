@@ -8,7 +8,6 @@ from tensorx.layers import *
 from tensorx.loss import binary_cross_entropy
 from tensorx.train import *
 from tensorx.callbacks import *
-from pygraphviz import AGraph
 import tensorx as tx
 import time
 
@@ -434,13 +433,17 @@ class ModelRunnerTest(test_utils.TestCase):
                                out_filename="test.csv",
                                trigger=OnEveryEpoch(), priority=20)
 
-            # plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2, save_plot=True,output_file="test.png")
+            plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"],cols=2,
+                        save_plot=True,
+                        output_file="test.png",
+                        backend="TkAgg",
+                        trigger=OnEveryStep(2))
 
             model.train(train_data=dataset,
-                        epochs=12,
+                        epochs=50,
                         callbacks=[progress,
                                    evaluation,
-                                   # plot,
+                                   plot,
                                    decay_plateau,
                                    ])  # progress, evaluation, logger, early_stop, lr_schedule])
 
