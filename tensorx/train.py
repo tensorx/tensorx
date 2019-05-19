@@ -1166,7 +1166,7 @@ class Plot(Callback):
     """
 
     # noinspection PyBroadException
-    def __init__(self, monitor, cols=3, fig_size=(7, 4), backend='TkAgg', save_plot=True, output_file=None,
+    def __init__(self, monitor, cols=3, fig_size=(7, 4), backend='pyqtgraph', save_plot=True, output_file=None,
                  trigger=OnEveryEpoch(at=AT.END), priority=1):
         self.monitor = set(as_list(monitor))
         self.output_file = output_file
@@ -1174,85 +1174,135 @@ class Plot(Callback):
         self.queue = None
         self.stop_event = None
 
-        def plot_worker(queue, stop_event):
-            import matplotlib.pyplot as plt
-            # only use the TkAgg backend if in console
-            try:
-                from IPython import get_ipython
-                if 'IPKernelApp' not in get_ipython().config:  # pragma: no cover
-                    raise ImportError("console")
-            except Exception:
-                import matplotlib
-                matplotlib.use(backend)
-
-            axs = {}
-            step = 1
+        def plot_worker_pg(queue, stop_event):
             out_file = self.output_file
 
-            plt.ion()
-            fig = plt.figure(figsize=fig_size)
-            if backend == "TkAgg":
-                fig.canvas.toolbar.pack_forget()
+            step = 1
+            axs = {}
 
             num_props = len(monitor)
             rows = np.ceil(num_props / 3)
 
-            # create subplots for each monitored property
-            for i, prop_name in enumerate(monitor):
-                axs[prop_name] = fig.add_subplot(rows, cols, i + 1)  # i + 1)
-                # axs[prop_name].set_xlabel("step")
+            pass
+
+        def plot_worker_mpl(queue, stop_event):
+            out_file = self.output_file
+
+            step = 1
+            axs = {}
+
+            num_props = len(monitor)
+            rows = np.ceil(num_props / 3)
+
+            if backend == "matplotlib":
+                import matplotlib.pyplot as plt
+                # only use the TkAgg backend if in console
+                try:
+                    from IPython import get_ipython
+                    if 'IPKernelApp' not in get_ipython().config:  # pragma: no cover
+                        raise ImportError("console")
+                except Exception:
+                    import matplotlib
+                    matplotlib.use("TkAgg")
+
+                plt.ion()
+                fig = plt.figure(figsize=fig_size)
+                fig.canvas.toolbar.pack_forget()
+
+                for i, prop_name in enumerate(monitor):
+                    axs[prop_name] = fig.add_subplot(rows, cols, i + 1)  # i + 1)
+
+            elif backend == "pyqtgraph":
+                from pyqtgraph.Qt import QtGui, QtCore
+                import pyqtgraph as pg
+
+                # pg.setConfigOption('background', 'w')
+                app = QtGui.QApplication([])
+                win = pg.GraphicsWindow(title="Properties")
+                plots = {}
+                # win.ci.setContentsMargins(20, 0, 0, 0)
+
+                for i, prop_name in enumerate(monitor):
+                    plots[prop_name] = win.addPlot(title=prop_name, row=i // cols, col=i % cols)
+                    axs[prop_name] = plots[prop_name].plot(pen=pg.mkPen('#FF2400', width=1))
+
+                # win.viewRect().setContentsMargins(0., 0., 0., 0.)
+            else:
+                raise ValueError("invalid backed, valid backend options: matplotlib, pyqtgraph")
 
             while True:
                 try:
-                    properties = queue.get(block=False)
+                    properties = queue.get_nowait()
 
                     for prop_name in properties.keys():
                         prop_value = properties[prop_name]
                         ax = axs[prop_name]
 
-                        if len(ax.lines) == 0:
-                            xs = [step]
-                            ys = [prop_value]
+                        if prop_value is None:
+                            prop_value = 0
 
-                        else:
-                            line = ax.lines[0]
-                            xs = np.append(line.get_xdata(), [step])
-                            ys = np.append(line.get_ydata(), [prop_value])
+                        if backend == "matplotlib":
+                            if step == 1:
+                                xs = [step]
+                                ys = [prop_value]
+                            else:
+                                line = ax.lines[0]
+                                xs = np.append(line.get_xdata(), [step])
+                                ys = np.append(line.get_ydata(), [prop_value])
 
-                            line.set_xdata(xs)
-                            line.set_ydata(ys)
+                                line.set_xdata(xs)
+                                line.set_ydata(ys)
 
-                        # ax.clear()
-                        ax.plot(xs[step - 1:], ys[step - 1:], color="#FF2400", linestyle="solid")
+                            ax.plot(xs[step - 1:], ys[step - 1:], color="#FF2400", linestyle="solid")
 
-                        if step == 1:
-                            plt.tight_layout()
-                            ax.set_title(prop_name)
+                            if step == 1:
+                                plt.tight_layout()
+                                ax.set_title(prop_name)
+                        elif backend == "pyqtgraph":
+                            if step == 1:
+                                xs = [step]
+                                ys = [prop_value]
+                            else:
+                                xs, ys = ax.getData()
+                                xs = np.append(xs, [step])
+                                ys = np.append(ys, [prop_value])
+
+                            ax.setData(xs, ys)
+
+                    if backend == "matplotlib":
+                        fig.canvas.draw_idle()
+                        fig.canvas.flush_events()
+                    else:
+                        QtGui.QApplication.processEvents()
 
                     step += 1
-
-                    # self.fig.canvas.draw()
-
-                    fig.canvas.draw_idle()
-                    fig.canvas.flush_events()
                 except Empty:
                     if stop_event.is_set():
-                        plt.ioff()
-                        # uncomment for plot to block until window is closed
-                        # plt.show()
                         break
 
-            if save_plot:
-                if out_file is None:
-                    out_file = "train_run_{}.pdf".format(str(os.getpid()))
-                plt.savefig(out_file)
-            plt.close(fig)
+            if backend == "matplotlib":
+                plt.ioff()
+                if save_plot:
+                    if out_file is None:
+                        out_file = "train_run_{}.pdf".format(str(os.getpid()))
+                    plt.savefig(out_file)
+                plt.close(fig)
+            else:
+
+                if save_plot:
+                    import pyqtgraph.exporters
+                    exporter = pg.exporters.ImageExporter(win.scene())
+                    if out_file is None:
+                        out_file = "train_run_{}.pdf".format(str(os.getpid()))
+                    exporter.export(out_file)
+
+                app.closeAllWindows()
 
         def plot_init(model, properties):
             import multiprocessing as mp
             self.stop_event = mp.Event()
             self.queue = mp.Queue()
-            self.process = mp.Process(target=plot_worker, args=(self.queue, self.stop_event,))
+            self.process = mp.Process(target=plot_worker_mpl, args=(self.queue, self.stop_event,))
             self.process.start()
 
         def plot_props(model, properties):

@@ -59,7 +59,9 @@ install_requires = [
 
 extras_require = {
     'graphviz': ['pygraphviz'],
-    'tqdm': ['tqdm']
+    'tqdm': ['tqdm'],
+    'matplotlib': ['matplotlib'],  # for plot callback backend
+    'pyqtgraph': ['pyqtgraph', 'PyQt5']  # for plot callback backend
 }
 
 setup(
