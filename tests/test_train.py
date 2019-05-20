@@ -437,10 +437,10 @@ class ModelRunnerTest(test_utils.TestCase):
                         save_plot=True,
                         output_file="test.png",
                         backend="pyqtgraph",  # "matplotlib"
-                        trigger=OnEveryEpoch(100))
+                        trigger=OnEveryEpoch(2))
 
             model.train(train_data=dataset,
-                        epochs=2000,
+                        epochs=1000,
                         callbacks=[progress,
                                    evaluation,
                                    # plot,

@@ -1220,11 +1220,13 @@ class Plot(Callback):
                 app = QtGui.QApplication([])
                 win = pg.GraphicsWindow(title="Properties")
                 plots = {}
+                text = {}
                 # win.ci.setContentsMargins(20, 0, 0, 0)
 
                 for i, prop_name in enumerate(monitor):
-                    plots[prop_name] = win.addPlot(title=prop_name, row=i // cols, col=i % cols)
-                    axs[prop_name] = plots[prop_name].plot(pen=pg.mkPen('#FF2400', width=1))
+                    plot_item = win.addPlot(title=prop_name, row=i // cols, col=i % cols)
+                    plots[prop_name] = plot_item
+                    axs[prop_name] = plot_item.plot(pen=pg.mkPen('#FF2400', width=1))
 
                 # win.viewRect().setContentsMargins(0., 0., 0., 0.)
             else:
@@ -1238,8 +1240,8 @@ class Plot(Callback):
                         prop_value = properties[prop_name]
                         ax = axs[prop_name]
 
-                        if prop_value is None:
-                            prop_value = 0
+                        # if prop_value is None:
+                        #    prop_value = 0
 
                         if backend == "matplotlib":
                             if step == 1:
@@ -1259,15 +1261,33 @@ class Plot(Callback):
                                 plt.tight_layout()
                                 ax.set_title(prop_name)
                         elif backend == "pyqtgraph":
-                            if step == 1:
-                                xs = [step]
-                                ys = [prop_value]
-                            else:
-                                xs, ys = ax.getData()
+                            xs, ys = ax.getData()
+                            if prop_value is not None:
+                                if xs is None:
+                                    xs = []
+                                    ys = []
+                                elif len(xs) == 1:
+                                    # create text label
+                                    curve_point = pg.CurvePoint(ax)
+                                    plots[prop_name].addItem(curve_point)
+                                    label = pg.TextItem("test", color="#FF4200")
+                                    label.setParentItem(curve_point)
+                                    text[prop_name] = (curve_point, label)
+
                                 xs = np.append(xs, [step])
                                 ys = np.append(ys, [prop_value])
 
-                            ax.setData(xs, ys)
+                                ax.setData(xs, ys)
+
+                                if len(xs) > 1:
+                                    # update text label
+                                    curve_point, label = text[prop_name]
+                                    curve_point: pg.CurvePoint = curve_point
+                                    # curve point index relative to sample index (last in this case)
+                                    curve_point.setIndex(step - 1)
+                                    # anchor is relative to parent (top left corner)
+                                    label.setAnchor((1.0, 1.0))
+                                    label.setText('%0.3f' % (ys[-1]))
 
                     if backend == "matplotlib":
                         fig.canvas.draw_idle()
@@ -1321,7 +1341,7 @@ class Plot(Callback):
 
         super().__init__(trigger_dict={OnTrain(at=AT.START): plot_init,
                                        trigger: plot_props,
-                                       OnTrain(at=AT.END): plot_clean}, priority=1)
+                                       OnTrain(at=AT.END): plot_clean}, priority=priority)
 
 
 class Progress(Callback):
@@ -1371,10 +1391,26 @@ class Progress(Callback):
                          priority=priority)
 
 
+class NewProperty(Callback):
+    def __init__(self, target, fn, new_prop, init_val=None, triggers=OnEveryStep(), priority=1):
+        self.property = Property(name=new_prop, value=init_val)
+        self.fn = fn
+        self.triggers = as_list(triggers)
+
+        def update_prop(model, properties):
+            if target not in properties:
+                raise ValueError("Property callback tried to access property that doesn't exist: {}".format(target))
+            prop = properties[target]
+            self.property.value = self.fn(prop.value)
+
+        trigger_dict = {trigger: update_prop for trigger in self.triggers}
+
+        super().__init__(trigger_dict=trigger_dict, priority=priority, properties=self.property)
+
+
 class LambdaCallback(Callback):
     """ LambdaCallback
 
-    takes a function and applies it to a property returning a new property on a given trigger
     """
 
     def __init__(self, fn=None, triggers=OnEveryEpoch(at=AT.END), properties=[], priority=1):
@@ -1606,9 +1642,11 @@ __all__ = ["Model",
            "PlateauDecay",
            "CSVLogger",
            "DictLogger",
+           "LambdaCallback",
            "Progress",
            "Plot",
            "EarlyStop",
            "StopOnNaN",
+           "NewProperty",
            "Eval"
            ]

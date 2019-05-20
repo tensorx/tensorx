@@ -1,5 +1,6 @@
 from enum import Enum
 import itertools
+from tensorx.utils import as_list
 
 
 class AT(Enum):
@@ -264,7 +265,7 @@ class Callback:
     """
 
     def __init__(self, trigger_dict, priority=1, properties=None):
-        self.properties = properties
+        self.properties = as_list(properties)
         self.trigger_dict: dict = trigger_dict
         self.priority = priority
 
