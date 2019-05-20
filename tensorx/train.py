@@ -1166,24 +1166,20 @@ class Plot(Callback):
     """
 
     # noinspection PyBroadException
-    def __init__(self, monitor, cols=3, fig_size=(7, 4), backend='pyqtgraph', save_plot=True, output_file=None,
+    def __init__(self, monitor,
+                 cols=3,
+                 backend='pyqtgraph',
+                 keep_open=False,
+                 save_plot=False,
+                 output_file=None,
                  trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.keep_open = keep_open
         self.monitor = set(as_list(monitor))
         self.output_file = output_file
         self.process = None
         self.queue = None
         self.stop_event = None
-
-        def plot_worker_pg(queue, stop_event):
-            out_file = self.output_file
-
-            step = 1
-            axs = {}
-
-            num_props = len(monitor)
-            rows = np.ceil(num_props / 3)
-
-            pass
+        self.backend = backend
 
         def plot_worker_mpl(queue, stop_event):
             out_file = self.output_file
@@ -1206,7 +1202,7 @@ class Plot(Callback):
                     matplotlib.use("TkAgg")
 
                 plt.ion()
-                fig = plt.figure(figsize=fig_size)
+                fig = plt.figure()
                 fig.canvas.toolbar.pack_forget()
 
                 for i, prop_name in enumerate(monitor):
@@ -1228,7 +1224,7 @@ class Plot(Callback):
                     plots[prop_name] = plot_item
                     axs[prop_name] = plot_item.plot(pen=pg.mkPen('#FF2400', width=1))
 
-                # win.viewRect().setContentsMargins(0., 0., 0., 0.)
+                QtGui.QApplication.processEvents()
             else:
                 raise ValueError("invalid backed, valid backend options: matplotlib, pyqtgraph")
 
@@ -1243,7 +1239,7 @@ class Plot(Callback):
                         # if prop_value is None:
                         #    prop_value = 0
 
-                        if backend == "matplotlib":
+                        if self.backend == "matplotlib":
                             if step == 1:
                                 xs = [step]
                                 ys = [prop_value]
@@ -1260,7 +1256,7 @@ class Plot(Callback):
                             if step == 1:
                                 plt.tight_layout()
                                 ax.set_title(prop_name)
-                        elif backend == "pyqtgraph":
+                        elif self.backend == "pyqtgraph":
                             xs, ys = ax.getData()
                             if prop_value is not None:
                                 if xs is None:
@@ -1289,7 +1285,7 @@ class Plot(Callback):
                                     label.setAnchor((1.0, 1.0))
                                     label.setText('%0.3f' % (ys[-1]))
 
-                    if backend == "matplotlib":
+                    if self.backend == "matplotlib":
                         fig.canvas.draw_idle()
                         fig.canvas.flush_events()
                     else:
@@ -1299,12 +1295,18 @@ class Plot(Callback):
                 except Empty:
                     if stop_event.is_set():
                         break
+                    else:
+                        if self.backend == "pyqtgraph":
+                            QtGui.QApplication.processEvents()
 
-            if backend == "matplotlib":
+            if self.backend == "matplotlib":
                 plt.ioff()
+                if self.keep_open:
+                    plt.show()
                 if save_plot:
-                    if out_file is None:
-                        out_file = "train_run_{}.pdf".format(str(os.getpid()))
+                    out_file = self.output_file if self.output_file is not None else "train_run_{}.pdf".format(
+                        str(os.getpid()))
+
                     plt.savefig(out_file)
                 plt.close(fig)
             else:
@@ -1315,7 +1317,8 @@ class Plot(Callback):
                     if out_file is None:
                         out_file = "train_run_{}.pdf".format(str(os.getpid()))
                     exporter.export(out_file)
-
+                if self.keep_open:
+                    QtGui.QApplication.instance().exec_()
                 app.closeAllWindows()
 
         def plot_init(model, properties):
