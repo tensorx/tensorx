@@ -1027,7 +1027,7 @@ class Model:
                            priority=-1)
             scheduler.register(test_cb)
 
-        scheduler.trigger(OnTrain(AT.START))
+        scheduler.trigger(OnLoop(AT.START))
         try:
             while epoch.value <= epochs:
                 # EPOCH START
@@ -1079,8 +1079,9 @@ class Model:
             logging.info("Training stopped: {}".format(str(e)))
         except Exception as e:
             logging.exception("Error: " + str(e))
+            raise e
 
-        scheduler.trigger(OnTrain(AT.END))
+        scheduler.trigger(OnLoop(AT.END))
 
 
 class StopTrain(Exception):
@@ -1110,7 +1111,7 @@ class EarlyStop(Callback):
     """
 
     def __init__(self, patience=3, lesser_better=True, threshold=0.001, target="validation_loss",
-                 trigger=None, priority=1000):
+                 trigger=None, priority=1):
         self.patience = patience
         self.threshold = threshold,
         self.target = target
@@ -1136,6 +1137,8 @@ class EarlyStop(Callback):
                 else:
                     self.patience_tick = 0
 
+                self.last_eval = measure
+
         if trigger is None:
             trigger = OnValueChange(self.target)
 
@@ -1155,7 +1158,9 @@ class StopOnNaN(Callback):
         def raise_stop(model, properties):
             step = properties["epoch_step"].value
             epoch = properties["epoch"].value
-            raise StopTrain("loss returned NaN on epoch {epoch} step {step}".format(epoch=epoch, step=step))
+            loss = properties["last_loss"].value
+            if np.isnan(loss):
+                raise StopTrain("loss returned NaN on epoch {epoch} step {step}".format(epoch=epoch, step=step))
 
         super().__init__({OnValueChange("last_loss"): raise_stop})
 
@@ -1342,9 +1347,9 @@ class Plot(Callback):
             self.stop_event.set()
             self.process.join()
 
-        super().__init__(trigger_dict={OnTrain(at=AT.START): plot_init,
+        super().__init__(trigger_dict={OnLoop(at=AT.START): plot_init,
                                        trigger: plot_props,
-                                       OnTrain(at=AT.END): plot_clean}, priority=priority)
+                                       OnLoop(at=AT.END): plot_clean}, priority=priority)
 
 
 class Progress(Callback):
@@ -1378,9 +1383,9 @@ class Progress(Callback):
         def progress_stop(model, properties):
             self.progress.close()
 
-        trigger_dict = {OnTrain(AT.START): progress_init,
+        trigger_dict = {OnLoop(AT.START): progress_init,
                         OnEveryStep(at=AT.END): progress_step,
-                        OnTrain(AT.END): progress_stop}
+                        OnLoop(AT.END): progress_stop}
 
         def progress_update(model, properties):
             if self.total_steps is None:
@@ -1431,7 +1436,9 @@ class ResetState(LambdaCallback):
     calls reset state on the model on the given triggers
     """
 
-    def __init__(self, triggers=OnEveryEpoch(at=AT.END), priority=1):
+    def __init__(self,
+                 triggers=OnEveryEpoch(at=AT.END),
+                 priority=1):
         triggers = as_list(triggers)
 
         def reset(model: Model, _):
@@ -1451,14 +1458,15 @@ class Eval(Callback):
             trigger: trigger for when the evaluation is run
             priority: callback priority
         """
+        self.property = Property(name=property)
         self.dataset = dataset
         self.fn = fn
-        self.property = Property(name=property)
 
         def eval_fn(model, _):
             dataset_it = iter(self.dataset)
             sum_eval = 0
             steps = 0
+
             for feed_dict in dataset_it:
                 # if feed dict is not a feed dict, it should be a tuple or another iterable
                 if not isinstance(feed_dict, dict):
@@ -1484,6 +1492,9 @@ class Eval(Callback):
 
 class PlateauDecay(Callback):
     """
+
+    Note: patience is reset after decay is applied
+
     Args:
         on: the measure on which we want to measure the improvement, by default "validation_loss"
         changes: the property to be changed by this callback
@@ -1505,6 +1516,7 @@ class PlateauDecay(Callback):
                  target,
                  improvement_threshold=1.0,
                  less_is_better=True,
+                 patience=1,
                  decay_rate=1.0,
                  decay_threshold=1e-6,
                  priority=1):
@@ -1515,6 +1527,8 @@ class PlateauDecay(Callback):
         self.monitor = monitor
         self.target = target
         self.eval_history = []
+        self.patience_tick = 0
+        self.patience = patience
 
         def update_fn(_, properties):
             # get properties
@@ -1526,14 +1540,17 @@ class PlateauDecay(Callback):
             if len(self.eval_history) > 1:
                 evaluation = 0
                 if len(self.eval_history) > 1:
-                    evaluation = self.eval_history[-2] - self.eval_history[-1]
+                    evaluation = self.eval_history[(-2 - self.patience_tick)] - self.eval_history[-1]
                     if not self.less_is_better:
                         evaluation = -1 * evaluation
 
-                if evaluation <= self.improvement_threshold:
-                    # if the target value did not improve, decay the value to be changed
-                    # triggers an event
-                    to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
+                if evaluation < self.improvement_threshold:
+                    self.patience_tick += 1
+                    if self.patience_tick == self.patience:
+                        to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
+                        self.patience_tick = 0
+                else:
+                    self.patience_tick = 0
 
         super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
                          properties=[],
@@ -1634,7 +1651,7 @@ class CSVLogger(Callback):
 
         super().__init__(trigger_dict={OnStep(1, at=AT.START): log_init,
                                        trigger: log,
-                                       OnTrain(at=AT.END): log_clean},
+                                       OnLoop(at=AT.END): log_clean},
                          properties=None,
                          priority=priority)
 
@@ -1646,6 +1663,7 @@ __all__ = ["Model",
            "CSVLogger",
            "DictLogger",
            "LambdaCallback",
+           "ResetState",
            "Progress",
            "Plot",
            "EarlyStop",

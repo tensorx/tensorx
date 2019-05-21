@@ -106,7 +106,7 @@ class OnEveryStep(OnStep):
             return other.n % self.n == 0
 
 
-class OnTrain(Event):
+class OnLoop(Event):
     """ Event with one of two moments in the training loop (``AT.START``, ``AT.END``)
     """
     __slots__ = ["at"]
@@ -210,6 +210,17 @@ class OnValueChange(Event):
     def __str__(self):
         cls = self.__class__.__name__
         return "{cls}({name})".format(cls=cls, name=self.name)
+
+
+class OnCallback(Event):
+    """ Event triggered before or after a callback is executed
+        name: name of the property to be monitored
+    """
+    __slots__ = ["at", "instance"]
+
+    def __init__(self, instance, at: Enum = AT.START):
+        self.instance = instance
+        self.at = at
 
 
 class Property:
@@ -350,13 +361,7 @@ class Scheduler:
                 raise ValueError("{name} Property already in use".format(name=prop.name))
             self.props[prop.name] = prop
 
-    def trigger(self, event: Event):
-        """ Triggers an Event in the scheduler
-
-        Args:
-            event (Event): an event to be triggered by the scheduler to trigger the respective Callbacks
-        """
-
+    def matches(self, event: Event):
         if not isinstance(event, Event):
             raise TypeError("Can only trigger the scheduler on Events, {} found".format(type(event)))
 
@@ -367,6 +372,23 @@ class Scheduler:
             if event not in self.priority_cache:
                 self.priority_cache[event] = list(sorted(matches))
             matches = self.priority_cache[event]
+        return matches
 
-            for callback in matches:
-                callback(event, self.model, self.props)
+    def _trigger(self, event: Event):
+        matches = self.matches(event)
+
+        for callback in matches:
+            callback(event, self.model, self.props)
+
+    def trigger(self, event: Event):
+        """ Triggers an Event in the scheduler
+
+        Args:
+            event (Event): an event to be triggered by the scheduler to trigger the respective Callbacks
+        """
+
+        matches = self.matches(event)
+        for callback in matches:
+            self.trigger(OnCallback(callback, at=AT.START))
+            callback(event, self.model, self.props)
+            self.trigger(OnCallback(callback, at=AT.END))
