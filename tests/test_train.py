@@ -434,18 +434,19 @@ class ModelRunnerTest(test_utils.TestCase):
                                trigger=OnEveryEpoch(), priority=20)
 
             plot = Plot(monitor=["lr", "last_loss", "train_loss", "validation_ppl"], cols=3,
-                        save_plot=True,
+                        save_plot=False,
                         output_file="test.png",
                         backend="pyqtgraph",  # "matplotlib"
-                        trigger=OnEveryEpoch(2))
+                        trigger=OnEveryEpoch(10))
 
             model.train(train_data=dataset,
-                        epochs=1000,
-                        callbacks=[progress,
-                                   evaluation,
-                                   # plot,
-                                   decay_plateau,
-                                   ])  # progress, evaluation, logger, early_stop, lr_schedule])
+                        epochs=2,
+                        callbacks=[  # progress,
+                            evaluation,
+                            # plot,
+                            # early_stop,
+                            decay_plateau,
+                        ])  # progress, evaluation, logger, early_stop, lr_schedule])
 
 
 if __name__ == '__main__':

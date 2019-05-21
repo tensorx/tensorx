@@ -84,7 +84,7 @@ class TestCallbacks(TestCase):
         e6 = OnEveryStep(2)
         d = {e5: 1, e6: 2}
 
-        e7 = OnTrain(at=AT.START)
+        e7 = OnLoop(at=AT.START)
         d = {e7: 1}
 
     def test_scheduler(self):
@@ -115,3 +115,31 @@ class TestCallbacks(TestCase):
 
         prop_a.value = 2
         self.assertEqual(changed, [1, 2, 1])
+
+    def test_on_callback(self):
+        a = Property("a", 1)
+        c = Property("b", 2)
+
+        def fn1(*args):
+            c.value -= 1
+
+        def fn2(*args):
+            c.value *= 2
+
+        def fn3(*args):
+            c.value *= 2
+
+        cb1 = Callback({OnValueChange("a"): fn1}, priority=1)
+        cb2 = Callback({OnCallback(cb1, at=AT.START): fn2}, priority=1)
+        cb3 = Callback({OnCallback(cb1, at=AT.END): fn3}, priority=1)
+
+        scheduler = Scheduler(model=None, properties=[a])
+        scheduler.register(cb1)
+        scheduler.register(cb2)
+        scheduler.register(cb3)
+
+        self.assertEqual(c.value, 2)
+        a.value = 2
+        self.assertEqual(c.value, 6)
+
+        # scheduler.register(cb2)
