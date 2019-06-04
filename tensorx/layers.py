@@ -153,24 +153,34 @@ def _get_subgraph(input_layers, output_layers):
     return graph, endpoints
 
 
+def layer(n_units=None, var_list=None):
+    """ Decorator for functions that returns a layer prototype
+
+    Returns: a `LayerProto` instance that can be called on layers to create a new layer instance
+    """
+
+    def fn_to_proto(fn):
+        return LambdaLayer.proto(apply_fn=fn, n_units=n_units, var_list=var_list)
+
+    return fn_to_proto
+
+
 class LayerProto:
+    """ Layer Proto
+
+    Utility class for the creation of Layer prototypes. A LayerProto is a callable that validates invalid layer
+    constructor arguments.
+    """
+
     def _validate_args(self, **kwargs):
         for key in kwargs:
             if key not in self.args:
                 raise TypeError("{} prototype got an unexpected argument {}".format(self.layer_cls.__name__, key))
 
-    """ Layer Proto
-
-    Utility class for the creation of Layer prototypes. A LayerProto is a callable that validates invalid layer
-    constructor arguments.
-
-    """
-
     def __init__(self, layer_cls, **kwargs):
         self.layer_cls = layer_cls
-
         spec = inspect.getfullargspec(layer_cls.__init__)
-        self.args = spec.args[1:]
+        self.args = set(spec.args[1:] + spec.kwonlyargs)
         self._validate_args(**kwargs)
 
         self.args_set = kwargs
@@ -222,6 +232,10 @@ class Layer:
         self.attr_names = []
 
         self._tensor = None
+
+    @property
+    def trainable_vars(self):
+        return [var for var in self.variables if var.trainable]
 
     @classmethod
     def proto(cls, **kwargs):
@@ -624,6 +638,11 @@ class Module(Layer):
                          dtype=output.dtype,
                          name=name)
 
+        # populate variables of a module
+        for node in graph.nodes:
+            for var in node.variables:
+                self._add_variable(var)
+
         self.tensor = output.tensor
 
     def reuse_with(self, *layers, name=None):
@@ -941,6 +960,8 @@ class LambdaLayer(Layer):
         self.var_list = var_list
         self.layer_fn = layer_fn
 
+        layers = [convert_to_layer(layer) for layer in layers]
+
         with layer_scope(self, name=name):
             fn_inputs = [layer.tensor if not layer_fn else layer for layer in layers]
             tensor = apply_fn(*fn_inputs)
@@ -995,6 +1016,7 @@ class Linear(Layer):
 
     Args:
         layer: an input :class:`Layer` used to build a fully connected layer
+        weight_norm: if true performs weight normalization (https://arxiv.org/pdf/1602.07868.pdf)
         n_units: an :obj:`int` with the number of units for this layer
         init: an initializer for the weights of this layer
         shared_weights: None if we wish the layer to create a new variable or a tensorflow variable otherwise
@@ -1016,6 +1038,7 @@ class Linear(Layer):
                  sparse_weights=False,
                  add_bias=True,
                  bias_init=zeros_init(),
+                 weight_norm=False,
                  dtype=tf.float32,
                  name="linear", share_vars_with=None):
 
@@ -1027,6 +1050,7 @@ class Linear(Layer):
         self.transpose_weights = transpose_weights
         self.sparse_weights = sparse_weights
         self.bias_init = bias_init
+        self.weight_norm = weight_norm
 
         if not isinstance(input_layer, Layer):
             input_layer = TensorLayer(input_layer, dtype=dtype)
@@ -1100,6 +1124,12 @@ class Linear(Layer):
 
             # store variables for easy access
             self._add_variable(self.weights)
+
+            # normalize weights if weight_norm is active
+            w = self.weights
+            if self.weight_norm:
+                w = tf.math.l2_normalize(self.weights, axis=[0])
+
             # y = xW
             if input_layer.is_sparse():
                 sp_values = input_layer.tensor
@@ -1109,14 +1139,14 @@ class Linear(Layer):
                 if self.transpose_weights:
                     dense_sp = tf.sparse.to_dense(sp_values)
                     lookup_sum = tf.math.sparse_matmul(a=dense_sp,
-                                                       b=self.weights,
+                                                       b=w,
                                                        a_is_sparse=True,
                                                        b_is_sparse=self.sparse_weights,
                                                        transpose_b=True)
                 else:
 
                     sp_indices = transform.sparse_indices(sp_values)
-                    lookup_sum = embedding_lookup_sparse(params=self.weights,
+                    lookup_sum = embedding_lookup_sparse(params=w,
                                                          sp_ids=sp_indices,
                                                          sp_weights=sp_values,
                                                          combiner="sum",
@@ -1131,7 +1161,7 @@ class Linear(Layer):
                         axes = [[rank - 1], [0]]
                     # Broadcasting is required for the inputs.
                     tensor = tf.tensordot(a=input_layer.tensor,
-                                          b=self.weights,
+                                          b=w,
                                           axes=axes)
                     # Reshape the output back to the original ndim of the input.
                     if not tf.executing_eagerly():
@@ -1140,7 +1170,7 @@ class Linear(Layer):
                         tensor.set_shape(output_shape)
                 else:
                     tensor = tf.matmul(a=input_layer.tensor,
-                                       b=self.weights,
+                                       b=w,
                                        name="mat_mul",
                                        transpose_b=self.transpose_weights,
                                        b_is_sparse=self.sparse_weights)
@@ -1197,6 +1227,7 @@ class Linear(Layer):
                       transpose_weights=transpose_weights,
                       sparse_weights=sparse_weights,
                       add_bias=self.add_bias,
+                      weight_norm=self.weight_norm,
                       name=name,
                       share_vars_with=share_vars_with)
 
@@ -1463,6 +1494,7 @@ class FC(Layer):
                  transpose_weights=False,
                  add_bias=True,
                  bias_init=zeros_init(),
+                 weight_norm=False,
                  dtype=tf.float32,
                  name="fn",
                  share_vars_with=None):
@@ -1476,6 +1508,7 @@ class FC(Layer):
                                  add_bias=add_bias,
                                  bias_init=bias_init,
                                  dtype=dtype,
+                                 weight_norm=weight_norm,
                                  name="{}_linear".format(name),
                                  share_vars_with=share_vars_with)
 
@@ -1503,6 +1536,7 @@ class FC(Layer):
                   add_bias=self.linear.add_bias,
                   bias_init=self.linear.bias_init,
                   dtype=self.activation.dtype,
+                  weight_norm=self.linear.weight_norm,
                   name=name,
                   share_vars_with=self.linear)
 
@@ -3735,8 +3769,12 @@ class Merge(Layer):
         output_shape = output_shape.as_list()
         self.output_shape = output_shape
 
-        shape = [[layer.n_units for layer in layers], output_shape[-1]]
-        n_units = output_shape[-1]
+        # shape = [[layer.n_units for layer in layers], output_shape[-1]]
+        # TODO review this layer, it seems to fail with mean if I don't safeguard it with this
+        if len(output_shape) > 0:
+            n_units = output_shape[-1]
+        else:
+            n_units = layers[0].n_units
 
         super().__init__(input_layers=layers, n_units=n_units, dtype=tensor.dtype, name=name)
 
@@ -4292,12 +4330,12 @@ class LayerNorm(Layer):
         with layer_scope(self):
             if self.share_state_with is None:
                 # center
-                self.beta = tf.get_variable("beta", shape=[input_layer.n_units], initializer=zeros_init())
+                self.bias = tf.get_variable("beta", shape=[input_layer.n_units], initializer=zeros_init())
                 # scale
-                self.gamma = tf.get_variable("gamma", shape=[input_layer.n_units], initializer=ones_init())
+                self.scale = tf.get_variable("gamma", shape=[input_layer.n_units], initializer=ones_init())
             else:
-                self.beta = self.share_state_with.beta
-                self.gamma = self.share_state_with.gamma
+                self.bias = self.share_state_with.beta
+                self.scale = self.share_state_with.gamma
 
             mean, variance = tf.nn.moments(input_layer.tensor, -1, keep_dims=True)
             variance_epsilon = 1e-12
@@ -4306,8 +4344,8 @@ class LayerNorm(Layer):
                 input_layer.tensor,
                 mean,
                 variance,
-                offset=self.beta,
-                scale=self.gamma,
+                offset=self.bias,
+                scale=self.scale,
                 variance_epsilon=variance_epsilon)
 
     def reuse_with(self, input_layer, name=None):
@@ -4546,5 +4584,7 @@ __all__ = ["Input",
            "Attention",
            "SeqConcat",
            "LayerNorm",
-           "DropLookup"
+           "DropLookup",
+           "layer",
+           "LayerProto"
            ]

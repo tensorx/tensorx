@@ -50,6 +50,30 @@ class TestLayers(test_utils.TestCase):
             result4 = graph.eval({in1: data1}, target_outputs=txfn2)
             self.assertArrayEqual(result4, result3)
 
+    def test_layer_decorator(self):
+        in1 = [[1.]]
+        in2 = [[0.]]
+
+        l1 = LambdaLayer(in1, in2, apply_fn=binary_cross_entropy)
+        l2_proto = layer()(binary_cross_entropy)
+        self.assertIsInstance(l2_proto, LayerProto)
+        l2 = l2_proto(in1, in2)
+        self.assertIsInstance(l2, LambdaLayer)
+
+        # @layer returns a function object
+        @layer()
+        def loss(*args):
+            return binary_cross_entropy(*args)
+
+        l3_proto = loss
+        self.assertIsInstance(l3_proto, LayerProto)
+        l3 = loss(in1, in2)
+        self.assertIsInstance(l3, LambdaLayer)
+
+        with self.cached_session():
+            self.assertArrayEqual(l1.tensor, l2.tensor)
+            self.assertArrayEqual(l1.tensor, l3.tensor)
+
     def test_variable_layer(self):
         input_layer = TensorLayer([[1]], n_units=1)
         var_layer = VariableLayer(input_layer)
@@ -671,6 +695,42 @@ class TestLayers(test_utils.TestCase):
 
             self.assertArrayEqual(y1_output, y2_output)
             self.assertArrayEqual(y2_output, y3_output)
+
+    def test_linear_weight_norm(self):
+        index = 0
+        dim = 10
+
+        # x1 = dense input / x2 = sparse input / x3 = sparse input (explicit)
+        x1 = Input(n_units=dim)
+        x2 = Input(n_units=dim, n_active=1, dtype=tf.int64)
+        x3 = SparseInput(10)
+
+        # two layers with shared weights, one uses a sparse input layer, the other the dense one
+        y1 = Linear(x1, 4, weight_norm=True, name="linear1")
+        y2 = Linear(x2, 4, weight_norm=True, shared_weights=y1.weights, name="linear2")
+        y3 = Linear(x3, 4, weight_norm=True, shared_weights=y1.weights, name="linear3")
+        y4 = Linear(x1, 4, weight_norm=False, name="linear4", shared_weights=y1.weights, shared_bias=y1.bias)
+
+        init = tf.global_variables_initializer()
+
+        # dummy input data
+        input1 = np.zeros([1, dim])
+        input1[0, index] = 1
+        input2 = [[index]]
+        input3 = sparse_tensor_value_one_hot(input2, [1, dim])
+        self.assertIsInstance(input3, tf.SparseTensorValue)
+
+        with self.cached_session(use_gpu=True):
+            self.eval(init)
+            # one evaluation performs a embedding lookup and reduce sum, the other uses a matmul
+            y1_output = self.eval(y1.tensor, {x1.placeholder: input1})
+            y2_output = self.eval(y2.tensor, {x2.placeholder: input2})
+            y3_output = self.eval(y3.tensor, {x3.placeholder: input3})
+            y4_output = self.eval(y4.tensor, {x1.placeholder: input1})
+
+            self.assertArrayEqual(y1_output, y2_output)
+            self.assertArrayEqual(y2_output, y3_output)
+            self.assertArrayNotEqual(y4_output, y1_output)
 
     def test_linear_dropconnect(self):
 

@@ -475,6 +475,12 @@ class Model:
         self.var_list = None
         self.train_op = None
 
+        # new optimizer management
+        # optimizers is a tuple list [(opt,loss,var)]
+        self.optimizers = None
+        self.train_ops = None
+        self.train_graphs = None
+
         # op for model saving and restoring
 
         if self.has_vars():
@@ -697,8 +703,7 @@ class Model:
         self.session.run(self.init_var_op)
         self._var_inited = (True, self.session)
 
-    def config_optimizer(self, optimizer, optimizer_params=None, gradient_op=None, global_gradient_op=False,
-                         var_list=None):
+    def config_optimizer(self, optimizer, optimizer_params=None, gradient_fn=None, var_list=None):
         """ Configures the model for training
 
         # the idea is to add an op that can be applied to the gradients and output in the training method
@@ -716,11 +721,10 @@ class Model:
             gradient_op: [grads] -> [grads]
 
         Args:
-            global_gradient_op: if True applies gradient_op to the entire gradient list,
             if False calls gradient_op for each gradient in the list individually.
             var_list: list o variables modified by the optimizer, if None, the optimizer is applied to
             all variables marked as trainable.
-            gradient_op : gradient op is to be applied to each gradient.
+            gradient_fn : gradient function, receives a list of pairs (grads,vars) and returns a list of new pairs
             optimizer_params: a :obj:`list` or single `Param` to be used with the optimizer, the feedable
             parameters should be fed by the same order in the train method
 
@@ -735,20 +739,15 @@ class Model:
         elif len(self.train_loss) == 1:
             self.joint_loss = self.train_loss[0]
         else:
+            print(self.train_loss)
+            for loss in self.train_loss:
+                print(loss.n_units)
             self.joint_loss = Mean(*self.train_loss)
 
         def minimize(loss):
-            if gradient_op is not None:
+            if gradient_fn is not None:
                 grads_vars = self.optimizer.compute_gradients(loss, var_list=self.var_list)
-                gradients, variables = zip(*grads_vars)
-
-                if global_gradient_op:
-                    new_gradients = gradient_op(gradients)
-                else:
-                    new_gradients = [None if g is None else gradient_op(g) for g in gradients]
-
-                grads_vars = zip(new_gradients, variables)
-
+                grads_vars = gradient_fn(grads_vars)
                 train_step = self.optimizer.apply_gradients(grads_vars)
             else:
                 train_step = self.optimizer.minimize(loss, var_list=var_list)
@@ -763,6 +762,94 @@ class Model:
                                       other_tensors=self.train_op)
 
         self.train_vars = {var.name for layer in self.train_graph.layers for var in layer.variables}
+
+    def add_optimizer(self, optimizer, target_loss=None, target_variables=None, optimizer_params=None,
+                      gradient_fn=None):
+        """
+
+        * if no target loss is specified, the optimizer uses the joint loss from all train losses specified in the model
+
+        Args:
+            optimizer:
+            target_loss:
+            target_variables:
+            optimizer_params:
+            gradient_fn:
+
+        Returns:
+
+        """
+
+        if target_loss is None:
+            if len(self.train_loss) == 0:
+                raise ValueError("Cannot add an optimizer: this model has no loss functions")
+            elif self.join_loss is not None:
+                target_loss = self.joint_loss
+            elif len(self.train_loss) == 1:
+                target_loss = self.train_loss[0]
+            else:
+                target_loss = Mean(*self.train_loss)
+            self.joint_loss = target_loss
+        else:
+            if target_loss not in self.train_loss:
+                raise ValueError("Target loss could not be found in the model specification")
+
+        # register optimizer params if needed
+        if optimizer_params is not None:
+            optimizer_params = as_list(optimizer_params)
+            if self.optimizer_params is not None:
+                self.optimizer_params.append(optimizer_params)
+            else:
+                self.optimizer_params = optimizer_params
+
+        # check variables
+
+        # TODO in the future global vars don't exist, we need to check the model for all the variables automatically
+        # all_vars = set(self.var_list)
+        # if target_variables is not None:
+        #     target_variables = set(as_list(target_variables))
+        #     if not target_variables.is_subset(all_vars):
+        #         raise ValueError("the following variables are not specified in the model: {}".format(
+        #             "\n".join(target_variables - all_vars)))
+        # else:
+        #     target_variables = all_vars
+
+        optimizer_entry = (optimizer, target_loss, target_variables)
+        if self.optimizers is None:
+            self.optimizers = [optimizer_entry]
+        else:
+            self.optimizers.append(optimizer_entry)
+
+        def minimize(loss):
+            if gradient_fn is not None:
+                grads_vars = optimizer.compute_gradients(loss.tensor, var_list=target_variables)
+                grads_vars = gradient_fn(grads_vars)
+                train_step = optimizer.apply_gradients(grads_vars)
+            else:
+                # if I don't pass loss.tensor then it tries to call the function which calls reuse
+                train_step = optimizer.minimize(loss.tensor, var_list=target_variables)
+            return train_step
+
+        train_op = minimize(target_loss)
+
+        if self.train_ops is None:
+            self.train_ops = [train_op]
+
+        else:
+            self.train_ops.append(train_op)
+
+        # get all the unique losses used by the optimizers
+        outputs = list(set([loss for _, loss, _ in self.optimizers]))
+        # this might vary per loss but not for the entire training graph
+
+        # TODO think about this, if we have multiple losses, either we have a single train graph with multiple train ops
+        # or we have multiple train graphs with multiple input to loss
+        train_graph = LayerGraph(inputs=self.train_inputs,
+                                 outputs=outputs,
+                                 other_inputs=self.optimizer_params,
+                                 other_tensors=self.train_ops)
+
+        self.train_graph = train_graph
 
     def run_step(self, data_feed, write_summaries=False):
         """ run step. executes the inference part of the model
@@ -823,8 +910,8 @@ class Model:
         self.run_steps += 1
 
         # for convenience if we have a single output layer return the result, not a list of results
-        if len(self.run_outputs) == 1:
-            result = result[0]
+        # if len(self.run_outputs) == 1:
+        #    result = result[0]
         return result
 
     def train_step(self, data_feed,
@@ -860,7 +947,7 @@ class Model:
             self.init_vars()
 
         if self.train_graph is None:
-            raise AttributeError("ModelRunner has no train graph, call configure_optimizer before train")
+            raise AttributeError("ModelRunner has no train graph, add an optimizer before calling train")
 
         other_fetches = []
         if write_summaries:
@@ -873,7 +960,7 @@ class Model:
             self.set_log_writer()
 
             results = self.train_graph.eval(
-                target_outputs=self.joint_loss,
+                target_outputs=self.train_graph.output_layers,
                 other_tensors=other_fetches,
                 feed=data_feed,
                 use_defaults=True,
@@ -887,13 +974,15 @@ class Model:
 
         else:
             results = self.train_graph.eval(
-                target_outputs=self.joint_loss,
+                target_outputs=self.train_graph.output_layers,
                 other_tensors=other_fetches,
                 feed=data_feed,
                 use_defaults=True,
                 session=self.session)
 
-        result, other = results[0], results[1:]
+        n_results = len(self.train_graph.output_layers)
+        result = results[0:n_results]
+        other = results[n_results:]
 
         if write_summaries and len(other_fetches) > 0:
             logs = other[-1]
@@ -1048,7 +1137,8 @@ class Model:
                         # if data is not a dict, we must create one using input layers
                         if not isinstance(feed_dict, dict):
                             inputs = self.train_graph.input_layers
-                            feed_dict = dict(zip(inputs, feed_dict))
+
+                            feed_dict = dict(zip(inputs, as_list(feed_dict)))
 
                         # updated here because we want this property to give us the current step, to know when
                         # a step ends use OnEveryStep(at=AT.END)
@@ -1062,7 +1152,10 @@ class Model:
 
                         loss = self.train_step(data_feed=feed_dict)
                         if not np.isscalar(loss):
-                            loss = np.mean(loss)
+                            if isinstance(loss, list):
+                                loss = np.mean([np.mean(l) for l in loss])
+                            else:
+                                loss = np.mean(loss)
                         last_loss.value = loss
                         total_loss += loss
                         train_loss.value = total_loss / epoch_step.value

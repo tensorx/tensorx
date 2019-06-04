@@ -279,40 +279,48 @@ class ModelRunnerTest(test_utils.TestCase):
             self.assertTrue(np.ndim(result), 2)
 
     def test_model_train(self):
-        with self.cached_session(use_gpu=True):
-            input_layer = Input(4, name="inputs")
-            linear = Linear(input_layer, 2)
-            h = Activation(linear, fn=sigmoid)
+        input_layer = Input(4, name="inputs")
+        linear = Linear(input_layer, 2, add_bias=False)
+        linear2 = Linear(input_layer, 2, add_bias=False)
+        h = Activation(linear, fn=sigmoid)
+        h2 = Activation(linear2, fn=sigmoid)
 
-            # configure training
-            labels = Input(2, name="labels")
-            losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
+        # configure training
+        labels = Input(2, name="labels")
+        loss = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
+        loss2 = LambdaLayer(labels, h2, apply_fn=binary_cross_entropy)
 
-            model = Model(run_inputs=input_layer,
-                          run_outputs=h,
-                          train_inputs=[input_layer, labels],
-                          train_loss=losses,
-                          eval_inputs=[input_layer, labels],
-                          eval_score=losses)
+        def clip_local(gv):
+            return [(tf.clip_by_norm(grad, 1), var) if grad is not None else (grad, var) for grad, var in gv]
 
-            optimiser = tf.train.GradientDescentOptimizer(learning_rate=0.5)
-            model.config_optimizer(optimiser)
+        model = Model(run_inputs=input_layer,
+                      run_outputs=h,
+                      train_inputs=[input_layer, labels],
+                      train_loss=loss,
+                      eval_inputs=[input_layer, labels],
+                      eval_score=loss)
 
-            data = np.array([[1, 1, 1, 1]])
-            target = np.array([[1.0, 0.0]])
+        optimiser = tf.train.GradientDescentOptimizer(learning_rate=0.5)
+        model.config_optimizer(optimiser, gradient_fn=clip_local)
 
-            # session = runner.session
-            # weights = session.run(linear.weights)
-            with self.cached_session(use_gpu=True):
-                model.init_vars()
-                weights1 = model.session.run(linear.weights)
+        grads_vars = optimiser.compute_gradients(loss2.tensor)
+        train_step = optimiser.apply_gradients(clip_local(grads_vars))
 
-                for i in range(10):
-                    model.train_step({input_layer: data, labels: target})
+        data = np.array([[1, 1, 1, 1]])
+        target = np.array([[1.0, 0.0]])
 
-                weights2 = model.session.run(linear.weights)
+        with self.cached_session(use_gpu=True) as sess:
+            model.init_vars()
+            # set 2 models to the same state
+            same_state = tf.assign(linear2.weights, linear.weights)
+            sess.run(same_state)
 
-                self.assertFalse(np.array_equal(weights1, weights2))
+            for i in range(4):
+                self.assertArrayEqual(linear.weights, linear2.weights)
+                model.train_step({input_layer: data, labels: target})
+                self.assertArrayNotEqual(linear.weights, linear2.weights)
+                sess.run(train_step, feed_dict={input_layer.placeholder: data, labels.placeholder: target})
+                self.assertArrayEqual(linear.weights, linear2.weights)
 
     def test_decay_after(self):
         input_layer = Input(4, name="inputs", value=[[1, 1, 1, 1]])

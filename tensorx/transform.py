@@ -137,9 +137,10 @@ def sparse_tile(sp_tensor, num, name="sparse_tile"):
         batch_size = tf.shape(sp_tensor, out_type=tf.int64)[0]
 
         # this is preferable to using dense shape directly because we need the num cols to be known
-        dim = sp_tensor.get_shape().as_list()[-1]
-        if dim is None:
-            raise ValueError("Could not determine the last dimension of input sp_tensor")
+        dim = sp_tensor.dense_shape[-1]
+        #dim = sp_tensor.get_shape().as_list()[-1]
+        #if dim is None:
+        #    raise ValueError("Could not determine the last dimension of input sp_tensor")
 
         offset = tf.range(start=0, limit=num * batch_size, delta=batch_size, dtype=tf.int64)
 

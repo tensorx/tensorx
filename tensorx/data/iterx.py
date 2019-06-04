@@ -403,6 +403,11 @@ def shuffle_it(seq, buffer_size):
     return shuffled
 
 
+def buffer_it(seq, buffer_size):
+    buffers = batch_it(seq, size=buffer_size)
+    return itertools.chain.from_iterable(buffers)
+
+
 def chain_it(*data_it):
     """ Forward method for itertools chain
 

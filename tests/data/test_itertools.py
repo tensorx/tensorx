@@ -56,6 +56,16 @@ class TestItertools(TestCase):
         # for window in windows:
         #    print(window)
 
+    def test_buffer_it(self):
+        num_samples = 100
+        v = np.random.uniform(-1, 1, [num_samples, 2])
+
+        it = iter(v)
+        buffered = itx.buffer_it(iter(v), 7)
+
+        for x1, x2 in zip(it, buffered):
+            np.testing.assert_array_equal(x1, x2)
+
     def test_batch_it(self):
         num_samples = 6
         v = np.random.uniform(-1, 1, [num_samples, 2])
