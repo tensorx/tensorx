@@ -220,7 +220,7 @@ def random_bernoulli(shape, prob=0.5, seed=None, dtype=dtypes.float32, name="ran
 
 
     """
-    with ops.name_scope(name, [shape]):
+    with ops.name_scope(name=name, values=[shape]):
         # uniform [prob, 1.0 + prob)
         random_tensor = prob
         random_tensor += random_ops.random_uniform(

@@ -9,11 +9,6 @@ from tensorx.transform import sort_by_first, to_matrix_indices
 from tensorflow.python.framework.ops import name_scope
 from tensorflow.python.framework.sparse_tensor import SparseTensor
 from tensorflow.python.ops import array_ops, sparse_ops, math_ops, state_ops
-from tensorflow.python.ops.variables import Variable, VariableMetaclass
-from tensorflow.python.framework import tensor_util
-# import tensorflow as tf
-import six
-from tensorflow.python.training.checkpointable import base as checkpointable
 
 
 class IndexValueTable:

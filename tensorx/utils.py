@@ -14,7 +14,7 @@ def to_tensor_cast(x, dtype=None):
     Returns:
         ``Tensor``: a tensor with the given dtype
     """
-    x = tf.convert_to_tensor_or_sparse_tensor(x)
+    x = tf.compat.v1.convert_to_tensor_or_sparse_tensor(x)
 
     if dtype is not None:
         if x.dtype != dtype:
@@ -67,7 +67,7 @@ def as_list(elems):
     if elems is None:
         elems = []
     elif isinstance(elems, (list, tuple)) and not isinstance(elems, (
-            tf.SparseTensorValue, tf.SparseTensor)):
+            tf.compat.v1.SparseTensorValue, tf.SparseTensor)):
         elems = list(elems)
     else:
         elems = [elems]

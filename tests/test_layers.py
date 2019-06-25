@@ -32,7 +32,7 @@ class TestLayers(test_utils.TestCase):
         in2 = Input(1)
         in3 = TensorLayer(tf.constant([[2.]]))
 
-        txfn = LambdaLayer(in1, in2, apply_fn=binary_cross_entropy)
+        txfn = LambdaLayer(in1, in2, fn=binary_cross_entropy)
         txfn2 = txfn.reuse_with(in1, in3)
 
         graph = LayerGraph(outputs=[txfn, txfn2])
@@ -54,7 +54,8 @@ class TestLayers(test_utils.TestCase):
         in1 = [[1.]]
         in2 = [[0.]]
 
-        l1 = LambdaLayer(in1, in2, apply_fn=binary_cross_entropy)
+        # binary_cross_entropy is a function
+        l1 = LambdaLayer(in1, in2, fn=binary_cross_entropy)
         l2_proto = layer()(binary_cross_entropy)
         self.assertIsInstance(l2_proto, LayerProto)
         l2 = l2_proto(in1, in2)

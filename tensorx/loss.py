@@ -125,7 +125,7 @@ def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
       A `Tensor`. Has the same type as `logits`.
     """
 
-    with tf.name_scope(name, [logits, sparsemax, labels]):
+    with tf.name_scope(name, values=[logits, sparsemax, labels]):
         logits = tf.convert_to_tensor(logits)
         sparsemax = tf.convert_to_tensor(sparsemax)
         labels = tf.convert_to_tensor(labels, name="labels")

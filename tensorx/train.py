@@ -324,6 +324,9 @@ class LayerGraph:
             the result of the graph evaluation
 
         """
+        if feed is None:
+            feed = {}
+
         if not isinstance(feed, dict):
             raise TypeError("feed must be a dictionary from inputs to values")
 
@@ -851,21 +854,25 @@ class Model:
 
         self.train_graph = train_graph
 
-    def run_step(self, data_feed, write_summaries=False):
+    def run_step(self, data_feed=None, target_outputs=None, write_summaries=False):
         """ run step. executes the inference part of the model
 
         Args:
+            target_outputs: the run outputs to be considered
             write_summaries: if true adds summaries to the graph fetches
             data_feed: a dict with Layer to data or tuple with a dimension and order matching the inference graph
             input layer order
 
         """
-        if not isinstance(data_feed, dict):
-            inputs = self.run_graph.input_layers
-            data_feed = dict(zip(inputs, data_feed))
+        target_outputs = as_list(target_outputs)
 
-        data_feed = {key: data_feed[key]
-                     for key in data_feed.keys() if isinstance(key, Layer)}
+        if data_feed is not None:
+            if not isinstance(data_feed, dict):
+                inputs = self.run_graph.input_layers
+                data_feed = dict(zip(inputs, data_feed))
+
+            data_feed = {key: data_feed[key]
+                         for key in data_feed.keys() if isinstance(key, Layer)}
 
         if self.session is None:
             self.set_session()
@@ -886,6 +893,7 @@ class Model:
 
         if self.runtime_stats:
             result = self.run_graph.eval(feed=data_feed,
+                                         target_outputs=target_outputs,
                                          other_tensors=other_fetches,
                                          use_defaults=True,
                                          session=self.session,
@@ -899,6 +907,7 @@ class Model:
                                              global_step=self.run_steps + 1)
         else:
             result = self.run_graph.eval(feed=data_feed,
+                                         target_outputs=target_outputs,
                                          other_tensors=other_fetches,
                                          use_defaults=True,
                                          session=self.session)

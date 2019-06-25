@@ -181,7 +181,7 @@ class ModelRunnerTest(test_utils.TestCase):
         linear1 = Linear(in1, 1)
         linear2 = Linear(Add(in1, in2), 2)
 
-        loss = LambdaLayer(in2, linear2, apply_fn=binary_cross_entropy)
+        loss = LambdaLayer(in2, linear2, fn=binary_cross_entropy)
 
         model = Model(run_inputs=[in1, in2],
                       train_loss=loss,
@@ -211,7 +211,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
         # configure training
         labels = Input(2, name="labels")
-        losses = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
+        losses = LambdaLayer(labels, h, fn=binary_cross_entropy)
 
         model = Model(run_inputs=input_layer,
                       run_outputs=h,
@@ -287,8 +287,8 @@ class ModelRunnerTest(test_utils.TestCase):
 
         # configure training
         labels = Input(2, name="labels")
-        loss = LambdaLayer(labels, h, apply_fn=binary_cross_entropy)
-        loss2 = LambdaLayer(labels, h2, apply_fn=binary_cross_entropy)
+        loss = LambdaLayer(labels, h, fn=binary_cross_entropy)
+        loss2 = LambdaLayer(labels, h2, fn=binary_cross_entropy)
 
         def clip_local(gv):
             return [(tf.clip_by_norm(grad, 1), var) if grad is not None else (grad, var) for grad, var in gv]
@@ -328,7 +328,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
         # configure training
         labels = Input(2, name="labels", value=[[1, 1]])
-        losses = LambdaLayer(labels, linear, apply_fn=binary_cross_entropy)
+        losses = LambdaLayer(labels, linear, fn=binary_cross_entropy)
 
         model = Model(run_inputs=input_layer,
                       run_outputs=linear,
@@ -362,7 +362,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
         # configure training
         labels = Input(2, name="labels", value=[[1, 1]])
-        losses = LambdaLayer(labels, linear, apply_fn=binary_cross_entropy)
+        losses = LambdaLayer(labels, linear, fn=binary_cross_entropy)
 
         model = Model(run_inputs=None,
                       run_outputs=linear,
@@ -390,7 +390,7 @@ class ModelRunnerTest(test_utils.TestCase):
 
         # configure training
         y = Input(2, name="labels")
-        losses = LambdaLayer(y, h, apply_fn=binary_cross_entropy)
+        losses = LambdaLayer(y, h, fn=binary_cross_entropy)
 
         model = Model(run_inputs=x,
                       run_outputs=h,

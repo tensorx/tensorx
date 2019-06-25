@@ -400,7 +400,7 @@ def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the updated values.
     """
-    with tf.name_scope(name, values=[sp_tensor, sp_updates]):
+    with tf.name_scope(name=name, values=[sp_tensor, sp_updates]):
         if sp_updates.dtype != sp_tensor.dtype:
             sp_updates = tf.cast(sp_updates, sp_tensor.dtype)
 
@@ -449,7 +449,7 @@ def dense_put(tensor, sp_updates, name="dense_put"):
     Returns:
         ``Tensor``: a ``Tensor`` with the updated values.
     """
-    with tf.name_scope(name, values=[tensor, sp_updates]):
+    with tf.name_scope(name=name, values=[tensor, sp_updates]):
         tensor = tf.convert_to_tensor(tensor)
         if sp_updates.dtype != tensor.dtype:
             sp_updates = tf.cast(sp_updates, tensor.dtype)
@@ -523,7 +523,7 @@ def dropout(tensor,
     Raises:
         ValueError: If `probability` is not in `[0, 1]` or if `x` is not a floating point tensor.
     """
-    with tf.name_scope(name, "dropout", [tensor]):
+    with tf.name_scope(name=name, default_name="dropout", values=[tensor]):
         tensor = tf.convert_to_tensor(tensor, name="x")
         if random_mask is not None:
             random_mask = to_tensor_cast(random_mask, tensor.dtype)
@@ -587,7 +587,7 @@ def dropout(tensor,
         noise_shape = _get_noise_shape(tensor, noise_shape)
 
         if random_mask is None:
-            with tf.name_scope("random_mask"):
+            with tf.name_scope(name="random_mask"):
                 keep_prob = 1 - probability
                 random_state = tf.random_uniform(noise_shape, seed=seed, dtype=tensor.dtype)
                 mask = keep_prob + random_state
@@ -609,7 +609,7 @@ def dropout(tensor,
 def zoneout(tensor, zoneout_tensor, noise_shape=None, probability=0.1, seed=None, name="dropout"):
     """
     """
-    with tf.name_scope(name, "dropout", [tensor]):
+    with tf.name_scope(name=name, default_name="dropout", values=[tensor]):
         tensor = tf.convert_to_tensor(tensor, name="x")
         if not tensor.dtype.is_floating:
             raise ValueError("x has to be a floating point tensor since it's going to"
@@ -674,7 +674,7 @@ def sparse_dropout(sp_tensor,
         name: A name for this operation (optional).
 
     """
-    with tf.name_scope(name, values=[sp_tensor]):
+    with tf.name_scope(name=name, values=[sp_tensor]):
         dense_shape = sp_tensor.dense_shape
 
         if not sp_tensor.values.dtype.is_floating:
@@ -721,7 +721,7 @@ def sparse_ones(matrix_indices, dense_shape, dtype=tf.float32, name="sparse_ones
     Returns:
         ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
     """
-    with tf.name_scope(name, values=[matrix_indices, dense_shape]):
+    with tf.name_scope(name=name, values=[matrix_indices, dense_shape]):
         matrix_indices = to_tensor_cast(matrix_indices, tf.int64)
         dense_shape = to_tensor_cast(dense_shape, tf.int64)
         indices_shape = complete_shape(matrix_indices)
@@ -741,7 +741,7 @@ def sparse_zeros(matrix_indices, dense_shape, dtype=tf.float32, name="sparse_zer
     Returns:
         ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
     """
-    with tf.name_scope(name, values=[matrix_indices, dense_shape]):
+    with tf.name_scope(name=name, values=[matrix_indices, dense_shape]):
         matrix_indices = to_tensor_cast(matrix_indices, tf.int64)
         dense_shape = to_tensor_cast(dense_shape, tf.int64)
         indices_shape = complete_shape(matrix_indices)
@@ -774,7 +774,7 @@ def sparse_one_hot(column_indices, num_cols, dtype=tf.float32, name="sparse_one_
         Returns:
             `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
     """
-    with tf.name_scope(name, values=[column_indices, num_cols]):
+    with tf.name_scope(name=name, values=[column_indices, num_cols]):
         column_indices = to_tensor_cast(column_indices, tf.int64)
         matrix_indices = to_matrix_indices_2d(column_indices, dtype=tf.int64)
 
@@ -802,7 +802,7 @@ def dense_one_hot(column_indices, num_cols, dtype=tf.float32, name="dense_one_ho
     Returns:
         ``Tensor``: A dense ``Tensor`` with a `one-hot encoding` for the given indices.
     """
-    with tf.name_scope(name, values=[column_indices, num_cols]):
+    with tf.name_scope(name=name, values=[column_indices, num_cols]):
         column_indices = to_tensor_cast(column_indices, tf.int64)
         one_hot_dense = tf.one_hot(column_indices, depth=num_cols, dtype=dtype)
 
@@ -826,7 +826,7 @@ def sparse_indices(sp_values, name="sparse_indices"):
     Returns:
         ``SparseTensor``: a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor`` .
     """
-    with tf.name_scope(name, values=[sp_values]):
+    with tf.name_scope(name=name, values=[sp_values]):
         if len(sp_values.get_shape().dims) == 1:
             [flat_indices] = tf.unstack(sp_values.indices, num=1, axis=-1)
         else:
@@ -861,7 +861,7 @@ def to_sparse(tensor, name="to_sparse"):
         with the non-zero entries of the given input.
 
     """
-    with tf.name_scope(name, values=[tensor]):
+    with tf.name_scope(name=name, values=[tensor]):
         indices = tf.where(tf.math.not_equal(tensor, 0))
         dense_shape = tf.shape(tensor, out_type=tf.int64)
 
@@ -923,7 +923,7 @@ def filter_nd(condition, params, name="filter_nd"):
     Returns:
         ``SparseTensor``: a `SparseTensor` with the values in params filtered according to condition
     """
-    with tf.name_scope(name, [condition, params]):
+    with tf.name_scope(name=name, values=[condition, params]):
         indices = tf.cast(tf.where(condition), dtype=tf.int64)
         values = tf.gather_nd(params, indices)
         dense_shape = tf.cast(tf.shape(params), tf.int64)
@@ -954,7 +954,7 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse_v2"):
         a ``SparseTensor`` with a number of rows equal to the number of ids to be gathered.
 
     """
-    with tf.name_scope(name, [sp_tensor, ids]):
+    with tf.name_scope(name=name, values=[sp_tensor, ids]):
         ids = tf.cast(ids, tf.int64)
         ids = tf.reshape(ids, [-1])
 
@@ -1006,7 +1006,7 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
     Returns:
         `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
     """
-    with tf.name_scope(name, [sp_tensor1, sp_tensor2]):
+    with tf.name_scope(name=name, values=[sp_tensor1, sp_tensor2]):
         ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
         ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
 
@@ -1039,7 +1039,7 @@ def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
 
     """
 
-    with tf.name_scope(name, values=[tensor1, tensor2]):
+    with tf.name_scope(name=name, values=[tensor1, tensor2]):
         tensor1 = to_tensor_cast(tensor1)
         tensor2 = to_tensor_cast(tensor2)
 

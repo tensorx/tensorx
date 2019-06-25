@@ -160,7 +160,7 @@ def layer(n_units=None, var_list=None):
     """
 
     def fn_to_proto(fn):
-        return LambdaLayer.proto(apply_fn=fn, n_units=n_units, var_list=var_list)
+        return LambdaLayer.proto(fn=fn, n_units=n_units, var_list=var_list)
 
     return fn_to_proto
 
@@ -515,7 +515,7 @@ class VariableLayer(Layer):
 
         self.trainable = trainable
         self.resource = resource
-        self.init = init if init is not None else zeros_init(dtype=self.dtype)
+        self.init = init if init is not None else zeros_init()
         self.tensor = self._build_graph()
 
     def _build_graph(self):
@@ -546,7 +546,8 @@ class VariableLayer(Layer):
 
                 self.counter = tf.get_variable(name="counter",
                                                shape=[],
-                                               initializer=zeros_init(dtype=tf.int32),
+                                               dtype=tf.int32,
+                                               initializer=zeros_init(),
                                                trainable=False,
                                                use_resource=True)
             else:
@@ -813,11 +814,11 @@ class Input(Layer):
         with layer_scope(self):
             # if n_active is not None convert to tf.SparseTensor
             if n_active is None:
-                self.placeholder = tf.placeholder(dtype=self.dtype, shape=shape, name=self.name)
+                self.placeholder = tf.compat.v1.placeholder(dtype=self.dtype, shape=shape, name=self.name)
                 self.tensor = self.placeholder
             else:  # sparse
                 self.n_active = n_active
-                self.placeholder = tf.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
+                self.placeholder = tf.compat.v1.placeholder(dtype=self.dtype, shape=[batch_size, n_active], name=self.name)
 
                 self.tensor = transform.sparse_one_hot(self.placeholder, num_cols=self.n_units, dtype=self.dtype)
 
@@ -953,18 +954,18 @@ class LambdaLayer(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
-    def __init__(self, *layers, apply_fn, n_units=None, var_list=None, dtype=None,
+    def __init__(self, *layers, fn, n_units=None, var_list=None, dtype=None,
                  name="fn_layer",
                  layer_fn=False):
-        self.apply_fn = apply_fn
+        self.fn = fn
         self.var_list = var_list
         self.layer_fn = layer_fn
 
-        layers = [convert_to_layer(layer) for layer in layers]
+        layers = [convert_to_layer(l) for l in layers]
 
         with layer_scope(self, name=name):
             fn_inputs = [layer.tensor if not layer_fn else layer for layer in layers]
-            tensor = apply_fn(*fn_inputs)
+            tensor = fn(*fn_inputs)
             if dtype is not None and tensor.dtype != dtype and not isinstance(tensor, tf.Operation):
                 tensor = tf.cast(tensor, dtype)
             dtype = tensor.dtype if not isinstance(tensor, tf.Operation) else None
@@ -989,7 +990,7 @@ class LambdaLayer(Layer):
 
     def reuse_with(self, *layers, name=None):
         return LambdaLayer(*layers,
-                           apply_fn=self.apply_fn,
+                           fn=self.fn,
                            n_units=self.n_units,
                            var_list=self.var_list,
                            dtype=self.dtype,
@@ -4492,7 +4493,7 @@ class Param(Layer):
         self.property = Property(name=self.name, value=value)
 
         with layer_scope(self, name=name):
-            self.placeholder = tf.placeholder(dtype=self.dtype, shape=[], name=self.name)
+            self.placeholder = tf.compat.v1.placeholder(dtype=self.dtype, shape=[], name=self.name)
             self.tensor = self.placeholder
 
     # forward methods to property including registry

@@ -10,7 +10,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops.nn import top_k
 from tensorflow.python.ops import nn
 from tensorflow.python.ops import clip_ops
-
+from numpy import pi
 from tensorx.utils import to_tensor_cast
 
 
@@ -128,6 +128,22 @@ def elu(x, alpha=1.0):
         return array_ops.where(x > 0, y, x * y)
 
 
+def gelu(x):
+    """ Gaussian Error Linear Units (GELUs)
+
+    Reference:
+    Hendrycks and Gimpel 2018 Gaussian Error Linear Units
+
+    Args:
+        x: A tenor or variable to compute the activation function for.
+
+    Returns:
+        a tensor
+
+    """
+    return 0.5 * x * (1 + math_ops.tanh(math_ops.sqrt(2 / pi) * (x + 0.044715 * math_ops.pow(x, 3))))
+
+
 def softmax(x):
     """Softmax activation function
 
@@ -198,4 +214,5 @@ __all__ = ["relu",
            "elu",
            "identity",
            "softmax",
-           "sparsemax"]
+           "sparsemax",
+           "gelu"]
