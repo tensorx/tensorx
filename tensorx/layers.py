@@ -4022,7 +4022,6 @@ class Reshape(Layer):
                 tensor = tf.sparse_reshape(layer.tensor, self.target_shape)
 
         n_units = tensor.get_shape().as_list()[-1]
-        shape = [layer.n_units, n_units]
 
         super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
 
