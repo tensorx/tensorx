@@ -507,7 +507,7 @@ class TestLayers(unittest.TestCase):
 
         zero_state0 = [layer.tensor() for layer in rnn1.previous_state]
 
-        print(zero_state0[0])
+        #print(zero_state0[0])
         self.assertEqual(len(zero_state0), 1)
         self.assertArrayEqual(zero_state0[0], np.zeros([1, hdim]))
 

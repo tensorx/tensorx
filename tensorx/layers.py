@@ -294,9 +294,10 @@ class LambdaLayer(Layer):
                          name=name)
 
     def init_state(self):
-        self.layer_state = super().init_state()
-        for i, var in enuself.merate(self.var_list):
-            setattr(self.state, f"var_{i}", var)
+        layer_state = super().init_state()
+        for i, var in enumerate(self.var_list):
+            setattr(layer_state, f"var_{i}", var)
+        return layer_state
 
     def reuse_with(self, *layers, name=None):
         return LambdaLayer(*layers,
@@ -362,9 +363,6 @@ class WrapLayer(Layer):
             name = "wrap_{}".format(layer.name)
 
         super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
-
-    def init_state(self):
-        pass
 
     def compute(self, *input_layers):
         wrapped_layer = self.input_layers[0]
@@ -465,7 +463,7 @@ class TensorLayer(Layer):
         super().__init__(None, n_units=n_units, dtype=dtype, name=name)
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
 
         if self._value is not None:
             # if len(self._value.shape) == 0:
@@ -519,28 +517,22 @@ class TensorLayer(Layer):
         # which updates or not the value
         if not self.constant and self._value is not None:
             if isinstance(self._value, tf.SparseTensor):
-                self.layer_state.slot = txf.SparseVariable(initial_value=self._value,
-                                                           validate_shape=False,
-                                                           trainable=False)
+                layer_state.slot = txf.SparseVariable(initial_value=self._value,
+                                                      validate_shape=False,
+                                                      trainable=False)
             else:
-                self.layer_state.slot = tf.Variable(initial_value=self._value,
-                                                    shape=tf.TensorShape(self.shape),
-                                                    dtype=self.dtype,
-                                                    validate_shape=False,
-                                                    trainable=False)
+                layer_state.slot = tf.Variable(initial_value=self._value,
+                                               shape=tf.TensorShape(self.shape),
+                                               dtype=self.dtype,
+                                               validate_shape=False,
+                                               trainable=False)
+
+        return layer_state
 
     @property
     def value(self):
         if self.constant:
             return self._value
-        # else:
-        # if self.updated:
-        # self.layer_state.value_cache.assign(self._value)
-        #   self.updated = False
-        # TODO basically reading a variable is more efficient than transforming this into a py_function
-        # out = tf.py_function(lambda: self._value, inp=[], Tout=self._value.dtype)
-        # out = tf.reshape(out,self._value.shape)
-        # return out
         return self.layer_state.slot.value()
 
     @value.setter
@@ -648,7 +640,7 @@ class VariableLayer(Layer):
         super().__init__(input_layer, n_units, dtype=dtype, name=name)
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
 
         input_layer = self.input_layers[-1] if len(self.input_layers) > 0 else None
 
@@ -691,12 +683,13 @@ class VariableLayer(Layer):
                                       trainable=False,
                                       name="counter")
 
-                self.layer_state.variable = variable
-                self.layer_state.counter = counter
+                layer_state.variable = variable
+                layer_state.counter = counter
             else:
-                self.layer_state = self.share_vars_with.layer_state
-        #    self._add_variable(self.layer_state.variable)
-        #    self._add_variable(self.layer_state.counter)
+                layer_state = self.share_vars_with.layer_state
+
+        self.layer_state = layer_state
+        return layer_state
 
     def compute(self, *input_layers):
         if not input_layers:
@@ -985,10 +978,6 @@ class Linear(Layer):
                 bias = None
             self.layer_state.bias = bias
 
-            # for var in [self.layer_state.weights, self.layer_state.bias]:
-            #     if var is not None:
-            #         self._add_variable(var)
-
     def compute(self, *input_layers):
         if not input_layers:
             input_layers = self.input_layers
@@ -1156,12 +1145,11 @@ class Module(Layer):
             new_module = self.reuse_with(*input_layers)
             return new_module.compute()
 
-    # TODO reuse with relies on the ordering of the layers
     def reuse_with(self, *layers, name=None):
         if name is None:
             name = self.name
 
-        if len(layers) != len(self.module_graph.in_nodes):
+        if len(layers) != len(self.graph.in_nodes):
             n = len(self.input_layers)
             n_ = len(layers)
             raise ValueError(f"Module has {n} input layers, {n_} provided")
@@ -1173,7 +1161,7 @@ class Module(Layer):
         visit_stack = deque()
 
         def stack_out(input_node):
-            for out_layer in self.module_graph.edges_out[input_node]:
+            for out_layer in self.graph.edges_out[input_node]:
                 if out_layer not in node_set:
                     visit_stack.appendleft(out_layer)
                     node_set.add(out_layer)
@@ -1186,7 +1174,7 @@ class Module(Layer):
             current_layer = visit_stack.pop()
 
             # if layer exists in the map get it from the map
-            new_inputs = [layer_map.get(in_layer, in_layer) for in_layer in self.module_graph.edges_in[current_layer]]
+            new_inputs = [layer_map.get(in_layer, in_layer) for in_layer in self.graph.edges_in[current_layer]]
             new_layer = current_layer.reuse_with(*new_inputs)
 
             # map out how the current node corresponds to a new layer
@@ -1229,9 +1217,8 @@ class ViewLayer(Layer):
 
     def init_state(self):
         layer_state = super().init_state()
-
-        for var in self.inner_layer.variables():
-            self._add_variable(var)
+        setattr(layer_state, "inner_layer", self.inner_layer)
+        return layer_state
 
 
 class DropConnect(ViewLayer):
@@ -1240,8 +1227,6 @@ class DropConnect(ViewLayer):
     Args:
             layer (Layer):
             probability (float):
-            weight_mask (Tensor):
-            bias_mask (Tensor):
             locked (bool):
             name (str):
 
@@ -1260,8 +1245,6 @@ class DropConnect(ViewLayer):
 
         super().__init__(layer, name=name)
 
-    # TODO I should be doing things like using the layer state because nothing guarantees that I'm referencing the right objects
-    # if a state object changes
     def init_state(self):
         if self.share_state_with is not None:
             self.layer_state = self.share_state_with.layer_state
@@ -1271,8 +1254,10 @@ class DropConnect(ViewLayer):
             if self.inner_layer.bias is not None:
                 self.layer_state.bias_mask = txf.binary_mask(self.inner_layer.bias)
 
+        return self.layer_state
+
     def compute(self, *input_layers):
-        if len(input_layers) == 0:
+        if not input_layers:
             input_layers = self.input_layers
 
         input_layer = input_layers[0]
@@ -1359,12 +1344,10 @@ class Dropout(Layer):
                          dtype=input_layer.dtype,
                          name=name)
 
-        self.init_state()
-
     def init_state(self):
         if self.share_state_with is None:
-            self.layer_state = super().init_state()
-            self.layer_state.mask = None
+            layer_state = super().init_state()
+            layer_state.mask = None
             with layer_scope(self):
                 with tf.name_scope(name="random_mask"):
                     if self.noise_shape is not None:
@@ -1374,9 +1357,11 @@ class Dropout(Layer):
                         mask = keep_prob + random_state
                         mask = tf.math.floor(mask, name="binary_mask")
 
-                        self.layer_state.mask = mask
+                        layer_state.mask = mask
         else:
             self.layer_state = self.share_state_with.layer_state
+
+        return self.layer_state
 
     def compute(self, *input_layers):
         if len(input_layers) == 0:
@@ -1428,7 +1413,7 @@ class BaseRNNCell(Layer):
     """
 
     Args:
-        input_layer the input Layer for this cell
+        input_layer the input Layear for this cell
         previous_state: the recurrent input Layer for the cell
         state_size: list of number of units for each element in the state, default is a single state with [n_units]
         n_units: number of activation units for the RNN cell
@@ -1657,7 +1642,7 @@ class RNN(Layer):
         # self.layer_state =[TensorLayer(s) for s in state]
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
         input_seq = self.input_layers[0]
 
         with layer_scope(self):
@@ -1681,9 +1666,11 @@ class RNN(Layer):
                                            previous_state=self.previous_state,
                                            regularized=self.regularized)
 
-            self.layer_state.cell = cell
+            layer_state.cell = cell
             self.previous_state = cell.previous_state
             self.n_units = cell.n_units
+
+        return layer_state
 
     def compute(self, *input_layers):
         if len(input_layers) == 0:
@@ -1826,7 +1813,7 @@ class RNNCell(BaseRNNCell):
         # self.layer_state =[state]
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
         input_layer = self.input_layers[0]
         previous_state = self.previous_state[0]
 
@@ -1859,8 +1846,8 @@ class RNNCell(BaseRNNCell):
                 if self.u_dropconnect is not None and self.u_dropconnect > 0:
                     u = self.u_reg(u)
 
-            self.layer_state.w = w
-            self.layer_state.u = u
+            layer_state.w = w
+            layer_state.u = u
 
             output = Add(w, u)
             output = Activation(output, self.activation)
@@ -1879,6 +1866,8 @@ class RNNCell(BaseRNNCell):
 
             self.output = output
             self.state = [state]
+
+        return layer_state
 
     def compute(self, input_layer=None, previous_h=None):
         # state = self.state.compute(previous_h, input_layer)
@@ -1983,7 +1972,7 @@ class Lookup(Layer):
                  shared_weights=None,
                  dtype=tf.float32,
                  name="lookup",
-                 share_vars_with=None,
+                 share_state_with=None,
                  batch_padding=True
                  ):
 
@@ -2002,18 +1991,14 @@ class Lookup(Layer):
 
         self.batch_size = batch_size
 
-        self.share_vars_with = share_vars_with
+        self.share_state_with = share_state_with
         self.shared_weights = shared_weights
 
         super().__init__(input_layers=input_layer, n_units=n_units, dtype=dtype, name=name)
-
-        # if weights are passed, check that their shape matches the layer shape
-
-        # self.tensor = self._build_graph()
         # self.output_shape = [self.shape[0], self.seq_size, self.n_units]
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
 
         # validate shared state
         if self.shared_weights is not None:
@@ -2028,29 +2013,29 @@ class Lookup(Layer):
                 raise ValueError(
                     "number of bias {} and number of feature rows {} mismatch".format(num_bias, lookup_shape[0]))
 
-        if self.share_vars_with is not None:
-            if not isinstance(self.share_vars_with, Lookup):
+        if self.share_state_with is not None:
+            if not isinstance(self.share_state_with, Lookup):
                 raise TypeError("Layer can only share variables with other layer of the same type (Lookup)")
 
-            if self.embedding_shape != self.share_vars_with.embedding_shape:
+            if self.embedding_shape != self.share_state_with.embedding_shape:
                 raise ValueError("Can only share variables with layers with the same feature shape: "
                                  "share_vars_with is provided but \n"
                                  "self shape: {s0} different from "
                                  "other shape: {s1}".format(s0=self.embedding_shape,
-                                                            s1=self.share_vars_with.embedding_shape))
+                                                            s1=self.share_state_with.embedding_shape))
 
         with layer_scope(self):
             # init weights
-            weights = self.share_vars_with.weights if self.share_vars_with is not None else self.shared_weights
+            weights = self.share_state_with.weights if self.share_state_with is not None else self.shared_weights
             if weights is None:
                 init_value = self.weight_init(self.embedding_shape, dtype=self.dtype)
                 weights = tf.Variable(initial_value=init_value,
                                       name="weights",
                                       trainable=True)
 
-            self.layer_state.weights = weights
+            layer_state.weights = weights
 
-            bias = self.share_vars_with.bias if self.share_vars_with is not None else self.shared_bias
+            bias = self.share_state_with.bias if self.share_state_with is not None else self.shared_bias
             if self.add_bias:
                 if bias is None:
                     bias = tf.Variable(initial_value=self.bias_init([self.embedding_shape[0]], self.dtype),
@@ -2058,12 +2043,8 @@ class Lookup(Layer):
             else:
                 bias = None
 
-            self.layer_state.bias = bias
-
-            # TODO I could examine layer state to get the variables
-            for var in [self.layer_state.weights, self.layer_state.bias]:
-                if var is not None:
-                    self._add_variable(var)
+            layer_state.bias = bias
+        return layer_state
 
     def compute(self, *input_layers):
         if len(input_layers) == 0:
@@ -2243,7 +2224,7 @@ class Lookup(Layer):
 
         """
         # if current layer is sharing variables, forward the sharing
-        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
+        share_vars_with = self if self.share_state_with is None else self.share_state_with
 
         if name is None:
             name = self.name
@@ -2256,7 +2237,7 @@ class Lookup(Layer):
                       weight_init=None,
                       dtype=self.dtype,
                       name=name,
-                      share_vars_with=share_vars_with,
+                      share_state_with=share_vars_with,
                       batch_padding=self.batch_padding)
 
 
@@ -2379,7 +2360,7 @@ class GRUCell(BaseRNNCell):
                          name=name)
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
         input_layer = self.input_layers[0]
         previous_h = self.previous_state[0]
 
@@ -2390,6 +2371,11 @@ class GRUCell(BaseRNNCell):
                 if self.r_dropout and self.r_dropout > 0:
                     previous_h = self.r_reg(previous_h)
 
+            # TODO
+            # if state init is delayed the condition has to be
+            # if getattr(layer_state,"w",None) is not None
+            # if getattr(layer_state,"u",None) is not None
+            # otherwise the else statement would throw an error if w and u where not initialized
             if self.share_state_with is None:
                 # reset gate
                 # forget / reset bias init to one http://proceedings.mlr.press/v37/jozefowicz15.pdf
@@ -2408,6 +2394,9 @@ class GRUCell(BaseRNNCell):
                 w = self.share_state_with.layer_state.w
                 u = self.share_state_with.layer_state.u
 
+                # in case the layer with wich we share the state has a state wich is regularized
+                # TODO store both regularized ViewLayers in the state and normal layers
+                # this way we can just retrieve the regularized state
                 if not self.regularized:
                     w = list(map(lambda w: w.inner_layer if isinstance(w, ViewLayer) else w, w))
                     u = list(map(lambda u: u.inner_layer if isinstance(u, ViewLayer) else u, u))
@@ -2428,14 +2417,14 @@ class GRUCell(BaseRNNCell):
                 u_r, u_c, u_z = u
 
             # TODO there has to be a more elegant way to update the namespace
-            self.layer_state.w_r = w_r
-            self.layer_state.w_c = w_c
-            self.layer_state.w_z = w_z
-            self.layer_state.u_r = u_r
-            self.layer_state.u_c = u_c
-            self.layer_state.u_z = u_z
-            self.layer_state.w = w
-            self.layer_state.u = u
+            layer_state.w_r = w_r
+            layer_state.w_c = w_c
+            layer_state.w_z = w_z
+            layer_state.u_r = u_r
+            layer_state.u_c = u_c
+            layer_state.u_z = u_z
+            layer_state.w = w
+            layer_state.u = u
 
             r_u_c = Gate(u_c, Add(w_r, u_r), name="reset_gate")
             candidate = Activation(Add(w_c, r_u_c), fn=self.activation, name="candidate")
@@ -2455,14 +2444,14 @@ class GRUCell(BaseRNNCell):
             self.output = output
             self.state = [state]
 
+        return layer_state
+
     def compute(self, input_layer=None, previous_state=None):
-        # TODO rename previous state to previous_h???
         input_layer = self.input_layers[0] if input_layer is None else input_layer
         previous_h = self.previous_state[0] if previous_state is None else previous_state
 
         output = self.output.compute(previous_h, input_layer)
-        # state = self.state.compute(previous_h, input_layer)
-        return output  # , state
+        return output
 
     def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
         return super().reuse_with(input_layer, previous_state, regularized, name, gate_activation=self.gate_activation)
@@ -2500,6 +2489,8 @@ class LSTMCell(BaseRNNCell):
 
         self.forget_bias_init = forget_bias_init
         self.gate_activation = gate_activation
+        self.output = None
+        self.state = None
 
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
@@ -2520,7 +2511,7 @@ class LSTMCell(BaseRNNCell):
                          name=name)
 
     def init_state(self):
-        self.layer_state = super().init_state()
+        layer_state = super().init_state()
 
         input_layer = self.input_layers[0]
         previous_h, previous_memory = self.previous_state
@@ -2579,16 +2570,16 @@ class LSTMCell(BaseRNNCell):
                 w_f, w_i, w_c, w_o = w
                 u_f, u_i, u_c, u_o = u
 
-            self.layer_state.w_f = w_f
-            self.layer_state.w_i = w_i
-            self.layer_state.w_c = w_c
-            self.layer_state.w_o = w_o
-            self.layer_state.u_f = u_f
-            self.layer_state.u_i = u_i
-            self.layer_state.u_c = u_c
-            self.layer_state.u_o = u_o
-            self.layer_state.w = w
-            self.layer_state.u = u
+            layer_state.w_f = w_f
+            layer_state.w_i = w_i
+            layer_state.w_c = w_c
+            layer_state.w_o = w_o
+            layer_state.u_f = u_f
+            layer_state.u_i = u_i
+            layer_state.u_c = u_c
+            layer_state.u_o = u_o
+            layer_state.w = w
+            layer_state.u = u
 
             with tf.name_scope("memory_forget"):
                 gate_f = Add(w_f, u_f, name="add_f")
@@ -2627,8 +2618,7 @@ class LSTMCell(BaseRNNCell):
 
         self.output = output
         self.state = [state, memory_state]
-        # self.memory_state = memory_state
-        return output
+        return layer_state
 
     def compute(self, input_layer=None, previous_state=None):
         input_layer = self.input_layers[0] if input_layer is None else input_layer
@@ -2673,7 +2663,7 @@ class Activation(Layer):
         super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=name)
 
     def compute(self, *input_layers):
-        if len(input_layers) == 0:
+        if not input_layers:
             input_layers = self.input_layers
 
         input_value = input_layers[0].compute()
@@ -2733,7 +2723,7 @@ class Merge(Layer):
         super().__init__(input_layers=layers, n_units=n_units, dtype=dtype, name=name)
 
     def compute(self, *input_layers):
-        if len(input_layers) == 0:
+        if not input_layers:
             input_layers = self.input_layers
 
         outputs = [layer() if isinstance(layer, Layer) else layer for layer in input_layers]
