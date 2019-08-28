@@ -30,8 +30,8 @@ class TestTrain(unittest.TestCase):
     def test_layer_graph(self):
         data = [[1., 2.]]
 
-        in1 = tx.TensorLayer(n_units=2, name="in1", constant=False)
-        in2 = tx.TensorLayer(n_units=2, name="in2", constant=False)
+        in1 = tx.Input(n_units=2, name="in1", constant=False)
+        in2 = tx.Input(n_units=2, name="in2", constant=False)
         linear = tx.Linear(in1, 1)
         graph = LayerGraph(linear)
 
@@ -51,7 +51,7 @@ class TestTrain(unittest.TestCase):
         result2 = graph.eval()
         result1 = graph.eval(feed={in1: data})
 
-        other_fetches = tx.TensorLayer(tf.constant([[0]]), dtype=tf.int32)
+        other_fetches = tx.Input(tf.constant([[0]]), dtype=tf.int32)
         result3 = graph.eval(feed={in1: data},
                              other_tensors=other_fetches,
                              )
@@ -66,8 +66,8 @@ class TestTrain(unittest.TestCase):
         data1 = [[1, 1]]
         data2 = [[2, 1]]
 
-        in1 = tx.TensorLayer(data1, 2, name="in1", constant=False)
-        in2 = tx.TensorLayer(data2, 2, name="in2")
+        in1 = tx.Input(data1, 2, name="in1", constant=False)
+        in2 = tx.Input(data2, 2, name="in2")
 
         linear1 = tx.Linear(in1, 1)
         linear2 = tx.Linear(tx.Add(in1, in2), 1)

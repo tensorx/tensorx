@@ -28,7 +28,7 @@ class TestUtils(unittest.TestCase):
         self.assertFalse(np.array_equal(actual, desired))
 
     def test_graph_build(self):
-        x = tx.TensorLayer([[1]])
+        x = tx.Input([[1]])
         g = Graph.build_graph(None, x)
 
         self.assertEqual(len(g.in_nodes), len(g.out_nodes))
@@ -62,7 +62,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(x, g.edges_in[l2][0])
 
     def test_graph_merge(self):
-        x = tx.TensorLayer([[1]])
+        x = tx.Input([[1]])
 
         l1 = tx.Linear(x, n_units=2)
         l2 = tx.Linear(x, n_units=2)
@@ -79,7 +79,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(set.intersection(g1.out_nodes, g3.out_nodes), g1.out_nodes)
 
     def test_graph_repeated(self):
-        x = tx.TensorLayer([[1]])
+        x = tx.Input([[1]])
         l1 = tx.Linear(x, 2, name="l1")
         l2 = tx.Linear(x, 2, name="l2")
 

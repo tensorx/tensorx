@@ -1,3 +1,5 @@
+from .__version__ import __version__
+
 from tensorx.layers import *
 # from tensorx.activation import *
 # from tensorx.init import *

@@ -13,9 +13,9 @@ class Graph:
         nodes(set): set of node objects (object need tobe hashable)
         edges_in(dict): a dictionary that maps nodes in the keys to a list of notes with edges coming into that node
         edges_out(dict): a dictionary that maps nodes in the keys to a list of notes with edges coming from that node
-        in_nodes(set): a set with all the unique input nodes of the graph (nodes without edges coming into them)
-        out_nodes(set): a set with all the unique output nodes of the graph (nodes without edges coming out of them)
 
+        in_nodes(dict): key-only dictionary (ordered set) with input nodes (nodes without input edges).
+        out_nodes(dict): key-only dictionary (ordered set) with output nodes of the graph (nodes without output edges)
     """
 
     @staticmethod
@@ -38,8 +38,9 @@ class Graph:
 
     def __init__(self):
         self.nodes = set()
-        self.in_nodes = set()
-        self.out_nodes = set()
+
+        self.in_nodes = dict()
+        self.out_nodes = dict()
 
         self.edges_in = dict()
         self.edges_out = dict()
@@ -49,8 +50,10 @@ class Graph:
             self.nodes.add(node)
             self.edges_in[node] = []
             self.edges_out[node] = []
-            self.in_nodes.add(node)
-            self.out_nodes.add(node)
+
+            # dict without values is a special case of ordered set
+            self.in_nodes[node] = None
+            self.out_nodes[node] = None
 
     def add_edge(self, node1, node2):
         self.add_node(node1)
@@ -60,9 +63,9 @@ class Graph:
 
         # update endpoints
         if node1 in self.out_nodes:
-            self.out_nodes.remove(node1)
+            del self.out_nodes[node1]
         if node2 in self.in_nodes:
-            self.in_nodes.remove(node2)
+            del self.in_nodes[node2]
 
     @staticmethod
     def build_graph(input_layers, output_layers):
@@ -76,8 +79,8 @@ class Graph:
             a graph from the output layers to the given input layers
         """
         graph = Graph()
-        input_layers = as_list(input_layers)
-        output_layers = as_list(output_layers)
+        input_layers = dict.fromkeys(as_list(input_layers))
+        output_layers = dict.fromkeys(as_list(output_layers))
 
         # add terminals to the graph
         # for layer in input_layers:
@@ -127,9 +130,17 @@ class Graph:
                 raise ValueError("there is not path between the output layers and the following input layers: \n\t"
                                  "{}".format("\n\t".join(map(str, not_found))))
 
+        # force order for graph inputs and outputs
+        input_layers.update(graph.in_nodes)
+        output_layers.update(graph.out_nodes)
+
+        graph.in_nodes = input_layers
+        graph.out_nodes = output_layers
+
         return graph
 
-    def compile_graph(self):
+    @staticmethod
+    def compile(graph, ord_inputs=None, ord_outputs=None):
         """ compiles the graph into a tensorflow callable compiled graph
 
         the idea is to use exec to create a function and then call tf.function
@@ -137,18 +148,105 @@ class Graph:
         run through the Graph instance and call compute.
 
         function parameters:
-            converts all the non-constant TensorLayer nodes into graph arguments
+            converts all the non-constant Input Layer nodes into graph arguments
 
         run through each layer and queue up nodes starting on the input
         write down a function as a series of compute calls with inputs from the previous
         layer outputs
 
+        Args:
+            ord_inputs: list of input that determines the order of resulting function arguments
+            ord_outputs: list of outputs used to determine the return order
+            feedable input in the compiled graph
+
         Returns:
             a callable tensorflow graph
 
         """
-        # TODO implement this
-        raise NotImplementedError()
+        # TODO another way to feed inputs is to use input layers normally like
+        #   input_layer.value = in0
+        #   input_Layer.value = in1
+        #   that way the input slots are up to date
+        #   I guess this adds a bit of a overhead since we have to write to the variable
+
+        if not graph.out_nodes:
+            raise ValueError("can't compile an empty graph")
+        ord_inputs = as_list(ord_inputs)
+        ord_outputs = as_list(ord_outputs)
+
+        input_set: set = set(graph.in_nodes)
+        if ord_inputs and not input_set.issuperset(ord_inputs):
+            raise ValueError("all feedable_inputs must be part of the graph inputs")
+        output_set: set = set(graph.out_nodes)
+        if ord_outputs and len(output_set.difference(ord_outputs)) > 0:
+            raise ValueError("all outputs must be part of the graph outputs")
+
+        # if no input order is specified use the graph endpoint order
+        outputs = dict.fromkeys(ord_outputs) if ord_outputs else graph.out_nodes
+        inputs = dict.fromkeys(ord_inputs) if ord_inputs else graph.in_nodes
+
+        # check if they are all dynamic inputs
+        # in py3.7 the dict is an ordered set if we convert it back to a list
+        node_index = list(range(len(graph.nodes)))
+
+        feedable_inputs = list(inputs)
+        node_map = {in_layer: f"{in_layer.name.replace('/', '__')}_{node_index.pop(0)}" for in_layer in feedable_inputs}
+        args_str = ", ".join(node_map.values())
+        def_str = f"def compiled_graph({args_str}):\n"
+        other_str = []
+
+        # all other inputs that are not feedable
+        other_inputs = list(input_set.difference(feedable_inputs))
+        node_map.update({in_layer: f"other_inputs_{node_index.pop(0)}" for in_layer in other_inputs})
+
+        # requires outer access to layers var
+        for x in other_inputs:
+            other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"].compute()")
+
+        other_str = "\n".join(other_str)
+
+        # create return and outputs
+        for node in outputs:
+            name = f"out_{node_index.pop()}"
+            node_map[node] = name
+
+        return_str = "\n\treturn {output_str}\n".format(output_str=", ".join([node_map[out] for out in outputs]))
+
+        # for each layer not in inputs
+        visited = set(graph.in_nodes)
+        node_queue = list(outputs)
+
+        compute_str = []
+        while node_queue:
+            current_node = node_queue.pop(0)
+            if current_node not in visited:
+                next_nodes = graph.edges_in[current_node]
+
+                for node in next_nodes:
+                    if node not in visited:
+                        name = node.name.replace('/', '__')
+                        node_map[node] = f"{name}_{node_index.pop()}"
+                        node_queue.append(node)
+
+                name = node_map[current_node]
+                in_args = ", ".join([node_map[node] for node in next_nodes])
+                compute_str.append(f"\t{name} = layers[\"{name}\"].compute({in_args})")
+                visited.add(current_node)
+
+        compute_str.reverse()
+        compute_str = "\n".join(compute_str)
+
+        full_fn_str = def_str + other_str + "\n" + compute_str + return_str
+        # print(full_fn_str)
+        # layer map (for the closure above)
+        # we feed the locals so that layers gets available in the above function
+        layers = {v: k for k, v in node_map.items()}
+        exec(full_fn_str, locals())
+        fn = eval("compiled_graph")
+        # print(fn)
+        out = tf.function(fn)
+
+        return out
 
 
 def as_tensor(x, dtype=None):

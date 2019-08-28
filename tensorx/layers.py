@@ -1,4 +1,3 @@
-""" Neural Network Layers """
 import tensorflow as tf
 from tensorx.utils import as_tensor, as_list, Graph
 from typing import List, Union, Type, Callable, Optional
@@ -217,11 +216,13 @@ class Layer:
 
         """
         class_name = type(self).__name__
-        return "{layer_name}::{class_name}({n_units},{dtype})".format(layer_name=self.scoped_name,
-                                                                      class_name=class_name,
-                                                                      n_units=self.n_units,
-                                                                      dtype=self.dtype,
-                                                                      )
+        return "{layer_name}::{class_name}({n_units},{dtype})({inputs})".format(layer_name=self.scoped_name,
+                                                                                class_name=class_name,
+                                                                                n_units=self.n_units,
+                                                                                dtype=self.dtype,
+                                                                                inputs=",".join(map(lambda x: x.name,
+                                                                                                    self.input_layers))
+                                                                                )
 
     def __getitem__(self, item):
         if isinstance(item, tf.Tensor):
@@ -230,7 +231,7 @@ class Layer:
             item_name = str(item)
         return WrapLayer(layer=self,
                          n_units=self.n_units,
-                         function=lambda tensor: tensor[item],
+                         fn=lambda tensor: tensor[item],
                          name="{}_item_{}".format(self.name, item_name))
 
     def __call__(self, *input_layers):
@@ -245,7 +246,7 @@ class Layer:
         return self.compute()
 
 
-class LambdaLayer(Layer):
+class Lambda(Layer):
     """ Custom Function Layer
     Attributes:
         tensor: the tensor to be wrapped by this layer
@@ -265,7 +266,7 @@ class LambdaLayer(Layer):
         inputs = [x.compute() if not self.apply_to_layer else x for x in input_layers]
 
         with layer_scope(self):
-            output = self.function(*inputs)
+            output = self.fn(*inputs)
             if self.dtype is not None and output.dtype != self.dtype and not isinstance(output, tf.Operation):
                 output = tf.cast(output, self.dtype)
 
@@ -278,13 +279,13 @@ class LambdaLayer(Layer):
             return output
 
     def __init__(self, *layers,
-                 function,
+                 fn,
                  n_units=None,
                  var_list=None,
                  dtype=None,
                  name="fn_layer",
                  apply_to_layer=False):
-        self.function = function
+        self.fn = fn
         self.var_list = as_list(var_list)
         self.apply_to_layer = apply_to_layer
 
@@ -300,13 +301,13 @@ class LambdaLayer(Layer):
         return layer_state
 
     def reuse_with(self, *layers, name=None):
-        return LambdaLayer(*layers,
-                           function=self.function,
-                           n_units=self.n_units,
-                           var_list=self.var_list,
-                           dtype=self.dtype,
-                           name=self.name,
-                           apply_to_layer=self.apply_to_layer)
+        return Lambda(*layers,
+                      fn=self.fn,
+                      n_units=self.n_units,
+                      var_list=self.var_list,
+                      dtype=self.dtype,
+                      name=self.name,
+                      apply_to_layer=self.apply_to_layer)
 
 
 class WrapLayer(Layer):
@@ -318,30 +319,38 @@ class WrapLayer(Layer):
 
     Example::
 
-    You can create nested WrapLayer objects in which case, the reuse will forwarded all the way to the input layer
+    You can create nested WrapLayers in which case, ``reuse_with`` will replace the inputs
+    of the innermost `Layer` (which is not a `WrapLayer`)
 
-                     +---------------------------------------+
-                     | +----------------------------+        |
-                     | | +------------+             |        |
-                     | | |            | WRAP        | WRAP   |
-                     | | |   INPUT    |             |        |
-            +--------------> LAYER    |             |        +------->
-                     | | |            |             |        |
-                     | | +------------+             |        |
-                     | +----------------------------+        |
-                     +---------------------------------------+
+    .. aafig::
+        :aspect: 60
+        :scale: 150
+        :proportional:
+        :textual:
+
+                 +------------------------------------+
+                 | +-------------------------+        |
+                 | | +------------+          |        |
+                 | | |            |          |        |
+                 | | |   INPUT    | WRAP     | WRAP   |
+        +--------------> LAYER    |          |        +------->
+                 | | |            |          |        |
+                 | | +------------+          |        |
+                 | +-------------------------+        |
+                 +------------------------------------+
 
 
     Attributes:
-        tensor: like any other layer, the tensor is the application of the given tensorflow op to the output of the
-        given layer
+        fn
+        apply_to_layer
+
 
     Args:
         layer: a `Layer` to be wrapped by this Layer
         n_units: the new number of units this layer will have
-        function: a callable returning a `Tensor` or `SparseTensor`
+        fn: a callable returning a `Tensor` or `SparseTensor`
         name: name for this layer, defaults to wrap_[layer]
-        apply_to_layer: if False applies the function to the layer tensor outputs
+        apply_to_layer: if False applies the fn to the layer tensor outputs
         if false applies to the layer itself. if False applies to the layer itself and expects
         the output to be a tensor.
 
@@ -349,9 +358,9 @@ class WrapLayer(Layer):
 
     """
 
-    def __init__(self, layer, function, n_units=None, forward_attributes=None, name="wrap", apply_to_layer=False):
+    def __init__(self, layer, fn, n_units=None, forward_attributes=None, name="wrap", apply_to_layer=False):
         self.apply_to_layer = apply_to_layer
-        self.function = function
+        self.fn = fn
         self.variables = layer.variables
         self.n_units = n_units
         self.forward_attributes = as_list(forward_attributes)
@@ -373,7 +382,7 @@ class WrapLayer(Layer):
 
         with layer_scope(self, name=self.name):
             fn_inputs = wrapped_layer.tensor() if not self.apply_to_layer else wrapped_layer
-            output = self.function(fn_inputs)
+            output = self.fn(fn_inputs)
             dtype = output.dtype if not isinstance(output, tf.Operation) else None
             fn_n_units = output.get_shape().as_list()[-1]
 
@@ -405,20 +414,18 @@ class WrapLayer(Layer):
 
         return WrapLayer(layer=new_wrapped,
                          n_units=self.n_units,
-                         function=self.function,
+                         fn=self.fn,
                          forward_attributes=attr_fwd,
                          name=name,
                          apply_to_layer=self.apply_to_layer)
 
 
-class TensorLayer(Layer):
-    """ Tensor Layer
-
-    Input Layer that receives values that can be interpreted as tensors or SparseTensor instances
+class Input(Layer):
+    """ Input Layer receives values that can be interpreted as ``Tensor`` or ``SparseTensor``
     """
 
-    def __init__(self, value=None, n_units=None, constant=True, sparse=False, n_active=None, shape=None, dtype=None,
-                 name="tensor"):
+    def __init__(self, value=None, n_units=None, constant=False, sparse=False, n_active=None, shape=None, dtype=None,
+                 name="input"):
         """
         if n_active is not None:
             when connected to a Linear layer, this is interpreted
@@ -513,8 +520,6 @@ class TensorLayer(Layer):
         if self._value is None:
             self._value = [[]]
 
-        # TODO something I did made so that this didn't work I think it was the constant vs dynamic
-        # which updates or not the value
         if not self.constant and self._value is not None:
             if isinstance(self._value, tf.SparseTensor):
                 layer_state.slot = txf.SparseVariable(initial_value=self._value,
@@ -533,12 +538,14 @@ class TensorLayer(Layer):
     def value(self):
         if self.constant:
             return self._value
-        return self.layer_state.slot.value()
+        else:
+            # self.slot.assign(self._value)
+            return self.slot.value()
 
     @value.setter
     def value(self, x):
         if self.constant:
-            raise ValueError("Cannot set the value of a constant TensorLayer")
+            raise ValueError("Cannot set the value of a constant Input Layer")
         x = as_tensor(x)
         if not x.shape.is_compatible_with(self.shape):
             raise ValueError("Invalid shape:\n"
@@ -607,6 +614,26 @@ class TensorLayer(Layer):
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on Input Layer: Input has no input layers")
+
+
+class Tensor(Input):
+    """ Tensor(value) is an alias for Input(value,constant=True)
+    """
+
+    def __init__(self,
+                 value=None,
+                 n_units=None,
+                 shape=None,
+                 dtype=None,
+                 name="tensor"):
+        super().__init__(value=value,
+                         n_units=n_units,
+                         constant=True,
+                         sparse=None,
+                         n_active=None,
+                         shape=shape,
+                         dtype=dtype,
+                         name=name)
 
 
 class VariableLayer(Layer):
@@ -747,22 +774,10 @@ class VariableLayer(Layer):
 
 class Transpose(Layer):
     def __init__(self, layer, perm=None, n_units=None, name="transpose"):
-        if not isinstance(layer, Layer):
-            layer = as_layer(layer)
 
         self.perm = perm
         self.name = name
         self.n_units = n_units
-
-        # compute final n_units (requires us to know the dimensions of the input tensors)
-        # TODO I need to delay this for when we don't have all the information about the inputs
-        # we can delay for the first compute, but then we loose that info for this layer
-        # input_value = layer.compute()
-        # if self.perm is None:
-        #     rank = np.rank(input_value)
-        #     self.perm = (rank - 1) - np.arange(0, rank, 1)
-        # input_shape = np.array(input_value.shape)
-        # n_units = input_shape[self.perm][-1]
 
         super().__init__(input_layers=layer, n_units=self.n_units, dtype=layer.dtype, name=name)
 
@@ -806,10 +821,7 @@ class Reshape(Layer):
         Args:
             layer (Layer): an input layer to be reshaped
         """
-        if not isinstance(layer, Layer):
-            layer = TensorLayer(layer)
         self.target_shape = [d if d is not None else -1 for d in shape]
-
         n_units = self.target_shape[-1] if self.target_shape[-1] > 0 else None
         super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
 
@@ -888,8 +900,9 @@ class Linear(Layer):
         self.weight_norm = weight_norm
         self.shape = shape
 
+        # TODO I could probably do all of this with tf.shape
         if not isinstance(input_layer, Layer):
-            input_layer = TensorLayer(input_layer, dtype=dtype)
+            input_layer = Input(input_layer, constant=True, dtype=dtype)
 
         if input_layer.n_units is None or isinstance(input_layer.n_units, tf.Tensor):
             if self.shape is None:
@@ -984,11 +997,10 @@ class Linear(Layer):
 
         input_layer = input_layers[0]
         input_tensor = as_layer(input_layer).compute()
-
         weights = self.layer_state.weights
 
         if input_tensor.dtype != weights.dtype:
-            raise ValueError("invalid dtype for input:\n"
+            raise ValueError("invalid dtype for Linear inputs:\n"
                              "\t expected (weights dtype): {}\n"
                              "\t                 received: {}".format(weights.dtype, input_tensor.dtype))
 
@@ -1109,41 +1121,37 @@ class Module(Layer):
     def __init__(self, inputs, output, name="module"):
         self.inputs = as_list(inputs)
         self.output = output
-        self.graph = None
+
+        try:
+            self.graph = Graph.build_graph(self.inputs, self.output)
+            # to that we don't need to call reuse on compute with params
+            self.graph_compute = Graph.compile(graph=self.graph,
+                                               ord_inputs=self.inputs,
+                                               ord_outputs=self.output)
+            if not self.inputs:
+                self.inputs = list(self.graph.in_nodes)
+        except ValueError as e:
+            raise ValueError("Could not build a model with the given endpoints: \n\t{}".format(str(e)))
 
         super().__init__(input_layers=self.inputs,
                          n_units=output.n_units,
                          dtype=output.dtype,
                          name=name)
 
-        # for current_layer in self.module_graph.nodes:
-        #     for var in current_layer.variables:
-        #         self._add_variable(var)
-
     def init_state(self):
         state = super().init_state()
-
-        try:
-            self.graph = Graph.build_graph(self.inputs, self.output)
-            # if self.inputs:
-            #     # TODO, this might not respect the order of the input nodes
-            #
-            #     inputs = list(self.graph.in_nodes)
-        except ValueError as e:
-            raise ValueError("Could not build a model with the given endpoints: \n\t{}".format(str(e)))
 
         # add layer to state so that we can retrieve variables of a module etc
         for i, node in enumerate(self.graph.nodes):
             setattr(state, f"layer_{i}", node)
 
     def compute(self, *input_layers):
-        # if any layer is none or the input layers is empty just return the default compute
-        if not input_layers or any([input_layer is None for input_layer in input_layers]):
+        if not input_layers:
             return self.output.compute()
         else:
-            # this requires us to create a new graph
-            new_module = self.reuse_with(*input_layers)
-            return new_module.compute()
+            # print(f"module compute inputs: {input_layers}")
+            input_layers = [as_layer(x).compute() for x in input_layers]
+            return self.graph_compute(*input_layers)
 
     def reuse_with(self, *layers, name=None):
         if name is None:
@@ -1260,7 +1268,7 @@ class DropConnect(ViewLayer):
         if not input_layers:
             input_layers = self.input_layers
 
-        input_layer = input_layers[0]
+        input_layer = as_layer(input_layers[0])
 
         with layer_scope(self):
             w = self.inner_layer.weights
@@ -1271,13 +1279,18 @@ class DropConnect(ViewLayer):
                                          return_mask=True)
             # self.layer_state.weight_mask = w_mask
             drop_b = None
-            if b is not None:
+            add_bias = b is not None
+            if add_bias:
                 drop_b, b_mask = txf.dropout(b, probability=self.probability, random_mask=self.layer_state.bias_mask,
                                              scale=False,
                                              return_mask=True)
                 # self.layer_state.bias_mask = b_mask
 
-            new_linear = Linear(input_layer, n_units=self.n_units, shared_weights=drop_w, shared_bias=drop_b)
+            new_linear = Linear(input_layer,
+                                n_units=self.n_units,
+                                shared_weights=drop_w,
+                                shared_bias=drop_b,
+                                add_bias=add_bias)
             # forward weights and bias
             self.weights = new_linear.weights
             self.bias = new_linear.bias
@@ -1331,7 +1344,6 @@ class Dropout(Layer):
                  seed=None,
                  share_state_with=None,
                  name="dropout"):
-        input_layer = as_layer(input_layer)
         self.seed = seed
         self.probability = probability
         self.scale = scale
@@ -1364,11 +1376,10 @@ class Dropout(Layer):
         return self.layer_state
 
     def compute(self, *input_layers):
-        if len(input_layers) == 0:
+        if not input_layers:
             input_layers = self.input_layers
 
-        input_layer = input_layers[0]
-        input_value = input_layer.compute()
+        input_value = as_layer(input_layers[0]).compute()
 
         with layer_scope(self):
             if isinstance(input_value, tf.SparseTensor):
@@ -1458,6 +1469,8 @@ class BaseRNNCell(Layer):
         if state_size is None:
             state_size = [n_units]
 
+        self.state_size = state_size
+
         def init_states(enum_state):
             i, state = enum_state
             if state is None:
@@ -1472,7 +1485,7 @@ class BaseRNNCell(Layer):
                                 n_units=state.n_units,
                                 state_shape=state_size[i]))
                 else:
-                    state = TensorLayer(state, n_units=state_size[i])
+                    state = Input(state, n_units=state_size[i], constant=True)
                 return state
 
         if previous_state is not None:
@@ -1637,10 +1650,6 @@ class RNN(Layer):
                          dtype=tf.float32,
                          name=name)
 
-        # tensor, state = self._build_graph()
-        # self.tensor = tensor
-        # self.layer_state =[TensorLayer(s) for s in state]
-
     def init_state(self):
         layer_state = super().init_state()
         input_seq = self.input_layers[0]
@@ -1651,7 +1660,7 @@ class RNN(Layer):
             else:
                 i0 = 0
 
-            x0 = TensorLayer(input_seq[i0])
+            x0 = Input(input_seq[i0], constant=True)
 
             if self.share_vars_with is not None:
                 cell = self.share_vars_with.cell
@@ -1673,10 +1682,9 @@ class RNN(Layer):
         return layer_state
 
     def compute(self, *input_layers):
-        if len(input_layers) == 0:
+        if not input_layers:
             input_layers = self.input_layers
-        input_seq = input_layers[0]
-        input_seq = input_seq.tensor()
+        input_seq = as_layer(input_layers[0]).compute()
         cell = self.cell
 
         with layer_scope(self):
@@ -1695,11 +1703,11 @@ class RNN(Layer):
                 ii = i0 + 1
                 fi = seq_len
 
-            output_ta = output_ta.write(i0, cell.tensor())
+            output_ta = output_ta.write(i0, cell.compute())
 
             def rnn_unroll(t, y, state):
                 xt = input_ta.read(t)
-                xt = TensorLayer(xt)
+                xt = Input(xt, constant=True)
                 c = cell.reuse_with(xt, previous_state=state)
 
                 y = y.write(t, c.tensor())
@@ -1717,7 +1725,7 @@ class RNN(Layer):
 
             # getting the results stores them in the previous state
             if self.stateful:
-                # TODO fix this shit
+                # TODO fix this zero state assign
                 # this is no longer necessary because we can assign directly
                 # with zero_state.variable.assign(last_state)
                 # for zero_state in cell.previous_state:
@@ -1869,9 +1877,17 @@ class RNNCell(BaseRNNCell):
 
         return layer_state
 
-    def compute(self, input_layer=None, previous_h=None):
-        # state = self.state.compute(previous_h, input_layer)
-        output = self.output.compute(previous_h, input_layer)
+    def compute(self, input_layer=None, previous_state=None):
+
+        if previous_state and len(previous_state) != len(self.state_size):
+            raise ValueError(f"previous state:\n"
+                             f"\thas {len(previous_state)} elements\n"
+                             f"\texpected {self.state_size}")
+
+        input_layer = self.input_layers[0] if input_layer is None else input_layer
+        previous_state = self.previous_state if previous_state is None else tuple(as_list(previous_state))
+        output = self.output.compute(previous_state[0], input_layer)
+
         return output
 
 
@@ -1896,12 +1912,6 @@ class Gate(Layer):
     """
 
     def __init__(self, layer, gate_input, gate_fn=tf.sigmoid, name="gate"):
-        # if layer.n_units is None:
-        #     raise ValueError("n_units of layer to be gated cannot be None")
-        #
-        # if layer.tensor.get_shape()[-1] % gate_input.tensor.get_shape()[-1] != 0:
-        #     raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
-        #         layer.n_units, gate_input.n_units))
 
         self.gate_fn = gate_fn
 
@@ -1914,12 +1924,12 @@ class Gate(Layer):
         input_layer = input_layer if input_layer is not None else self.input_layers[0]
         gate_input = gate_input if gate_input is not None else self.input_layers[1]
 
-        input_layer = input_layer.compute()
-        gate_input = gate_input.compute()
+        input_tensor = as_layer(input_layer).compute()
+        gate_tensor = as_layer(gate_input).compute()
 
         with layer_scope(self):
-            gate = self.gate_fn(gate_input)
-            output = txf.apply_gate(input_layer, gate)
+            gate = self.gate_fn(gate_tensor)
+            output = txf.apply_gate(input_tensor, gate)
 
             return output
 
@@ -1975,8 +1985,6 @@ class Lookup(Layer):
                  share_state_with=None,
                  batch_padding=True
                  ):
-
-        input_layer = as_layer(input_layer)
 
         self.weight_init = weight_init
         self.embedding_shape = embedding_shape
@@ -2047,11 +2055,11 @@ class Lookup(Layer):
         return layer_state
 
     def compute(self, *input_layers):
-        if len(input_layers) == 0:
+        if not input_layers:
             input_layers = self.input_layers
 
         input_layer = input_layers[0]
-        input_tensor = input_layer.tensor()
+        input_tensor = as_layer(input_layer).compute()
 
         # Warn. this validation cannot be done without computing the input
         if isinstance(input_tensor, tf.SparseTensor) and self.seq_size is None:
@@ -2199,14 +2207,14 @@ class Lookup(Layer):
         # TODO check if wrap layer can infer n_units
         return WrapLayer(self,
                          n_units=None,
-                         function=concat_fn,
+                         fn=concat_fn,
                          forward_attributes=["weights", "bias", "seq_size"],
                          name="concat")
 
     def permute_batch_time(self):
         return WrapLayer(layer=self,
                          n_units=self.n_units,
-                         function=lambda x: tf.transpose(x, [1, 0, 2]),
+                         fn=lambda x: tf.transpose(x, [1, 0, 2]),
                          forward_attributes=["weights", "bias", "seq_size"],
                          name="permute_batch_time")
 
@@ -2279,17 +2287,21 @@ class CoupledGate(Layer):
         layer2 = layer2 if layer2 is not None else self.input_layers[1]
         gate_input = gate_input if gate_input is not None else self.input_layers[2]
 
-        input1 = layer1.compute()
-        input2 = layer2.compute()
-        gate_input = gate_input.compute()
+        input1 = as_layer(layer1).compute()
+        input2 = as_layer(layer2).compute()
+        gate_input = as_layer(gate_input).compute()
 
-        # if not input1.get_shape().is_compatible_with(input2.get_shape()):
-        if input1.shape[-1] % input2.shape[-1] != 0:
-            raise ValueError("layers must have the same last dim: {}!={}".format(input1.shape, input2.shape))
+        # TODO check where modules might loose shape when compiled and input to a gate
+        #   the bellow verification could not be done
+        # print(input1)
+        # print(input2)
 
-        if input1.shape[-1] % gate_input.shape[-1] != 0:
-            raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
-                input1.shape[-1], gate_input.shape[-1]))
+        # if input1.shape[-1] % input2.shape[-1] != 0:
+        #     raise ValueError("layers must have the same last dim: {}!={}".format(input1.shape, input2.shape))
+        #
+        # if input1.shape[-1] % gate_input.shape[-1] != 0:
+        #     raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
+        #         input1.shape[-1], gate_input.shape[-1]))
 
         with layer_scope(self):
             gate1 = self.gate_fn(gate_input)
@@ -2426,9 +2438,9 @@ class GRUCell(BaseRNNCell):
             layer_state.w = w
             layer_state.u = u
 
-            r_u_c = Gate(u_c, Add(w_r, u_r), name="reset_gate")
-            candidate = Activation(Add(w_c, r_u_c), fn=self.activation, name="candidate")
-            output = CoupledGate(candidate, previous_h, Add(w_z, u_z), name="output")
+            r_u_c = Gate(u_c, Add(w_r, u_r, name="add_r"), name="reset_gate")
+            candidate = Activation(Add(w_c, r_u_c, name="add_c"), fn=self.activation, name="candidate")
+            output = CoupledGate(candidate, previous_h, Add(w_z, u_z, name="add_z"), name="output")
 
             state = Module(inputs=[previous_h, input_layer],
                            output=output,
@@ -2447,10 +2459,15 @@ class GRUCell(BaseRNNCell):
         return layer_state
 
     def compute(self, input_layer=None, previous_state=None):
-        input_layer = self.input_layers[0] if input_layer is None else input_layer
-        previous_h = self.previous_state[0] if previous_state is None else previous_state
+        if previous_state and len(previous_state) != len(self.state_size):
+            raise ValueError(f"previous state:\n"
+                             f"\thas {len(previous_state)} elements\n"
+                             f"\texpected {self.state_size}")
 
-        output = self.output.compute(previous_h, input_layer)
+        input_layer = self.input_layers[0] if input_layer is None else input_layer
+        previous_state = self.previous_state if previous_state is None else tuple(as_list(previous_state))
+
+        output = self.output.compute(previous_state[0], input_layer)
         return output
 
     def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
@@ -2624,7 +2641,7 @@ class LSTMCell(BaseRNNCell):
         input_layer = self.input_layers[0] if input_layer is None else input_layer
         previous_h, previous_memory = self.previous_state if previous_state is None else previous_state
 
-        output = self.output.compute(input_layer, previous_state, previous_memory)
+        output = self.output.compute(input_layer, previous_h, previous_memory)
         return output
 
     def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
@@ -2637,36 +2654,37 @@ class LSTMCell(BaseRNNCell):
 
 
 class Activation(Layer):
-    """ Activation Layer
+    """Activation(layer,fn=tf.identity,name="activation",**kwargs)
 
-    A container that applies a given function the the tensor of its input layer.
-    If the layer is sparse, it converts it to a dense layer.
+        Applies a given function the the output of its input layer.
 
-    You can pass positinoal arguments and keyword arguments for the given function,
-    their application works like :func:`functools.partial`.
+        You can pass positional arguments and keyword arguments for the given function,
+        their application works like :func:`functools.partial`.
 
-    Note:
-        Most activation functions do not produce a sparse output so no effort is made to adapt existing activation
-        functions to sparse input layers. If we know a non-linearity produces a sparse output with high-probability,
-        we can use a sparse transformation explicitly with a :class:`ToSparse` layer. Perhaps in the future I can
-        include a layer that does this transformation based on a desired sparsity threshold.
 
-    Args:
-        layer: the input :class:`Layer`
-        fn: a function that produces a Tensor and can be called on the tensor produced by the input layer
-        **keywords: the keyword arguments for the given function
+        Warnings:
+            if the input layer outputs a ``SparseTensor``, this is converted to a dense ``Tensor`` first.
+
+        Args:
+            layer: the input :class:`Layer`
+            fn: a function that produces a Tensor and can be called on the tensor produced by the input layer
+            name: the layer name
+            **kwargs: the keyword arguments for the given function
+
     """
 
-    def __init__(self, layer, fn=tf.identity, name="activation", **keywords):
-        self.fn = partial(fn, **keywords)
-        self.kw = keywords
+    def __init__(self, layer, fn=tf.identity, name="activation", **kwargs):
+
+        self.fn = partial(fn, **kwargs)
+        self.kw = kwargs
         super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=name)
 
     def compute(self, *input_layers):
         if not input_layers:
             input_layers = self.input_layers
 
-        input_value = input_layers[0].compute()
+        input_value = as_layer(input_layers[0]).compute()
+
         with layer_scope(self):
             if isinstance(input_value, tf.SparseTensor):
                 input_value = tf.sparse.to_dense(input_value)
@@ -2726,7 +2744,7 @@ class Merge(Layer):
         if not input_layers:
             input_layers = self.input_layers
 
-        outputs = [layer() if isinstance(layer, Layer) else layer for layer in input_layers]
+        outputs = [as_layer(layer).compute() for layer in input_layers]
 
         if self.weights is not None:
             outputs = [tf.math.scalar_mul(self.weights[i], outputs[i]) for i in
@@ -2741,7 +2759,7 @@ class Merge(Layer):
         else:
             if output.shape[-1] != self.n_units:
                 raise ValueError(
-                    "output n_units {} does not match provided n_units {}".format(output.shape[-1], self.n_units))
+                    f"output n_units {output.shape[-1]} does not match n_units {self.n_units}")
 
         if self.dtype is None:
             self.dtype = output.dtype
@@ -2767,7 +2785,7 @@ class Add(Merge):
     """
 
     def __init__(self, *layers, weights=None, name="add"):
-        layers = list(map(lambda l: TensorLayer(l) if not isinstance(l, Layer) else l, layers))
+        layers = list(map(lambda l: as_layer(l), layers))
 
         n_units = layers[0].n_units
         dtype = layers[0].dtype
@@ -2802,13 +2820,13 @@ def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
         layer_or_tensor: a tensor or convertible to tensor (tx.utils.to_tensor_cast(tensor))
 
     Returns:
-        a TensorLayer wrapping the given tensor
+        an Input Layer wrapping the given tensor
     """
     if isinstance(layer_or_tensor, Layer):
         return layer_or_tensor
     else:
         tensor = as_tensor(layer_or_tensor, dtype)
-        return TensorLayer(tensor)
+        return Input(tensor, constant=True)
 
 
 # register Layer to tensor conversion
@@ -2831,17 +2849,18 @@ def layer(n_units=None, name="layer", var_list=None):
     """
 
     def fn_to_proto(fn):
-        return LambdaLayer.proto(function=fn, n_units=n_units, var_list=var_list, name=name)
+        return Lambda.proto(fn=fn, n_units=n_units, var_list=var_list, name=name)
 
     return fn_to_proto
 
 
 __all__ = [
     "Activation",
+    "Lambda",
     "Layer",
     "layer",
     "Linear",
-    "TensorLayer",
+    "Input",
     "WrapLayer",
     "VariableLayer",
     "Transpose",
