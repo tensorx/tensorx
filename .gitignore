@@ -61,3 +61,6 @@ _build/
 
 # org files like notes and todo lists
 *.org
+
+# scratch folder
+scratch

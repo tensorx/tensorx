@@ -42,7 +42,7 @@ class TestLayers(unittest.TestCase):
 
         self.assertTrue(np.array_equal(t1.numpy(), t2.numpy()))
 
-        linear2 = tx.Linear(linear.input_layers[0], 8, share_vars_with=linear)
+        linear2 = tx.Linear(linear.input_layers[0], 8, share_state_with=linear)
         t3 = linear2.tensor()
         self.assertTrue(np.array_equal(t1.numpy(), t3.numpy()))
 

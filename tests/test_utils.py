@@ -29,7 +29,7 @@ class TestUtils(unittest.TestCase):
 
     def test_graph_build(self):
         x = tx.Input([[1]])
-        g = Graph.build_graph(None, x)
+        g = Graph.build(None, x)
 
         self.assertEqual(len(g.in_nodes), len(g.out_nodes))
         self.assertEqual(len(g.in_nodes), 1)
@@ -38,23 +38,23 @@ class TestUtils(unittest.TestCase):
         l2 = tx.Linear(x, n_units=2)
         l3 = tx.Linear(x, n_units=2)
 
-        g1 = Graph.build_graph(None, l1)
+        g1 = Graph.build(None, l1)
         self.assertEqual(len(g1.in_nodes), len(g1.out_nodes))
         self.assertTrue(set.isdisjoint(g1.in_nodes, g1.out_nodes))
         self.assertIn(l1, g1.out_nodes)
         self.assertIn(x, g1.in_nodes)
 
-        g2 = Graph.build_graph(x, l1)
+        g2 = Graph.build(x, l1)
         self.assertFalse(set.isdisjoint(g1.in_nodes, g2.in_nodes))
         self.assertFalse(set.isdisjoint(g1.out_nodes, g2.out_nodes))
 
         try:
-            g = Graph.build_graph([l2, l3], l1)
+            g = Graph.build([l2, l3], l1)
             self.fail("Invalid graph should have raised an exception")
         except ValueError:
             pass
 
-        g = Graph.build_graph(x, [l2, l3])
+        g = Graph.build(x, [l2, l3])
 
         self.assertEqual(len(g.edges_out[x]), 2)
         self.assertIn(l2, g.edges_out[x])
@@ -68,8 +68,8 @@ class TestUtils(unittest.TestCase):
         l2 = tx.Linear(x, n_units=2)
         l3 = tx.Linear(l2, n_units=2)
 
-        g1 = Graph.build_graph(None, l1)
-        g2 = Graph.build_graph(None, l3)
+        g1 = Graph.build(None, l1)
+        g2 = Graph.build(None, l3)
 
         self.assertEqual(len(set.difference(g1.in_nodes, g2.in_nodes)), 0)
         self.assertNotEqual(len(set.difference(g1.out_nodes, g2.out_nodes)), 0)
@@ -85,7 +85,7 @@ class TestUtils(unittest.TestCase):
 
         l3 = tx.layer(n_units=2, name="l3")(lambda a, b: tf.add(a, b))(l1, l2)
 
-        g = Graph.build_graph(l1, l3)
+        g = Graph.build(l1, l3)
 
         # for a, b in g.edges_out.items():
         #    for out in b:

@@ -1,115 +1,129 @@
-from tensorx.utils import as_list, Graph
 import tensorflow as tf
 import tensorx as tx
+from tensorx.utils import as_list, Graph
+import itertools
+import inspect
 
 
-class LayerGraph:
-    def __init__(self, outputs, inputs=None, other_tensors=None, other_inputs=None):
-        self.other_tensors = as_list(other_tensors)
-        self.other_inputs = as_list(other_inputs)
-        self.input_layers = as_list(inputs)
-        self.output_layers = as_list(outputs)
+class Model:
+    """
+    Args:
+        train_loss: either a callable, layer, or dictionary mapping a callable or layer to the target outputs
+        train_inputs: defaults to run inputs, if loss is provided you can either supply the inputs to the train graph
+            that include the loss, or let the Model create inputs for you.
+    """
 
-        dependencies = {}
+    def __init__(self,
+                 run_outputs,
+                 run_inputs=None,
+                 train_outputs=None,
+                 train_inputs=None,
+                 train_loss=None,
+                 eval_inputs=None,
+                 eval_outputs=None,
+                 name='Model',
+                 ):
+        self.name = name
 
-        for output in self.output_layers:
-            dependencies[output] = []
+        self.run_inputs = as_list(run_inputs)
+        self.run_outputs = as_list(run_outputs)
+        self.train_inputs = as_list(train_inputs)
+        self.train_outputs = as_list(train_outputs)
+        self.eval_inputs = as_list(eval_inputs)
+        self.eval_outputs = as_list(eval_outputs)
 
-        visited = set()
-        missing_dep = {}
-        global_graph = Graph()
+        self.run_graph: Graph = Graph.build(run_inputs, run_outputs)
 
-        for output in self.output_layers:
-            graph = Graph.build_graph(input_layers=None, output_layers=output)
-            for dependency in graph.in_nodes:
-                if dependency not in self.input_layers and len(self.input_layers) != 0:
-                    if output not in missing_dep:
-                        missing_dep[output] = []
-                    if dependency not in missing_dep[output]:
-                        missing_dep[output].append(dependency)
-            global_graph = Graph.merge(global_graph, graph)
+        if not isinstance(train_loss, tx.Layer):
+            raise TypeError(f"Invalid train_loss type\n"
+                            f"\t expected: Layer"
+                            f"\t actual: {type(train_loss)}")
 
-        if len(missing_dep) > 0:
-            raise ValueError("Could not create graph: \n Missing input dependencies:"
-                             "\n {missing}".format(missing="\n".join([
-                str(o) + "<---[{}]".format(",".join(
-                    map(str, i))) for o, i in missing_dep.items()
-            ])))
+        self.train_loss = train_loss
 
-        self.graph = global_graph
-        self.dependencies = dependencies
-        self.layers = visited
+        self.train_graph: Graph = Graph.build(self.train_inputs, self.train_outputs)
+        self.eval_graph: Graph = Graph.build(self.eval_inputs, self.eval_outputs)
 
-        all_dependencies = set()
-        for dep in self.dependencies.values():
-            all_dependencies.update(dep)
+        self.run_fn = self.run_graph.compile()
+        # TODO does this include the loss function?
+        self.train_fn = self.train_graph.compile()
 
-        unused_dependencies = set(self.input_layers).difference(all_dependencies)
-        if len(unused_dependencies) > 0:
-            missing_str = "\n".join(map(str, unused_dependencies))
-            raise ValueError("One of the Inputs is not a dependency of any Output. \n"
-                             "Unused inputs: \n {unused}".format(unused=missing_str))
+        self.optimizers = []
 
-        if len(self.input_layers) == 0:
-            self.input_layers = list(all_dependencies)
+    @property
+    def trainable_variables(self):
+        return list(itertools.chain(*(layer.trainable_vars for layer in self.train_graph.nodes)))
 
-    def eval(self, feed=None,
-             other_tensors=None,
-             target_outputs=None,
-             options=None,
-             run_metadata=None):
-        """ Evaluates the current graph on the given inputs
+    def _create_train_op(self):
+        @tf.function
+        def train_step(*args):
+            with tf.GradientTape() as tape:
+                # predictions = self.train_fn(args)
+                # TODO modify the train graph with loss output node only
+                loss = self.loss(*args)  # (labels, predictions)
+            grads = tape.gradient(loss, self.trainable_variables
+            # optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
-        if input_values are used and Inputs have values != None, these are not overwritten
-        if a feed dictionary with layer-->data is passed, only the missing inputs are possibly
-        fed with their default values.
+            # grads = tf.gradients(loss, params)
+            # for grad, param in zip(grads, params):
 
+            # if "clipglobalnorm" in config:
+            #     grads = [tf.clip_by_global_norm(g, config["clipglobalnorm"]) for g in grads]
+            #
+            # if "clipnorm"):
+            #     grads = [tf.clip_by_norm(g, self.clipnorm) for g in grads]
+            # if hasattr(self, "clipvalue"):
+            #     grads = [
+            #         clip_ops.clip_by_value(g, -self.clipvalue, self.clipvalue)
+            #         for g in grads
+            #
+            #      ]
+
+    def add_optimizer(self, optimizer, **config):
+        """
+        https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/optimizers/Optimizer
+
+        Optimizer Hyper parameters:
+            arguments passed to the optimizer constructor. They can be either regular Python values,
+            tensors, or callables. If they are callable, the callable will be called during
+            apply_gradients() to get the value for the hyper parameter.
         Args:
-            target_outputs:
-            other_tensors: runs other tensors or ops that might not be included in the graph
-            feed: a feed dictionary from Input Layers or Parameters to values, if None, matches the
-            inputs with self.inputs in the same order. If default values are available in the input
-            layers, these are used instead.
-
-            options: A [RunOptions] protocol buffer
-            run_metadata: A [RunMetadata] protocol buffer
+            optimizer_cls: optimizer class
+            **opt_kwargs:
 
         Returns:
-            the result of the graph evaluation
 
         """
-        if feed is None:
-            feed = {}
+        if isinstance(optimizer, tf.optimizers.Optimizer):
+            # attributes can be set on optimizers
+            # https://github.com/tensorflow/tensorflow/blob/25006be096cd4f0242a3b979fb212bbd192127b3/tensorflow/python/keras/optimizer_v2/optimizer_v2.py#L553
+            opt = optimizer
+            for attr in config:
+                setattr(opt, attr, config[attr])
+        elif issubclass(optimizer, tf.optimizers.Optimizer):
+            opt = optimizer.from_config(config)
+        else:
+            raise TypeError(f"optimizer_cls should be an instance of subclass of tf.optimizers.Optimizer:\n"
+                            f"\tgot {type(optimizer)} instead.")
 
-        if not isinstance(feed, dict):
-            raise TypeError("feed must be a dictionary from inputs to values")
+    def run(self, data, outputs=None):
+        """
 
-        target_outputs = as_list(target_outputs)
+        Args:
+            data: a dict with {``Layer``:value}
+            outputs: [Optional] target outputs to be evaluated (from the run_graph)
 
-        output_layers = self.output_layers
-        other_tensors = self.other_tensors + as_list(other_tensors)
+        Returns:
+            list of value with results of computation for each output in the model
 
-        if len(target_outputs) > 0:
-            invalid_out = [target for target in target_outputs if target not in self.output_layers]
-            if len(invalid_out) != 0:
-                raise ValueError("Invalid target outputs. outputs not in the graph:\n"
-                                 "{outs}".format(outs="\n".join(map(str, invalid_out))))
-            output_layers = target_outputs
+        """
+        if data is not None:
+            if not isinstance(data, dict):
+                inputs = [x for x in self.run_graph.in_nodes if isinstance(x, tx.Input) and not x.constant]
+                data_feed = dict(zip(inputs, data))
 
-        # feed the values to the dynamic tensor inputs
-        for in_layer, data in feed.items():
-            if in_layer in self.graph.in_nodes:
-                in_layer.value = data
+            data_feed = {key: data_feed[key]
+                         for key in data_feed.keys()
+                         if isinstance(key, tx.Layer)}
 
-        outputs = output_layers + other_tensors
-
-        @tf.function
-        def compute():
-            return tuple([output.compute() if isinstance(output, tx.Layer) else output for output in outputs])
-
-        result = compute()
-        if len(output_layers) == 1 and len(other_tensors) == 0:
-            result = result[0]
-
-        result = [result.numpy() for result in result]
-        return result
+            # TODO automatic update ops if train has been called

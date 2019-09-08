@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorx.utils import as_tensor, as_list, Graph
-from typing import List, Union, Type, Callable, Optional
+from typing import List, Union, Type, Callable, Optional, Iterable
 import inspect
 from contextlib import ExitStack
 import tensorx.transform as txf
@@ -258,6 +258,34 @@ class Lambda(Layer):
     Creates a layer from a given tensor that one can then integrate with other layers
     """
 
+    def __init__(self, *layers,
+                 fn,
+                 n_units=None,
+                 var_list=None,
+                 dtype=None,
+                 name="fn_layer",
+                 apply_to_layer=False):
+
+        if isinstance(fn, LayerProto):
+            raise TypeError("cannot pass a LayerProto to Lambda Layer, pass a callable function instead")
+        elif not hasattr(fn, "__call__"):
+            raise TypeError("fn must be a callable function")
+
+        self.fn = fn
+        self.var_list = as_list(var_list)
+        self.apply_to_layer = apply_to_layer
+
+        super().__init__(input_layers=layers,
+                         n_units=n_units,
+                         dtype=dtype,
+                         name=name)
+
+    def init_state(self):
+        layer_state = super().init_state()
+        for i, var in enumerate(self.var_list):
+            setattr(layer_state, f"var_{i}", var)
+        return layer_state
+
     def compute(self, *input_layers):
         if not input_layers:
             input_layers = self.input_layers
@@ -273,32 +301,7 @@ class Lambda(Layer):
             if self.dtype is None:
                 self.dtype = output.dtype if not isinstance(output, tf.Operation) else None
 
-            if self.n_units is None and not isinstance(output, tf.Operation):
-                self.n_units = output.shape[-1] if len(output.shape) > 0 else 1
-
             return output
-
-    def __init__(self, *layers,
-                 fn,
-                 n_units=None,
-                 var_list=None,
-                 dtype=None,
-                 name="fn_layer",
-                 apply_to_layer=False):
-        self.fn = fn
-        self.var_list = as_list(var_list)
-        self.apply_to_layer = apply_to_layer
-
-        super().__init__(input_layers=layers,
-                         n_units=n_units,
-                         dtype=dtype,
-                         name=name)
-
-    def init_state(self):
-        layer_state = super().init_state()
-        for i, var in enumerate(self.var_list):
-            setattr(layer_state, f"var_{i}", var)
-        return layer_state
 
     def reuse_with(self, *layers, name=None):
         return Lambda(*layers,
@@ -487,7 +490,10 @@ class Input(Layer):
                 expected = self.shape
                 # expected = [None] * len(self.shape[:-1]) + [self.n_units]
             elif self._value is not None:
-                expected = [None] * len(self._value.shape[:-1]) + [self.n_units]
+                if self.n_units > 0:
+                    expected = [None] * len(self._value.shape[:-1]) + [self.n_units]
+                else:
+                    expected = []
             else:
                 expected = [None, self.n_units]
 
@@ -548,9 +554,9 @@ class Input(Layer):
             raise ValueError("Cannot set the value of a constant Input Layer")
         x = as_tensor(x)
         if not x.shape.is_compatible_with(self.shape):
-            raise ValueError("Invalid shape:\n"
-                             "\texpected: {}\n"
-                             "\t current: {}".format(self.shape, x.shape.as_list()))
+            raise ValueError(f"Invalid shape:\n"
+                             f"\texpected: {self.shape}\n"
+                             f"\t current: {x.shape.as_list()}")
         # shape = [d if d is not None else -1 for d in self.shape]
         # x = tf.reshape(x, shape)
         last_dim = x.shape[-1] if len(x.shape) > 0 else 0
@@ -655,9 +661,9 @@ class VariableLayer(Layer):
                  resource=False,
                  dtype=tf.float32,
                  init=None,
-                 share_vars_with=None,
+                 share_state_with=None,
                  name="variable"):
-        self.share_vars_with = share_vars_with
+        self.share_state_with = share_state_with
         self.update_once = update_once
         self.shape = shape
         self.trainable = trainable
@@ -698,7 +704,7 @@ class VariableLayer(Layer):
             self.shape[0] = 1
 
         with layer_scope(self):
-            if self.share_vars_with is None:
+            if self.share_state_with is None:
                 variable = tf.Variable(initial_value=self.init(self.shape, dtype=self.dtype),
                                        shape=tf.TensorShape([None, self.n_units]),
                                        validate_shape=True,
@@ -713,7 +719,7 @@ class VariableLayer(Layer):
                 layer_state.variable = variable
                 layer_state.counter = counter
             else:
-                layer_state = self.share_vars_with.layer_state
+                layer_state = self.share_state_with.layer_state
 
         self.layer_state = layer_state
         return layer_state
@@ -767,7 +773,7 @@ class VariableLayer(Layer):
                              resource=self.resource,
                              dtype=self.dtype,
                              init=self.init,
-                             share_vars_with=self,
+                             share_state_with=self,
                              name=name
                              )
 
@@ -853,15 +859,17 @@ class Reshape(Layer):
 
 
 class Linear(Layer):
-    """ Linear
+    """ Linear(input_layer: Layer, n_units, shape=None add_bias=True)
 
-    Fully connected layer that implements a linear or affine transformation of the previous Layer.
+
+    Fully connected layer that implements a linear transformation of the form :math:`f(x) = Wx + b`
 
     Args:
-            input_layer:
-            n_units:
-            shape: layer shape (shape for the weights, not the output)
-            weight_init: weight initializer function
+            input_layer (Layer): input layer
+            n_units (Optional[int]): number of output units
+            shape (Optional[Iterable[int]]): shape for the layer weights (not the output). Needed if n_units and
+                input_layer.n_units is not known. If add_bias then the bias variable has shape [shape[-1]]
+            weight_init: weights (W) initializer function
             shared_weights: variable to be used as linear weights
             shared_bias: variable to be used as a bias
             transpose_weights: if True, transposes the weights of this layer (must match n_units)
@@ -869,14 +877,15 @@ class Linear(Layer):
             add_bias: if True, this layers becomes an affine transformation layer xW+b
             bias_init: bias initializer function
             weight_norm (bool): if True weights are normalised
-            dtype: type for layer variables
-            name: layer name
-            share_vars_with: Linear layer with which we wish to share the state
+            dtype (``tf.DType``): type for layer variables
+            name (str): layer name
+            share_state_with: Linear layer with which we wish to share the state
+
     """
 
     def __init__(self,
-                 input_layer,
-                 n_units=None,
+                 input_layer: Layer,
+                 n_units: Optional[int] = None,
                  shape=None,
                  weight_init=tf.initializers.glorot_uniform(),
                  shared_weights=None,
@@ -887,18 +896,19 @@ class Linear(Layer):
                  bias_init=tf.initializers.zeros(),
                  weight_norm=False,
                  dtype=tf.float32,
-                 name="linear", share_vars_with=None):
+                 name="linear",
+                 share_state_with=None):
 
         self.shared_weights = shared_weights
         self.shared_bias = shared_bias
         self.weight_init = weight_init
         self.add_bias = add_bias
-        self.share_vars_with = share_vars_with
+        self.share_state_with = share_state_with
         self.transpose_weights = transpose_weights
         self.sparse_weights = sparse_weights
         self.bias_init = bias_init
         self.weight_norm = weight_norm
-        self.shape = shape
+        self.shape = tuple(as_list(shape)) if shape else None
 
         # TODO I could probably do all of this with tf.shape
         if not isinstance(input_layer, Layer):
@@ -931,18 +941,18 @@ class Linear(Layer):
 
             # weights_shape = [input_layer.n_units, self.n_units]
 
-            if self.share_vars_with is not None:
-                if not isinstance(self.share_vars_with, Linear):
+            if self.share_state_with is not None:
+                if not isinstance(self.share_state_with, Linear):
                     raise TypeError("Layer can only share variables with other layer of the same type")
 
                 shape = [input_layer.n_units, self.n_units]
-                shared_shape = self.share_vars_with.weights.get_shape().as_list()
+                shared_shape = self.share_state_with.weights.get_shape().as_list()
                 if self.transpose_weights:
                     shared_shape = shared_shape[::-1]
 
                 if shape != shared_shape:
                     raise ValueError("Can only share variables with layers with the same dimensions: "
-                                     "share_vars_with is provided but \n"
+                                     "share_state_with is provided but \n"
                                      "self shape: {s0} different from "
                                      "other shape: {s1}".format(s0=shape, s1=shared_shape))
 
@@ -972,7 +982,7 @@ class Linear(Layer):
                         "invalid shared bias: number of bias {} does not match number of units {}".format(bias_shape[0],
                                                                                                           self.n_units))
 
-            weights = self.share_vars_with.weights if self.share_vars_with is not None else self.shared_weights
+            weights = self.share_state_with.weights if self.share_state_with is not None else self.shared_weights
             if weights is None:
                 init_value = self.weight_init(self.shape, dtype=self.dtype)
                 weights = tf.Variable(initial_value=init_value,
@@ -982,7 +992,7 @@ class Linear(Layer):
 
             self.layer_state.weights = weights
 
-            bias = self.share_vars_with.bias if self.share_vars_with is not None else self.shared_bias
+            bias = self.share_state_with.bias if self.share_state_with is not None else self.shared_bias
             if self.add_bias:
                 if bias is None:
                     bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
@@ -1079,7 +1089,7 @@ class Linear(Layer):
 
         """
         # if current layer is sharing variables, forward the sharing
-        share_vars_with = self if self.share_vars_with is None else self.share_vars_with
+        share_state_with = self if self.share_state_with is None else self.share_state_with
 
         if name is None:
             name = self.name
@@ -1098,7 +1108,7 @@ class Linear(Layer):
                       add_bias=self.add_bias,
                       weight_norm=self.weight_norm,
                       name=name,
-                      share_vars_with=share_vars_with)
+                      share_state_with=share_state_with)
 
 
 class Module(Layer):
@@ -1123,11 +1133,10 @@ class Module(Layer):
         self.output = output
 
         try:
-            self.graph = Graph.build_graph(self.inputs, self.output)
+            self.graph = Graph.build(self.inputs, self.output)
             # to that we don't need to call reuse on compute with params
-            self.graph_compute = Graph.compile(graph=self.graph,
-                                               ord_inputs=self.inputs,
-                                               ord_outputs=self.output)
+            self.graph_compute = self.graph.compile(ord_inputs=self.inputs,
+                                                    ord_outputs=self.output)
             if not self.inputs:
                 self.inputs = list(self.graph.in_nodes)
         except ValueError as e:
@@ -1633,11 +1642,11 @@ class RNN(Layer):
                  reverse=False,
                  regularized=False,
                  stateful=False,
-                 share_vars_with: Optional['RNN'] = None,
+                 share_state_with: Optional['RNN'] = None,
                  name="rnn_layer"):
 
         self.cell_proto = cell_proto
-        self.share_vars_with = share_vars_with
+        self.share_state_with = share_state_with
         self.cell = None
         self.regularized = regularized
         self.reverse = reverse
@@ -1662,8 +1671,8 @@ class RNN(Layer):
 
             x0 = Input(input_seq[i0], constant=True)
 
-            if self.share_vars_with is not None:
-                cell = self.share_vars_with.cell
+            if self.share_state_with is not None:
+                cell = self.share_state_with.cell
                 cell = cell.reuse_with(input_layer=x0,
                                        previous_state=self.previous_state,
                                        regularized=self.regularized)
@@ -1748,7 +1757,7 @@ class RNN(Layer):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         reverse = self.reverse if reverse is None else reverse
-        share_vars_with = self.share_vars_with if self.share_vars_with is not None else self
+        share_state_with = self.share_state_with if self.share_state_with is not None else self
         previous_state = self.previous_state if previous_state is None else previous_state
         stateful = self.stateful if stateful is None else stateful
 
@@ -1758,7 +1767,7 @@ class RNN(Layer):
                    previous_state=previous_state,
                    stateful=stateful,
                    reverse=reverse,
-                   share_vars_with=share_vars_with,
+                   share_state_with=share_state_with,
                    name=name)
 
     def reset(self):
@@ -2027,7 +2036,7 @@ class Lookup(Layer):
 
             if self.embedding_shape != self.share_state_with.embedding_shape:
                 raise ValueError("Can only share variables with layers with the same feature shape: "
-                                 "share_vars_with is provided but \n"
+                                 "share_state_with is provided but \n"
                                  "self shape: {s0} different from "
                                  "other shape: {s1}".format(s0=self.embedding_shape,
                                                             s1=self.share_state_with.embedding_shape))
@@ -2232,7 +2241,7 @@ class Lookup(Layer):
 
         """
         # if current layer is sharing variables, forward the sharing
-        share_vars_with = self if self.share_state_with is None else self.share_state_with
+        share_state_with = self if self.share_state_with is None else self.share_state_with
 
         if name is None:
             name = self.name
@@ -2245,7 +2254,7 @@ class Lookup(Layer):
                       weight_init=None,
                       dtype=self.dtype,
                       name=name,
-                      share_state_with=share_vars_with,
+                      share_state_with=share_state_with,
                       batch_padding=self.batch_padding)
 
 
@@ -2813,20 +2822,22 @@ class Add(Merge):
 
 
 def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
-    """ Converts tensor or tensor convertible object to Layer
+    """ Converts a ``Tensor``,``SparseTensor`` or tensor convertible to a ``Layer``
 
     Args:
-        dtype: type for our converted layer
-        layer_or_tensor: a tensor or convertible to tensor (tx.utils.to_tensor_cast(tensor))
+        dtype: if not None and different from the input dtype, tries to cast the output layer to the given dtype
+        layer_or_tensor: a layer, tensor, or convertible to tensor
 
     Returns:
-        an Input Layer wrapping the given tensor
+        the input ``Layer`` or, a ``Layer`` with the given value
     """
     if isinstance(layer_or_tensor, Layer):
+        if dtype is not None and layer_or_tensor.dtype != dtype:
+            layer_or_tensor = Lambda(layer_or_tensor, lambda x: tf.cast(x, dtype=dtype), apply_to_layer=False)
         return layer_or_tensor
     else:
         tensor = as_tensor(layer_or_tensor, dtype)
-        return Input(tensor, constant=True)
+        return Tensor(tensor, dtype=dtype)
 
 
 # register Layer to tensor conversion
@@ -2845,10 +2856,14 @@ tf.register_tensor_conversion_function(
 
 def layer(n_units=None, name="layer", var_list=None):
     """ Decorator for functions that returns a layer prototype
-    Returns: a `LayerProto` instance that can be called on layers to create a new layer instance
+
+    Returns:
+        ``LayerProto`` instance that can be called on layers to create a new layer instance
     """
 
     def fn_to_proto(fn):
+        if isinstance(fn, LayerProto):
+            return fn
         return Lambda.proto(fn=fn, n_units=n_units, var_list=var_list, name=name)
 
     return fn_to_proto
@@ -2861,6 +2876,7 @@ __all__ = [
     "layer",
     "Linear",
     "Input",
+    "Tensor",
     "WrapLayer",
     "VariableLayer",
     "Transpose",

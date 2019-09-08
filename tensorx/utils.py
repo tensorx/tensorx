@@ -68,7 +68,7 @@ class Graph:
             del self.in_nodes[node2]
 
     @staticmethod
-    def build_graph(input_layers, output_layers):
+    def build(input_layers, output_layers):
         """ build_graph
 
         Args:
@@ -128,7 +128,15 @@ class Graph:
 
             if len(not_found) > 0:
                 raise ValueError("there is not path between the output layers and the following input layers: \n\t"
-                                 "{}".format("\n\t".join(map(str, not_found))))
+                                 "{}".format("\n\t ".join(map(str, not_found))))
+
+        if input_layers:
+            missing = list(filter(lambda x: x not in input_layers, graph.in_nodes))
+
+            if missing:
+                missing_names = '\n\t'.join([f"{str(x)}" for x in missing])
+                raise ValueError(f"inputs found in graph but missing in input_layers:\n"
+                                 f"\t{missing_names}")
 
         # force order for graph inputs and outputs
         input_layers.update(graph.in_nodes)
@@ -139,8 +147,7 @@ class Graph:
 
         return graph
 
-    @staticmethod
-    def compile(graph, ord_inputs=None, ord_outputs=None):
+    def compile(self, ord_inputs=None, ord_outputs=None):
         """ compiles the graph into a tensorflow callable compiled graph
 
         the idea is to use exec to create a function and then call tf.function
@@ -168,6 +175,8 @@ class Graph:
         #   input_Layer.value = in1
         #   that way the input slots are up to date
         #   I guess this adds a bit of a overhead since we have to write to the variable
+
+        graph = self
 
         if not graph.out_nodes:
             raise ValueError("can't compile an empty graph")
@@ -247,6 +256,40 @@ class Graph:
         out = tf.function(fn)
 
         return out
+
+    def compile_recursive(self, ord_inputs):
+        ord_inputs = dict.fromkeys(as_list(ord_inputs))
+        other_inputs = set(self.in_nodes).difference(ord_inputs)
+        compute_map = dict()
+        in_map = {node: i for i, node in enumerate(ord_inputs)}
+
+        @tf.function
+        def compiled_graph(*inputs):
+            if len(inputs) != len(inputs):
+                raise ValueError("missing parameters")
+
+            # TODO adding the compute map slowed things down
+            #   I think it has to do with the reference to an outside collections
+            #   without the compute map it was faster but it can repeat nodes?
+            def rcompute(node):
+                # if node in compute_map:
+                #    return compute_map[node]
+                if node in other_inputs:
+                    out = node.compute()
+                    # compute_map[node] = out
+                    return out
+                else:
+                    ins = self.edges_in[node]
+                    ins = map(lambda x: inputs[in_map[x]] if x in in_map else rcompute(x), ins)
+                    out = node.compute(*ins)
+                    # compute_map[node] = out
+                    return out
+
+            outs = tuple(map(rcompute, self.out_nodes))
+            # todo return only selected outputs
+            return outs
+
+        return compiled_graph
 
 
 def as_tensor(x, dtype=None):
