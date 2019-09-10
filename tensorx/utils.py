@@ -67,6 +67,40 @@ class Graph:
         if node2 in self.in_nodes:
             del self.in_nodes[node2]
 
+    def dependency_priority(self):
+        """ returns a dictionary with a map from nodes to dependency priorities
+        with lower values having higher priority.
+
+        Transversing a graph in the priority order guarantees that when we visit a node
+        all it's dependencies have already been visited.
+
+        Returns:
+            dictionary from nodes to priorities
+        """
+        priority = dict()
+        max_priority = 0
+        visited = set()
+        nodes = list(self.out_nodes)
+        while nodes:
+            current = nodes.pop(0)
+            if current not in visited:
+                if current not in priority:
+                    priority[current] = 0
+                next_nodes = self.edges_in[current]
+                for next_node in next_nodes:
+                    p = priority[current] + 1
+                    priority[next_node] = p
+                    max_priority = max(p, max_priority)
+                    nodes.append(next_node)
+                visited.add(current)
+
+        rev = list(range(max_priority + 1))
+        rev.reverse()
+
+        sorted_priority = {k: rev[v] for k, v in sorted(priority.items(), key=lambda kv: kv[1], reverse=True)}
+
+        return sorted_priority
+
     @staticmethod
     def build(input_layers, output_layers, missing_inputs=False):
         """ build_graph

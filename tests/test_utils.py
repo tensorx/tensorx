@@ -27,6 +27,28 @@ class TestUtils(unittest.TestCase):
 
         self.assertFalse(np.array_equal(actual, desired))
 
+    def test_graph_depth(self):
+        x1 = tx.Input(n_units=1, name="x1")
+        x2 = tx.Input(n_units=1, name="x2")
+        x3 = tx.Input(n_units=1, name="x3")
+
+        h = tx.Add(x1, x2)
+        y = tx.Add(x3, h)
+
+        g = Graph.build(input_layers=None, output_layers=y)
+
+        priorities = g.dependency_priority()
+
+        for k in priorities:
+            print(f"{str(k)}:{priorities[k]}")
+
+        # self.assertLess(priorities[x1], priorities[y])
+        # self.assertLess(priorities[x2], priorities[y])
+        # self.assertLess(priorities[x3], priorities[y])
+        #
+        # self.assertLess(priorities[h], priorities[y])
+        # self.assertEqual(priorities[y], 0)
+
     def test_graph_build(self):
         x = tx.Input([[1]])
         g = Graph.build(None, x)
