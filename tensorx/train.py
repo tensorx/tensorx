@@ -41,7 +41,7 @@ class Model:
 
         self.train_loss = train_loss
 
-        self.train_graph: Graph = Graph.build(self.train_inputs, self.train_outputs)
+        self.train_graph: Graph = Graph.build(self.train_inputs, self.train_outputs + [self.train_loss])
         self.eval_graph: Graph = Graph.build(self.eval_inputs, self.eval_outputs)
 
         self.run_fn = self.run_graph.compile()

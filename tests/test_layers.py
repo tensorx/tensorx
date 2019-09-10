@@ -226,6 +226,23 @@ class TestLayers(unittest.TestCase):
         var_layer = tx.VariableLayer(shape=[10])
         self.assertTrue(np.array_equal(np.zeros([10]), var_layer.compute()))
 
+    def test_module_reuse_order(self):
+        x1 = tx.Input(n_units=1, name="x1")
+        x2 = tx.Input(n_units=1, name="x2")
+        x3 = tx.Input(n_units=1, name="x3")
+
+        h = tx.Add(x2, x3)
+        y = tx.Add(x1, h)
+
+        m = tx.Module(inputs=[x1, x2, x3], output=y)
+        print(list(map(lambda x: x.name, m.input_layers)))
+
+        x1_ = [[2]]
+        x2_ = [[2]]
+        x3_ = [[2]]
+
+        m2 = m.reuse_with(x1_, x2_, x3_)
+
     def test_module(self):
         l1 = tx.Input([[1]], n_units=1, dtype=tf.float32)
         l2 = tx.Input([[1]], n_units=1, dtype=tf.float32)
@@ -368,22 +385,22 @@ class TestLayers(unittest.TestCase):
         n_hidden = 2
         batch_size = 2
 
-        inputs = tx.Input(np.ones([batch_size, n_inputs], np.float32), n_units=n_inputs,constant=True)
+        inputs = tx.Input(np.ones([batch_size, n_inputs], np.float32), n_units=n_inputs, constant=True)
         rnn1 = tx.LSTMCell(inputs, n_hidden, gate_activation=tf.sigmoid)
         previous_state = (None, rnn1.state[-1].tensor())
         rnn2 = rnn1.reuse_with(inputs, previous_state=previous_state)
 
         # if we don't wipe the memory it reuses it
-        #previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
-        #rnn3 = rnn1.reuse_with(inputs, previous_state=previous_state)
+        # previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
+        # rnn3 = rnn1.reuse_with(inputs, previous_state=previous_state)
 
         res1 = rnn1.compute()
-        #res2 = rnn2.tensor()
-        #res3 = rnn3.tensor()
+        # res2 = rnn2.tensor()
+        # res3 = rnn3.tensor()
 
-        #self.assertEqual((batch_size, n_hidden), np.shape(res1))
-        #self.assertArrayEqual(res1, res3)
-        #self.assertArrayNotEqual(res1, res2)
+        # self.assertEqual((batch_size, n_hidden), np.shape(res1))
+        # self.assertArrayEqual(res1, res3)
+        # self.assertArrayNotEqual(res1, res2)
 
     def test_lstm_cell_regularization(self):
 

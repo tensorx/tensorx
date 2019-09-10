@@ -68,10 +68,11 @@ class Graph:
             del self.in_nodes[node2]
 
     @staticmethod
-    def build(input_layers, output_layers):
+    def build(input_layers, output_layers, missing_inputs=False):
         """ build_graph
 
         Args:
+            missing_inputs: if True and input_layers is not empty, missing input dependencies will be added to the graph
             input_layers: input terminal layers where the graph must stop
             output_layers: output layers from which we start to populate the graph
 
@@ -88,57 +89,52 @@ class Graph:
         for layer in output_layers:
             graph.add_node(layer)
 
+        dependencies = dict()
+        missing_dependencies = dict()
+
+        def add_dep(out, dep, target: dict):
+            if out not in target:
+                target[out] = set()
+            target[out].add(dep)
+
         visited = set()
+        node_queue = list(zip(output_layers, output_layers))
 
-        def _update_graph(current_layer):
-            """
+        while node_queue:
+            current_node, target_output = node_queue.pop(0)
+            if current_node not in visited:
+                next_nodes = current_node.input_layers
+                if not next_nodes:
+                    add_dep(target_output, current_node, dependencies)
+                    if len(input_layers) > 0 and current_node not in input_layers and not missing_inputs:
+                        add_dep(target_output, current_node, missing_dependencies)
+                else:
+                    if current_node in input_layers:
+                        add_dep(target_output, current_node, dependencies)
+                    else:
+                        for input_node in next_nodes:
+                            graph.add_edge(input_node, current_node)
+                            node_queue.append((input_node, target_output))
 
-            Args:
-                current_layer: output layer from which we start to populate the graph backwards using the input_layers
+                visited.add(current_node)
 
-            Returns:
-                True if a path was found between the output node and a given input layer
-            """
-            if current_layer in visited:
-                return True
-            else:
-                visited.add(current_layer)
-            if len(input_layers) > 0:
-                if current_layer in input_layers:
-                    return True
-            elif len(current_layer.input_layers) == 0:
-                return True
+        if any(missing_dependencies) and not missing_inputs:
+            failed_str = []
+            for output_layer in missing_dependencies:
+                missing_str = "\n\t\t".join(map(str, missing_dependencies[output_layer]))
+                failed_str.append(f"\t{str(output_layer)}: \n\t\t{missing_str}")
+            failed_str = "\n".join(failed_str)
 
-            path_found = {l: _update_graph(l) for l in current_layer.input_layers}
-            found = False
-            for input_layer in path_found.keys():
-                found = path_found[input_layer] or True
-                graph.add_edge(input_layer, current_layer)
-
-            return found
-
-        paths_found = [_update_graph(out_layer) for out_layer in output_layers]
-        if not all(paths_found):
-            failed = [str(output_layers[i]) for i, path_found in enumerate(paths_found) if not path_found]
-            failed_layers = "\n".join(failed)
-            raise ValueError("no path found between input and output layers: \n {}".format(failed_layers))
-
-        if len(input_layers) > 0:
-            not_found = [layer for layer in input_layers if layer not in graph.in_nodes]
-
-            if len(not_found) > 0:
-                raise ValueError("there is not path between the output layers and the following input layers: \n\t"
-                                 "{}".format("\n\t ".join(map(str, not_found))))
+            raise ValueError(f"output layers missing inputs: \n {failed_str}")
 
         if input_layers:
-            missing = list(filter(lambda x: x not in input_layers, graph.in_nodes))
+            missing_from_graph = list(filter(lambda x: x not in graph.in_nodes, input_layers))
 
-            if missing:
-                missing_names = '\n\t'.join([f"{str(x)}" for x in missing])
-                raise ValueError(f"inputs found in graph but missing in input_layers:\n"
-                                 f"\t{missing_names}")
+            if missing_from_graph:
+                raise ValueError("no path between the output layers and input layers: \n\t"
+                                 "{}".format("\n\t ".join(map(str, missing_from_graph))))
 
-        # force order for graph inputs and outputs
+        # re-order inputs and outputs according to the specification
         input_layers.update(graph.in_nodes)
         output_layers.update(graph.out_nodes)
 
@@ -252,7 +248,6 @@ class Graph:
         layers = {v: k for k, v in node_map.items()}
         exec(full_fn_str, locals())
         fn = eval("compiled_graph")
-        # print(fn)
         out = tf.function(fn)
 
         return out
@@ -260,7 +255,6 @@ class Graph:
     def compile_recursive(self, ord_inputs):
         ord_inputs = dict.fromkeys(as_list(ord_inputs))
         other_inputs = set(self.in_nodes).difference(ord_inputs)
-        compute_map = dict()
         in_map = {node: i for i, node in enumerate(ord_inputs)}
 
         @tf.function
@@ -272,17 +266,13 @@ class Graph:
             #   I think it has to do with the reference to an outside collections
             #   without the compute map it was faster but it can repeat nodes?
             def rcompute(node):
-                # if node in compute_map:
-                #    return compute_map[node]
                 if node in other_inputs:
                     out = node.compute()
-                    # compute_map[node] = out
                     return out
                 else:
                     ins = self.edges_in[node]
                     ins = map(lambda x: inputs[in_map[x]] if x in in_map else rcompute(x), ins)
                     out = node.compute(*ins)
-                    # compute_map[node] = out
                     return out
 
             outs = tuple(map(rcompute, self.out_nodes))
@@ -290,6 +280,37 @@ class Graph:
             return outs
 
         return compiled_graph
+
+    def __call__(self, *input_values):
+        if len(input_values) == 1 and isinstance(input_values[0], dict):
+            input_dict = input_values[0]
+            missing = filter(lambda x: x not in self.in_nodes, input_dict.keys())
+
+            if missing:
+                missing_str = '\n\t'.join([f"{str(x)}" for x in missing])
+                raise ValueError(f"inputs not found in graphs:\n"
+                                 f"\t{missing_str}")
+        elif len(input_values) > len(self.in_nodes):
+            raise ValueError(f"too many inputs:\n"
+                             f"\tgraph expects {len(self.in_nodes)} inputs\n"
+                             f"\tinputs passed {len(input_values)}")
+        else:
+            ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_values)])
+            input_dict = dict(zip(ord_inputs.keys(), input_values))
+
+        other_inputs = set(self.in_nodes).difference(ord_inputs)
+
+        def rcompute(node):
+            if node in other_inputs:
+                out = node.compute()
+                return out
+            else:
+                ins = self.edges_in[node]
+                ins = map(lambda x: input_dict[x] if x in input_dict else rcompute(x), ins)
+                out = node.compute(*ins)
+                return out
+
+        return tuple(map(rcompute, self.out_nodes))
 
 
 def as_tensor(x, dtype=None):

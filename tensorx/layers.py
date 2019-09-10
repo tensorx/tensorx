@@ -1134,6 +1134,7 @@ class Module(Layer):
 
         try:
             self.graph = Graph.build(self.inputs, self.output)
+
             # to that we don't need to call reuse on compute with params
             self.graph_compute = self.graph.compile(ord_inputs=self.inputs,
                                                     ord_outputs=self.output)
@@ -1158,11 +1159,11 @@ class Module(Layer):
         if not input_layers:
             return self.output.compute()
         else:
-            # print(f"module compute inputs: {input_layers}")
             input_layers = [as_layer(x).compute() for x in input_layers]
             return self.graph_compute(*input_layers)
 
     def reuse_with(self, *layers, name=None):
+        # TODO I THINK THIS DOESN'T WORK BECAUSE OF SOME DEPENDENCY ORDER ISSUES
         if name is None:
             name = self.name
 
@@ -2765,7 +2766,7 @@ class Merge(Layer):
         if self.n_units is None:
             if len(output.shape) > 0:
                 self.n_units = output.shape[-1]
-        else:
+        elif self.n_units > 0:
             if output.shape[-1] != self.n_units:
                 raise ValueError(
                     f"output n_units {output.shape[-1]} does not match n_units {self.n_units}")

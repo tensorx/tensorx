@@ -40,13 +40,13 @@ class TestUtils(unittest.TestCase):
 
         g1 = Graph.build(None, l1)
         self.assertEqual(len(g1.in_nodes), len(g1.out_nodes))
-        self.assertTrue(set.isdisjoint(g1.in_nodes, g1.out_nodes))
+        self.assertTrue(set.isdisjoint(set(g1.in_nodes), g1.out_nodes))
         self.assertIn(l1, g1.out_nodes)
         self.assertIn(x, g1.in_nodes)
 
         g2 = Graph.build(x, l1)
-        self.assertFalse(set.isdisjoint(g1.in_nodes, g2.in_nodes))
-        self.assertFalse(set.isdisjoint(g1.out_nodes, g2.out_nodes))
+        self.assertFalse(set.isdisjoint(set(g1.in_nodes), g2.in_nodes))
+        self.assertFalse(set.isdisjoint(set(g1.out_nodes), g2.out_nodes))
 
         try:
             g = Graph.build([l2, l3], l1)
@@ -71,12 +71,12 @@ class TestUtils(unittest.TestCase):
         g1 = Graph.build(None, l1)
         g2 = Graph.build(None, l3)
 
-        self.assertEqual(len(set.difference(g1.in_nodes, g2.in_nodes)), 0)
-        self.assertNotEqual(len(set.difference(g1.out_nodes, g2.out_nodes)), 0)
+        self.assertEqual(len(set.difference(set(g1.in_nodes), g2.in_nodes)), 0)
+        self.assertNotEqual(len(set.difference(set(g1.out_nodes), g2.out_nodes)), 0)
 
         g3 = Graph.merge(g1, g2)
-        self.assertEqual(set.intersection(g1.in_nodes, g3.in_nodes), g1.in_nodes)
-        self.assertEqual(set.intersection(g1.out_nodes, g3.out_nodes), g1.out_nodes)
+        self.assertEqual(set.intersection(set(g1.in_nodes), g3.in_nodes), set(g1.in_nodes))
+        self.assertEqual(set.intersection(set(g1.out_nodes), g3.out_nodes), set(g1.out_nodes))
 
     def test_graph_repeated(self):
         x = tx.Input([[1]])
@@ -85,7 +85,9 @@ class TestUtils(unittest.TestCase):
 
         l3 = tx.layer(n_units=2, name="l3")(lambda a, b: tf.add(a, b))(l1, l2)
 
-        g = Graph.build(l1, l3)
+        g = Graph.build(l1, l3, missing_inputs=True)
+
+        self.assertEqual(set([x, l1]), set(g.in_nodes))
 
         # for a, b in g.edges_out.items():
         #    for out in b:
