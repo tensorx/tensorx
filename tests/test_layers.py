@@ -227,21 +227,21 @@ class TestLayers(unittest.TestCase):
         self.assertTrue(np.array_equal(np.zeros([10]), var_layer.compute()))
 
     def test_module_reuse_order(self):
-        x1 = tx.Input(n_units=1, name="x1")
-        x2 = tx.Input(n_units=1, name="x2")
-        x3 = tx.Input(n_units=1, name="x3")
+        x1 = tx.Input([[2.]], n_units=1, name="x1")
+        x2 = tx.Input([[2.]], n_units=1, name="x2")
+        x3 = tx.Input([[1.]], n_units=1, name="x3")
 
         h = tx.Add(x2, x3)
         y = tx.Add(x1, h)
 
         m = tx.Module(inputs=[x1, x2, x3], output=y)
-        print(list(map(lambda x: x.name, m.input_layers)))
 
-        x1_ = [[2]]
-        x2_ = [[2]]
-        x3_ = [[2]]
+        x1_ = tx.Tensor([[2.]], name="x1b")
+        x2_ = tx.Tensor([[2.]], name="x2b")
 
-        m2 = m.reuse_with(x1_, x2_, x3_)
+        m2 = m.reuse_with(x1_, x2_)
+
+        self.assertArrayEqual(m(), m2())
 
     def test_module(self):
         l1 = tx.Input([[1]], n_units=1, dtype=tf.float32)

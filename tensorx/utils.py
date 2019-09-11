@@ -67,11 +67,12 @@ class Graph:
         if node2 in self.in_nodes:
             del self.in_nodes[node2]
 
-    def dependency_priority(self):
+    def dependency_iter(self):
         """ returns a dictionary with a map from nodes to dependency priorities
-        with lower values having higher priority.
+        with lower values having higher priority. Keys are ordered by priority from
+        lower to higher.
 
-        Transversing a graph in the priority order guarantees that when we visit a node
+        Transversing a graph by priority guarantees that when we visit a node
         all it's dependencies have already been visited.
 
         Returns:

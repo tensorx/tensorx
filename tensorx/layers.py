@@ -1163,46 +1163,37 @@ class Module(Layer):
             return self.graph_compute(*input_layers)
 
     def reuse_with(self, *layers, name=None):
-        # TODO I THINK THIS DOESN'T WORK BECAUSE OF SOME DEPENDENCY ORDER ISSUES
         if name is None:
             name = self.name
 
-        if len(layers) != len(self.graph.in_nodes):
-            n = len(self.input_layers)
-            n_ = len(layers)
-            raise ValueError(f"Module has {n} input layers, {n_} provided")
+        nl = len(layers)
+        nm = len(self.input_layers)
+
+        if nl > nm:
+            raise ValueError(f"Module has {nm} input layers, {nl} provided")
 
         layers = [as_layer(x) for x in layers]
+        matching_inputs = self.input_layers[:nl]
+        mismatch_dtype = list(map(lambda x: x[0].dtype != x[1].dtype, zip(layers, matching_inputs)))
+        layers = layers + self.input_layers[nl:]
+        if any(mismatch_dtype):
+            raise ValueError(f"dtype mismatch in reuse_with:\n"
+                             f"\t     expected types: {[x.dtype for x in self.input_layers]}\n"
+                             f"\t calling reuse with: {[x.dtype for x in layers]}")
+
         # maps old inputs to new inputs
         layer_map = dict(zip(self.input_layers, layers))
-        node_set = set()
-        visit_stack = deque()
 
-        def stack_out(input_node):
-            for out_layer in self.graph.edges_out[input_node]:
-                if out_layer not in node_set:
-                    visit_stack.appendleft(out_layer)
-                    node_set.add(out_layer)
-
-        for in_layer in self.input_layers:
-            stack_out(in_layer)
-
-        # transverse graph and apply reuse
-        while len(visit_stack) > 0:
-            current_layer = visit_stack.pop()
-
-            # if layer exists in the map get it from the map
-            new_inputs = [layer_map.get(in_layer, in_layer) for in_layer in self.graph.edges_in[current_layer]]
-            new_layer = current_layer.reuse_with(*new_inputs)
-
-            # map out how the current node corresponds to a new layer
-            layer_map[current_layer] = new_layer
-            # add descendants to the stack
-            stack_out(current_layer)
+        dep_iter = self.graph.dependency_iter()
+        for node in dep_iter:
+            if node not in self.graph.in_nodes:
+                new_inputs = [layer_map[x] for x in node.input_layers]
+                layer_map[node] = node.reuse_with(*new_inputs)
 
         new_output = layer_map[self.output]
 
-        # the constructor of Module will create a new graph
+        # the constructor of Module will trace and compile the new graph
+
         return Module(inputs=layers, output=new_output, name=name)
 
 

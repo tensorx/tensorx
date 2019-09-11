@@ -37,7 +37,7 @@ class TestUtils(unittest.TestCase):
 
         g = Graph.build(input_layers=None, output_layers=y)
 
-        priorities = g.dependency_priority()
+        priorities = g.dependency_iter()
 
         for k in priorities:
             print(f"{str(k)}:{priorities[k]}")
