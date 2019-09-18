@@ -201,7 +201,7 @@ class Graph:
             a callable tensorflow graph
 
         """
-        # TODO another way to feed inputs is to use input layers normally like
+        # NOTE another way to feed inputs is to use input layers normally like
         #   input_layer.value = in0
         #   input_Layer.value = in1
         #   that way the input slots are up to date
@@ -287,36 +287,42 @@ class Graph:
 
         return out
 
-    def compile_recursive(self, ord_inputs):
-        ord_inputs = dict.fromkeys(as_list(ord_inputs))
-        other_inputs = set(self.in_nodes).difference(ord_inputs)
-        in_map = {node: i for i, node in enumerate(ord_inputs)}
-
-        @tf.function
-        def compiled_graph(*inputs):
-            if len(inputs) != len(inputs):
-                raise ValueError("missing parameters")
-
-            # TODO adding the compute map slowed things down
-            #   I think it has to do with the reference to an outside collections
-            #   without the compute map it was faster but it can repeat nodes?
-            def rcompute(node):
-                if node in other_inputs:
-                    out = node.compute()
-                    return out
-                else:
-                    ins = self.edges_in[node]
-                    ins = map(lambda x: inputs[in_map[x]] if x in in_map else rcompute(x), ins)
-                    out = node.compute(*ins)
-                    return out
-
-            outs = tuple(map(rcompute, self.out_nodes))
-            # todo return only selected outputs
-            return outs
-
-        return compiled_graph
+    # def compile_recursive(self, ord_inputs):
+    #     ord_inputs = dict.fromkeys(as_list(ord_inputs))
+    #     other_inputs = set(self.in_nodes).difference(ord_inputs)
+    #     in_map = {node: i for i, node in enumerate(ord_inputs)}
+    #
+    #     @tf.function
+    #     def compiled_graph(*inputs):
+    #         if len(inputs) != len(inputs):
+    #             raise ValueError("missing parameters")
+    #
+    #         # THIS IS CONSIDERABLY SLOWER THAN THE DYNAMIC FUNCTION ALTERNATIVE
+    #         def compute(node):
+    #             if node in other_inputs:
+    #                 out = node.compute()
+    #                 return out
+    #             else:
+    #                 ins = self.edges_in[node]
+    #                 ins = map(lambda x: inputs[in_map[x]] if x in in_map else compute(x), ins)
+    #                 out = node.compute(*ins)
+    #                 return out
+    #
+    #         outs = tuple(map(compute, self.out_nodes))
+    #         return outs
+    #
+    #     return compiled_graph
 
     def __call__(self, *input_values):
+        """ computes the graph output values based on the given input values
+
+        Args:
+            *input_values: input values with the same order as the graph inputs, or a dictionary mapping values to
+            input layers.
+
+        Returns:
+            a tuple with the values for the correspondent graph outputs
+        """
         if len(input_values) == 1 and isinstance(input_values[0], dict):
             input_dict = input_values[0]
             missing = filter(lambda x: x not in self.in_nodes, input_dict.keys())
@@ -335,17 +341,17 @@ class Graph:
 
         other_inputs = set(self.in_nodes).difference(ord_inputs)
 
-        def rcompute(node):
+        def compute(node):
             if node in other_inputs:
                 out = node.compute()
                 return out
             else:
                 ins = self.edges_in[node]
-                ins = map(lambda x: input_dict[x] if x in input_dict else rcompute(x), ins)
+                ins = map(lambda x: input_dict[x] if x in input_dict else compute(x), ins)
                 out = node.compute(*ins)
                 return out
 
-        return tuple(map(rcompute, self.out_nodes))
+        return tuple(map(compute, self.out_nodes))
 
 
 def as_tensor(x, dtype=None):

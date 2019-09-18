@@ -411,6 +411,12 @@ def empty_sparse_tensor(dense_shape, dtype=tf.float32, name="empty_sp_tensor"):
 
 
 class SparseVariable:
+    """
+
+    TODO: check this problem for values
+        https://github.com/tensorflow/tensorflow/issues/32215
+    """
+
     def __init__(self, initial_value: tf.SparseTensor, trainable=True, validate_shape=True, dtype=None):
         self.indices = tf.Variable(initial_value=initial_value.indices,
                                    trainable=False,

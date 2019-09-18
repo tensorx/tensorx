@@ -5,6 +5,7 @@ import inspect
 from contextlib import ExitStack
 import tensorx.transform as txf
 from collections import deque
+from tensorx.callbacks import OnValueChange
 from functools import partial
 
 
@@ -140,7 +141,7 @@ class Layer:
         self.n_units = n_units
         self.name = getattr(self, "name", name)
         self.scoped_name = name
-        self._input_layers = [as_layer(layer) for layer in as_list(input_layers)]
+        self._input_layers = [as_layer(input_layer) for input_layer in as_list(input_layers)]
         self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
 
         # stores the variables if this layer has any
@@ -150,7 +151,10 @@ class Layer:
         self.layer_state = None
         self.init_state()
 
-        # TODO think if this is necessary
+        # TODO I think referring to state explicitly should be the preferred way to
+        #   access it but this is only a problem if a shared state changes somehow
+        #   e.g. two linear layers one has bias the second does not, if we add a bias
+        #       to one that shares a state, it has to reuse the bias from the second layer
         # forward attributes from state to avoid layer.layer_state.variable
         if self.layer_state is not None:
             self.__dict__.update(self.layer_state.__dict__)
@@ -437,7 +441,7 @@ class Input(Layer):
 
             expects: int64 as inputs
 
-        Note on sparse inputs:
+        Note:
             if you want to feed a batch of sparse binary features with weights, use SparseInput instead
 
         Args:
@@ -620,6 +624,38 @@ class Input(Layer):
 
     def reuse_with(self, *layers, name=None):
         raise AttributeError("Cannot call reuse_with on Input Layer: Input has no input layers")
+
+
+class Param(Input):
+    """ Tensor(value) is an alias for Input(value,constant=True)
+        """
+
+    def __init__(self,
+                 value,
+                 n_units=0,
+                 shape=None,
+                 dtype=None,
+                 name="param"):
+        super().__init__(value=value,
+                         n_units=n_units,
+                         constant=False,
+                         sparse=None,
+                         n_active=None,
+                         shape=shape,
+                         dtype=dtype,
+                         name=name)
+
+        self.observers = []
+
+    @Input.value.setter
+    def value(self, value):
+        Input.value.fset(self, value)
+        for observer in self.observers:
+            observer.trigger(OnValueChange(self.name))
+
+    #
+    def register(self, observer):
+        self.observers.append(observer)
 
 
 class Tensor(Input):
@@ -910,7 +946,6 @@ class Linear(Layer):
         self.weight_norm = weight_norm
         self.shape = tuple(as_list(shape)) if shape else None
 
-        # TODO I could probably do all of this with tf.shape
         if not isinstance(input_layer, Layer):
             input_layer = Input(input_layer, constant=True, dtype=dtype)
 
@@ -1036,8 +1071,8 @@ class Linear(Layer):
 
                     sp_indices = txf.sparse_indices(sp_values)
                     # TODO I complained before about this being optimized for distributed TF because
-                    # gradients cannot propagate through gather
-                    # need to check if this is still the case in TF2
+                    #  gradients cannot propagate through gather
+                    #  CHECK IF this is still the case in TF2
                     lookup_sum = tf.nn.embedding_lookup_sparse(params=weights,
                                                                sp_ids=sp_indices,
                                                                sp_weights=sp_values,
@@ -2869,6 +2904,7 @@ __all__ = [
     "Linear",
     "Input",
     "Tensor",
+    "Param",
     "WrapLayer",
     "VariableLayer",
     "Transpose",
