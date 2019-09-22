@@ -35,7 +35,7 @@ class TestLayers(unittest.TestCase):
 
         self.assertEqual(w.shape, [4, 8])
         self.assertEqual(b.shape, [8])
-        self.assertEqual(len(linear.trainable_vars), 2)
+        self.assertEqual(len(linear.trainable_variables), 2)
 
         t1 = linear.tensor()
         t2 = linear.tensor()

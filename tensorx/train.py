@@ -52,59 +52,67 @@ class Model:
 
     @property
     def trainable_variables(self):
-        return list(itertools.chain(*(layer.trainable_vars for layer in self.train_graph.nodes)))
+        return list(itertools.chain(*(layer.trainable_variables for layer in self.train_graph.nodes)))
 
-    def _create_train_op(self):
-        @tf.function
-        def train_step(*args):
-            with tf.GradientTape() as tape:
-                # predictions = self.train_fn(args)
-                # TODO modify the train graph with loss output node only
-                loss = self.loss(*args)  # (labels, predictions)
-            grads = tape.gradient(loss, self.trainable_variables
-            # optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
-            # grads = tf.gradients(loss, params)
-            # for grad, param in zip(grads, params):
-
-            # if "clipglobalnorm" in config:
-            #     grads = [tf.clip_by_global_norm(g, config["clipglobalnorm"]) for g in grads]
-            #
-            # if "clipnorm"):
-            #     grads = [tf.clip_by_norm(g, self.clipnorm) for g in grads]
-            # if hasattr(self, "clipvalue"):
-            #     grads = [
-            #         clip_ops.clip_by_value(g, -self.clipvalue, self.clipvalue)
-            #         for g in grads
-            #
-            #      ]
+    # def _create_train_op(self):
+    #     @tf.function
+    #     def train_step(*args):
+    #         with tf.GradientTape() as tape:
+    #             # predictions = self.train_fn(args)
+    #             # TODO modify the train graph with loss output node only
+    #             loss = self.loss(*args)  # (labels, predictions)
+    #         grads = tape.gradient(loss, self.trainable_variables
+    #         # optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    #
+    #         # grads = tf.gradients(loss, params)
+    #         # for grad, param in zip(grads, params):
+    #
+    #         # if "clipglobalnorm" in config:
+    #         #     grads = [tf.clip_by_global_norm(g, config["clipglobalnorm"]) for g in grads]
+    #         #
+    #         # if "clipnorm"):
+    #         #     grads = [tf.clip_by_norm(g, self.clipnorm) for g in grads]
+    #         # if hasattr(self, "clipvalue"):
+    #         #     grads = [
+    #         #         clip_ops.clip_by_value(g, -self.clipvalue, self.clipvalue)
+    #         #         for g in grads
+    #         #
+    #         #      ]
 
     def add_optimizer(self, optimizer, **config):
         """
         https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/optimizers/Optimizer
+
+        TODO if we save the optimizer configuration as is, it will convert the ``Param`` callable that returns a
+            tensor to a constant value. I should add a way to save this configuration indicating which parameters
+            are modifiable
 
         Optimizer Hyper parameters:
             arguments passed to the optimizer constructor. They can be either regular Python values,
             tensors, or callables. If they are callable, the callable will be called during
             apply_gradients() to get the value for the hyper parameter.
         Args:
-            optimizer_cls: optimizer class
-            **opt_kwargs:
+            optimizer: optimizer class or instance
+            **config: dictionary with parameters for the optimizer, if you want to modify these parameters during
+            training pass a ``tx.Param`` instead of a value
 
         Returns:
-
+            optimizer (Optimizer): configured optimizer instance.
         """
         if isinstance(optimizer, tf.optimizers.Optimizer):
             # attributes can be set on optimizers
             # https://github.com/tensorflow/tensorflow/blob/25006be096cd4f0242a3b979fb212bbd192127b3/tensorflow/python/keras/optimizer_v2/optimizer_v2.py#L553
-            opt = optimizer
             for attr in config:
-                setattr(opt, attr, config[attr])
+                setattr(optimizer, attr, config[attr])
         elif issubclass(optimizer, tf.optimizers.Optimizer):
-            opt = optimizer.from_config(config)
+            optimizer = optimizer.from_config(config)
         else:
             raise TypeError(f"optimizer_cls should be an instance of subclass of tf.optimizers.Optimizer:\n"
                             f"\tgot {type(optimizer)} instead.")
+
+        self.optimizers.append(optimizer)
+
+        return optimizer
 
     def run(self, data, outputs=None):
         """

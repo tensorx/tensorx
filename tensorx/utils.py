@@ -223,7 +223,9 @@ class Graph:
 
         # if no input order is specified use the graph endpoint order
         outputs = dict.fromkeys(ord_outputs) if ord_outputs else graph.out_nodes
-        inputs = dict.fromkeys(ord_inputs) if ord_inputs else graph.in_nodes
+
+        # if we don't provide inputs it will just treat them as callables
+        inputs = dict.fromkeys(ord_inputs) if ord_inputs else []  # graph.in_nodes
 
         # check if they are all dynamic inputs
         # in py3.7 the dict is an ordered set if we convert it back to a list

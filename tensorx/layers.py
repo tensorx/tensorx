@@ -7,13 +7,14 @@ import tensorx.transform as txf
 from collections import deque
 from tensorx.callbacks import OnValueChange
 from functools import partial
+from tensorx.math import embedding_lookup_sparse
 
 
 class LayerState:
     pass
 
     def variables(self):
-        return self.var_dict().values()
+        return list(self.var_dict().values())
 
     def var_dict(self):
         all_vars = dict()
@@ -144,8 +145,6 @@ class Layer:
         self._input_layers = [as_layer(input_layer) for input_layer in as_list(input_layers)]
         self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
 
-        # stores the variables if this layer has any
-        self.variables = []
         self.attr_names = []
 
         self.layer_state = None
@@ -160,9 +159,13 @@ class Layer:
             self.__dict__.update(self.layer_state.__dict__)
 
     @property
-    def trainable_vars(self):
+    def trainable_variables(self):
         variables = self.layer_state.variables()
         return [var for var in variables if var.trainable]
+
+    @property
+    def variables(self):
+        return self.layer_state.variables()
 
     @classmethod
     def proto(cls, **kwargs):
@@ -315,6 +318,69 @@ class Lambda(Layer):
                       dtype=self.dtype,
                       name=self.name,
                       apply_to_layer=self.apply_to_layer)
+
+
+class ToSparse(Layer):
+    """ Transforms the previous layer into a sparse layer.
+
+    This means that the current layer.tensor is a ``SparseTensor``
+    """
+
+    def __init__(self, input_layer):
+        super().__init__(input_layers=input_layer, n_units=input_layer.n_units, dtype=input_layer.dtype,
+                         name=input_layer.name + "_sparse")
+
+    def compute(self, *input_layers):
+        if not input_layers:
+            input_layers = self.input_layers
+
+        # there's no guarantee that input_layers have layer objects
+        input_layers = [as_layer(x) for x in input_layers]
+
+        input_layer = input_layers[0]
+        input_value = input_layer.compute()
+
+        with layer_scope(self):
+            if isinstance(input_value, tf.SparseTensor):
+                return input_value
+            else:
+                return txf.to_sparse(input_value)
+
+    def reuse_with(self, input_layer):
+        return ToSparse(input_layer)
+
+
+class ToDense(Layer):
+    """ ToDense transformation layer
+
+    Transforms the previous layer into a dense layer (outputting a dense tensor)
+    if the previous layer is already a dense layer, forwards the previous layer doing nothing
+
+    """
+
+    def __init__(self, input_layer):
+        super().__init__(input_layers=input_layer, n_units=input_layer.n_units, dtype=input_layer.dtype,
+                         name=input_layer.name + "_dense")
+
+    # TODO should I return a list if it receives a list?
+    def compute(self, *input_layers):
+        if not input_layers:
+            input_layers = self.input_layers
+
+        # there's no guarantee that input_layers have layer objects
+        input_layers = [as_layer(x) for x in input_layers]
+
+        input_layer = input_layers[0]
+        input_value = input_layer.compute()
+
+        with layer_scope(self):
+            if isinstance(input_value, tf.SparseTensor):
+                return tf.sparse.to_dense(input_value)
+            else:
+                return input_value
+
+    def reuse_with(self, input_layer):
+        return ToDense(input_layer)
 
 
 class WrapLayer(Layer):
@@ -534,13 +600,15 @@ class Input(Layer):
             if isinstance(self._value, tf.SparseTensor):
                 layer_state.slot = txf.SparseVariable(initial_value=self._value,
                                                       validate_shape=False,
-                                                      trainable=False)
+                                                      trainable=False,
+                                                      name=f"{self.name}_slot")
             else:
                 layer_state.slot = tf.Variable(initial_value=self._value,
                                                shape=tf.TensorShape(self.shape),
                                                dtype=self.dtype,
                                                validate_shape=False,
-                                               trainable=False)
+                                               trainable=False,
+                                               name=f"{self.name}_slot")
 
         return layer_state
 
@@ -1073,11 +1141,13 @@ class Linear(Layer):
                     # TODO I complained before about this being optimized for distributed TF because
                     #  gradients cannot propagate through gather
                     #  CHECK IF this is still the case in TF2
-                    lookup_sum = tf.nn.embedding_lookup_sparse(params=weights,
-                                                               sp_ids=sp_indices,
-                                                               sp_weights=sp_values,
-                                                               combiner="sum",
-                                                               name=self.scoped_name + "_embeddings")
+                    # tf.nn.embedding_lookup_sparse
+                    lookup_sum = embedding_lookup_sparse(params=weights,
+                                                         sp_tensor=sp_values,
+                                                         # sp_ids=sp_indices,
+                                                         # sp_weights=sp_values,
+                                                         combiner="sum",
+                                                         name=self.scoped_name + "_embeddings")
                 tensor = lookup_sum
             else:
                 input_shape = input_tensor.get_shape().as_list()
@@ -2329,8 +2399,6 @@ class CoupledGate(Layer):
 
         # TODO check where modules might loose shape when compiled and input to a gate
         #   the bellow verification could not be done
-        # print(input1)
-        # print(input2)
 
         # if input1.shape[-1] % input2.shape[-1] != 0:
         #     raise ValueError("layers must have the same last dim: {}!={}".format(input1.shape, input2.shape))
@@ -2917,5 +2985,7 @@ __all__ = [
     "GRUCell",
     "LSTMCell",
     "RNN",
-    "Lookup"
+    "Lookup",
+    "ToDense",
+    "ToSparse"
 ]

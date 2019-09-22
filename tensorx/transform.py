@@ -451,6 +451,41 @@ class SparseVariable:
         return tf.sparse.reorder(sp)
 
 
+def to_sparse(tensor, name="to_sparse"):
+    """ Returns a ``SparseTensor` for a`given dense ``Tensor``.
+
+    Example:
+
+        For a dense ``Tensor`` such as::
+
+            tensor = [[1,0],
+                      [2,3]]
+
+        this returns an op that creates the following two ``SparseTensor``::
+
+            tf.SparseTensor(indices = [[0,0],[1,0],[1,1]],
+                                    values = [1,2,3],
+                                    dense_shape = [2,2])
+
+    Args:
+        tensor: a dense ``Tensor``
+        name: name for this operation (optional)
+
+    Returns:
+        ``SparseTensor``: a sparse tensor with sparse index and value tensors
+        with the non-zero entries of the given input.
+
+    """
+    with tf.name_scope(name=name):
+        indices = tf.where(tf.math.not_equal(tensor, 0))
+        dense_shape = tf.shape(tensor, out_type=tf.int64)
+
+        values = tf.gather_nd(tensor, indices)
+        sp_tensor = tf.SparseTensor(indices, values, dense_shape)
+
+        return sp_tensor
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -460,4 +495,5 @@ __all__ = ["apply_gate",
            "sparse_dropout",
            "binary_mask",
            "empty_sparse_tensor",
-           "SparseVariable"]
+           "SparseVariable",
+           "to_sparse"]
