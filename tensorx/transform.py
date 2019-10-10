@@ -417,26 +417,30 @@ class SparseVariable:
         https://github.com/tensorflow/tensorflow/issues/32215
     """
 
-    def __init__(self, initial_value: tf.SparseTensor, trainable=True, validate_shape=True, dtype=None):
+    def __init__(self, initial_value: tf.SparseTensor, trainable=True, validate_shape=True, dtype=None,
+                 name="sparsevar"):
         self.indices = tf.Variable(initial_value=initial_value.indices,
                                    trainable=False,
                                    dtype=tf.int64,
                                    shape=tf.TensorShape([None] * len(initial_value.shape[:-1]) +
                                                         [initial_value.indices.shape[-1]]),
-                                   validate_shape=validate_shape)
+                                   validate_shape=validate_shape,
+                                   name=f"{name}_indices")
 
         self.values = tf.Variable(initial_value=initial_value.values,
                                   dtype=dtype,
                                   trainable=trainable,
                                   validate_shape=validate_shape,
-                                  shape=tf.TensorShape([None])
+                                  shape=tf.TensorShape([None]),
+                                  name=f"{name}_values"
                                   )
 
         self.shape = tf.Variable(initial_value=initial_value.shape.as_list(),
                                  trainable=False,
                                  dtype=tf.int64,
                                  validate_shape=validate_shape,
-                                 shape=tf.TensorShape([None]))
+                                 shape=tf.TensorShape([None]),
+                                 name=f"{name}_shape")
 
     def assign(self, sp_value):
         if len(sp_value.shape) != len(self.shape.value()):

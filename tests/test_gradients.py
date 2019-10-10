@@ -11,6 +11,11 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class MyTestCase(unittest.TestCase):
     def test_gradient_sparse_var(self):
+        """
+        https://www.tensorflow.org/beta/guide/effective_tf2
+        Returns:
+
+        """
         target = tf.constant([[1., 0., 0.], [1., 0., 0.]])
 
         v = tf.Variable([0.5, 0.5])
@@ -27,8 +32,8 @@ class MyTestCase(unittest.TestCase):
 
         # a graph without inputs needs to have missing inputs declared
         # otherwise it will try to add the inputs detected to inputs
-        graph = tx.Graph.build(input_layers=None,
-                               output_layers=y)
+        graph = tx.Graph.build(inputs=None,
+                               outputs=y)
         fn = graph.compile()
 
         @tf.function

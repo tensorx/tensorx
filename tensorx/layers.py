@@ -11,12 +11,33 @@ from tensorx.math import embedding_lookup_sparse
 
 
 class LayerState:
+    """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
+    that contain ``tf.Variables`` that define the state of a ``Layer``.
+
+    Notes:
+        ideally ``LayerState`` objects would contain only ``Variable`` instances, but
+        storing Layers can be more convenient.
+    """
     pass
 
     def variables(self):
+        """ returns a list of all variables contained in the layer state object
+
+        Returns:
+            list: a list of all variables in the layer state
+
+        """
         return list(self.var_dict().values())
 
     def var_dict(self):
+        """ returns a dictionary where the keys are the attribute names
+        in a layer state or the attribute names in an inner layer of the layer state.
+
+        Returns:
+            dict: a dictionary from attribute names to variable instances with all
+            the variables in the current layer state
+
+        """
         all_vars = dict()
         for attr, state in self.__dict__.items():
             if isinstance(state, Layer):
@@ -31,10 +52,7 @@ class LayerState:
 
 
 class LayerScope:
-    """ LayerScope
-
-    Only creates a unique name for the scope if not executing eagerly
-
+    """ LayerScope creates a unique name for the scope if not executing eagerly
 
     Args:
         layer: layer to be used in this scope, the layer name is used as scope name for tensorflow tf.name_scope
@@ -434,9 +452,10 @@ class WrapLayer(Layer):
     def __init__(self, layer, fn, n_units=None, forward_attributes=None, name="wrap", apply_to_layer=False):
         self.apply_to_layer = apply_to_layer
         self.fn = fn
-        self.variables = layer.variables
+        self.layer = layer
         self.n_units = n_units
         self.forward_attributes = as_list(forward_attributes)
+
         for attr in self.forward_attributes:
             if hasattr(layer, attr):
                 setattr(self, attr, getattr(layer, attr))
@@ -445,6 +464,10 @@ class WrapLayer(Layer):
             name = "wrap_{}".format(layer.name)
 
         super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
+
+    @property
+    def variables(self):
+        return self.layer.variables
 
     def compute(self, *input_layers):
         wrapped_layer = self.input_layers[0]
@@ -791,26 +814,26 @@ class VariableLayer(Layer):
             # input_value = input_layer.compute()
             # self.var_shape = input_value.shape.as_list()
         else:
-            if self.n_units is not None and self.shape is not None:
-                if self.shape[-1] != self.n_units:
-                    raise ValueError("n_units {} does not match var_shape last dimension {}: ".format(self.n_units,
-                                                                                                      self.shape[
-                                                                                                          -1]))
-            if self.shape is None:
-                raise ValueError("shape could not be determined: either supply an input layer or shape")
+            if self.n_units is not None:
+                if self.shape is not None:
+                    if self.shape[-1] != self.n_units:
+                        raise ValueError(
+                            f"n_units {self.n_units} does not match var_shape last dimension {self.shape[-1]}")
+                else:
+                    raise ValueError("shape could not be determined: either supply an input layer or shape")
             else:
                 self.n_units = self.shape[-1]
 
         if self.n_units is None:
             raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
 
-        if self.shape[0] is None:
+        if len(self.shape) > 1:
             self.shape[0] = 1
 
         with layer_scope(self):
             if self.share_state_with is None:
                 variable = tf.Variable(initial_value=self.init(self.shape, dtype=self.dtype),
-                                       shape=tf.TensorShape([None, self.n_units]),
+                                       shape=tf.TensorShape([None] + self.shape[1:]),
                                        validate_shape=True,
                                        trainable=self.trainable,  # default = False
                                        name=self.name + "_variable")

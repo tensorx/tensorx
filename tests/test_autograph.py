@@ -96,10 +96,6 @@ class TestAutoGraph(unittest.TestCase):
                 # self._value = value
 
             def compute(self):
-                # the problem with this is that it doesn't show the graph in tensorboard
-                # the alternative is to assign the value on setter
-                # return tf.py_function(lambda: tf.cast(self.value, tf.float32), inp=[], Tout=tf.float32)
-
                 return self.var.value()
 
         x = Default([[5]])
@@ -152,7 +148,7 @@ class TestAutoGraph(unittest.TestCase):
         y2 = tx.Add(y1, x2)
         output = y2
 
-        test_graph = Graph.build(input_layers=None, output_layers=[y1, y2])
+        test_graph = Graph.build(inputs=None, outputs=[y1, y2])
         print(test_graph.out_nodes)
         print(test_graph.in_nodes)
 
@@ -171,7 +167,7 @@ class TestAutoGraph(unittest.TestCase):
             # DONE
             return y2.compute(y_2, tf.ones([1, 3]))
 
-        g = Graph.build(input_layers=[x1, x2], output_layers=y2)
+        g = Graph.build(inputs=[x1, x2], outputs=y2)
 
         y2fn = y2.compile_graph()
 
@@ -182,7 +178,7 @@ class TestAutoGraph(unittest.TestCase):
         compiled_fn = g.compile(ord_inputs=x1,
                                 ord_outputs=output)
 
-        compiled_recursive = g.compile_recursive(x1)
+        # compiled_recursive = g.compile_recursive(x1)
         # print(compiled_recursive)
         # print(compiled_recursive(tf.random.uniform([256, 1000])))
 
@@ -198,14 +194,14 @@ class TestAutoGraph(unittest.TestCase):
         t2 = timeit(lambda: compiled_fn(tf.random.uniform([256, 1000])), number=n)
         t3 = timeit(lambda: simple_graph(tf.random.uniform([256, 1000])), number=n)
         t4 = timeit(lambda: simple_graph2(tf.random.uniform([256, 1000])), number=n)
-        t5 = timeit(lambda: compiled_recursive(tf.random.uniform([256, 1000])), number=n)
+        # t5 = timeit(lambda: compiled_recursive(tf.random.uniform([256, 1000])), number=n)
 
         print(f"{t1}\tupdate input and run")
         print(f"{t2}\tgenerated function")
         print(f"{t3}\tcompile value change and graph call")
         print(f"{t4}\thand crafted function and compute")
         # TODO I'm almost sure this slow down is due to reference to outside collections
-        print(f"{t5}\trecursive autograph")
+        # print(f"{t5}\trecursive autograph")
         # TODO the problem with simple graph is that if we want to create a graph for
         #   inputs that start at the middle of a neural network (e.g. a module), this
         #   would not work unless we created the inputs first, but we would loose access to the

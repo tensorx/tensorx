@@ -3,6 +3,9 @@ import tensorx as tx
 from tensorx.utils import as_list, Graph
 import itertools
 import inspect
+import logging
+
+logger = logging.getLogger('tensorx')
 
 
 class Model:
@@ -33,6 +36,7 @@ class Model:
         self.eval_outputs = as_list(eval_outputs)
 
         self.run_graph: Graph = Graph.build(run_inputs, run_outputs)
+        self.compiled_run = None
 
         if not isinstance(train_loss, tx.Layer):
             raise TypeError(f"Invalid train_loss type\n"
@@ -114,24 +118,39 @@ class Model:
 
         return optimizer
 
-    def run(self, data, outputs=None):
+    def run(self, data_feed, compiled_graph=False):
         """
 
         Args:
-            data: a dict with {``Layer``:value}
+            data_feed: a dict with {``Layer``:value} or a list of values to be fed to each input
             outputs: [Optional] target outputs to be evaluated (from the run_graph)
 
         Returns:
             list of value with results of computation for each output in the model
 
         """
-        if data is not None:
-            if not isinstance(data, dict):
+        if data_feed is not None:
+            if not isinstance(data_feed, dict):
                 inputs = [x for x in self.run_graph.in_nodes if isinstance(x, tx.Input) and not x.constant]
-                data_feed = dict(zip(inputs, data))
+                if isinstance(data_feed, list):
+                    logger.warning(
+                        "Be careful passing a list to model.run(data), for a model with a single input \"x\"\n"
+                        "this is interpreted as feeding x<--data[0], with multiple inputs each item in the list\n"
+                        "is fed to the inputs by the same order they are defined x1<--data[0], x2<--data[1], etc")
+                data_feed = dict(zip(inputs, data_feed))
 
             data_feed = {key: data_feed[key]
                          for key in data_feed.keys()
                          if isinstance(key, tx.Layer)}
 
             # TODO automatic update ops if train has been called
+
+            if not compiled_graph:
+                # run eager mode
+                return self.run_graph(data_feed)
+            else:
+                if self.compiled_run is None:
+                    self.compiled_run = self.run_graph.compile(ord_inputs=self.run_graph.in_nodes)
+                    ord_inputs = [data_feed[k] for k in self.run_graph.in_nodes]
+
+                    return self.compiled_run(*ord_inputs)

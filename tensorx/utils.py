@@ -103,25 +103,26 @@ class Graph:
         return sorted_priority
 
     @staticmethod
-    def build(input_layers, output_layers, missing_inputs=False):
+    def build(inputs, outputs, missing_inputs=False):
         """ build_graph
 
         Args:
             missing_inputs: if True and input_layers is not empty, missing input dependencies will be added to the graph
-            input_layers: input terminal layers where the graph must stop
-            output_layers: output layers from which we start to populate the graph
+                else, having missing inputs will raise a ValueError exception listing the missing dependencies.
+            inputs: input terminal layers where the graph must stop
+            outputs: output layers from which we start to populate the graph
 
         Returns:
             a graph from the output layers to the given input layers
         """
         graph = Graph()
-        input_layers = dict.fromkeys(as_list(input_layers))
-        output_layers = dict.fromkeys(as_list(output_layers))
+        inputs = dict.fromkeys(as_list(inputs))
+        outputs = dict.fromkeys(as_list(outputs))
 
         # add terminals to the graph
         # for layer in input_layers:
         #    graph.add_node(layer)
-        for layer in output_layers:
+        for layer in outputs:
             graph.add_node(layer)
 
         dependencies = dict()
@@ -133,7 +134,7 @@ class Graph:
             target[out].add(dep)
 
         visited = set()
-        node_queue = list(zip(output_layers, output_layers))
+        node_queue = list(zip(outputs, outputs))
 
         while node_queue:
             current_node, target_output = node_queue.pop(0)
@@ -141,10 +142,10 @@ class Graph:
                 next_nodes = current_node.input_layers
                 if not next_nodes:
                     add_dep(target_output, current_node, dependencies)
-                    if len(input_layers) > 0 and current_node not in input_layers and not missing_inputs:
+                    if len(inputs) > 0 and current_node not in inputs and not missing_inputs:
                         add_dep(target_output, current_node, missing_dependencies)
                 else:
-                    if current_node in input_layers:
+                    if current_node in inputs:
                         add_dep(target_output, current_node, dependencies)
                     else:
                         for input_node in next_nodes:
@@ -162,19 +163,19 @@ class Graph:
 
             raise ValueError(f"output layers missing inputs: \n {failed_str}")
 
-        if input_layers:
-            missing_from_graph = list(filter(lambda x: x not in graph.in_nodes, input_layers))
+        if inputs:
+            missing_from_graph = list(filter(lambda x: x not in graph.in_nodes, inputs))
 
             if missing_from_graph:
                 raise ValueError("no path between the output layers and input layers: \n\t"
                                  "{}".format("\n\t ".join(map(str, missing_from_graph))))
 
         # re-order inputs and outputs according to the specification
-        input_layers.update(graph.in_nodes)
-        output_layers.update(graph.out_nodes)
+        inputs.update(graph.in_nodes)
+        outputs.update(graph.out_nodes)
 
-        graph.in_nodes = input_layers
-        graph.out_nodes = output_layers
+        graph.in_nodes = inputs
+        graph.out_nodes = outputs
 
         return graph
 
@@ -256,19 +257,20 @@ class Graph:
 
         # for each layer not in inputs
         visited = set(graph.in_nodes)
+        to_visit = set()
         node_queue = list(outputs)
 
         compute_str = []
         while node_queue:
             current_node = node_queue.pop(0)
             if current_node not in visited:
-                next_nodes = graph.edges_in[current_node]
-
+                next_nodes = dict.fromkeys(graph.edges_in[current_node])
                 for node in next_nodes:
-                    if node not in visited:
+                    if node not in visited and node not in to_visit:
                         name = node.name.replace('/', '__')
                         node_map[node] = f"{name}_{node_index.pop()}"
                         node_queue.append(node)
+                        to_visit.add(node)
 
                 name = node_map[current_node]
                 in_args = ", ".join([node_map[node] for node in next_nodes])
@@ -327,21 +329,27 @@ class Graph:
         """
         if len(input_values) == 1 and isinstance(input_values[0], dict):
             input_dict = input_values[0]
-            missing = filter(lambda x: x not in self.in_nodes, input_dict.keys())
+            missing = list(filter(lambda x: x not in self.in_nodes, input_dict.keys()))
 
             if missing:
                 missing_str = '\n\t'.join([f"{str(x)}" for x in missing])
                 raise ValueError(f"inputs not found in graphs:\n"
                                  f"\t{missing_str}")
+
+            ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_dict)])
+            input_values = [input_dict[input_layer] for input_layer in ord_inputs]
+
         elif len(input_values) > len(self.in_nodes):
             raise ValueError(f"too many inputs:\n"
                              f"\tgraph expects {len(self.in_nodes)} inputs\n"
                              f"\tinputs passed {len(input_values)}")
-        else:
-            ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_values)])
-            input_dict = dict(zip(ord_inputs.keys(), input_values))
 
+        ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_values)])
+        print(input_values)
+        input_dict = dict(zip(ord_inputs.keys(), input_values))
         other_inputs = set(self.in_nodes).difference(ord_inputs)
+
+        print(input_dict)
 
         def compute(node):
             if node in other_inputs:
@@ -382,7 +390,8 @@ def as_list(items):
     """ Returns a list from one or multiple elements.
 
     if one element is passed, returns a list with one element,
-    if a list or tuple of elements is passed, returns a list with the elements
+    if a list,a tuple or a dictionary of elements is passed,
+    returns a list with the elements or the keys if the input is a dict
 
     Note: we exclude SparseTensorValue because it is a named tuple
     and we want to feed the whole object as a single data sample if needed
@@ -395,7 +404,7 @@ def as_list(items):
     """
     if items is None:
         items = []
-    elif isinstance(items, (list, tuple)) and not isinstance(items, (
+    elif isinstance(items, (list, tuple, dict)) and not isinstance(items, (
             tf.compat.v1.SparseTensorValue, tf.SparseTensor)):
         items = list(items)
     else:

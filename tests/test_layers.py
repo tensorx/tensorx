@@ -1,28 +1,15 @@
-import unittest
-import tensorflow as tf
-import tensorx as tx
-import numpy as np
+# suppressing messages only works if set before tensorflow is imported
 import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+import tensorflow as tf
+import tensorx as tx
+import numpy as np
+from tensorx.test_utils import TestCase
 
-class TestLayers(unittest.TestCase):
-    def assertArrayEqual(self, actual, desired, verbose=True):
-        if isinstance(actual, tx.Layer):
-            actual = actual.tensor()
-        if isinstance(desired, tx.Layer):
-            desired = desired.tensor()
 
-        self.assertTrue(np.array_equal(actual, desired))
-
-    def assertArrayNotEqual(self, actual, desired):
-        if isinstance(actual, tx.Layer):
-            actual = actual.tensor()
-        if isinstance(desired, tx.Layer):
-            desired = desired.tensor()
-
-        self.assertFalse(np.array_equal(actual, desired))
+class TestLayers(TestCase):
 
     def test_linear(self):
         inputs = np.ones([2, 4])
@@ -49,11 +36,16 @@ class TestLayers(unittest.TestCase):
         linear = tx.Linear(inputs, 8)
         linear2 = linear.reuse_with(inputs2)
 
-        self.assertEqual(linear.weights, linear2.weights)
-        self.assertEqual(linear.bias, linear2.bias)
+        # print(linear.weights)
+        # print(linear2.weights)
+
+        # Can't use this because they changed the equality operator
+        # self.assertTrue(linear.weights == linear2.weights)
+        self.assertIs(linear.weights, linear2.weights)
+        self.assertIs(linear.bias, linear2.bias)
 
         # with eager we can do this in the tests
-        self.assertTrue(tf.reduce_all(tf.equal(linear.compute() * 2, linear2.compute())))
+        self.assertArrayEqual(linear.compute() * 2, linear2.compute())
         # in alternative to
         # self.assertTrue(np.array_equal(linear.compute().numpy()*2, linear2.compute().numpy())
 

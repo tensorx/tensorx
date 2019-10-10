@@ -35,7 +35,7 @@ class TestUtils(unittest.TestCase):
         h = tx.Add(x1, x2)
         y = tx.Add(x3, h)
 
-        g = Graph.build(input_layers=None, output_layers=y)
+        g = Graph.build(inputs=None, outputs=y)
 
         priorities = g.dependency_iter()
 
