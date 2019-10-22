@@ -56,6 +56,18 @@ class Graph:
             self.out_nodes[node] = None
 
     def add_edge(self, node1, node2):
+        """ Adds a new edge to the graph and removes
+         the nodes from input roots or output leafs
+         if these are changed
+
+
+        Args:
+            node1:
+            node2:
+
+        Returns:
+
+        """
         self.add_node(node1)
         self.add_node(node2)
         self.edges_out[node1].append(node2)
@@ -66,6 +78,16 @@ class Graph:
             del self.out_nodes[node1]
         if node2 in self.in_nodes:
             del self.in_nodes[node2]
+
+    def append_layer(self, layer):
+        out_nodes = dict.fromkeys(self.out_nodes)
+
+        in_nodes = layer.input_layers
+        for in_node in in_nodes:
+            self.add_edge(in_node, layer)
+
+        out_nodes.update(self.out_nodes)
+        self.out_nodes = out_nodes
 
     def dependency_iter(self):
         """ returns a dictionary with a map from nodes to dependency priorities
@@ -281,7 +303,7 @@ class Graph:
         compute_str = "\n".join(compute_str)
 
         full_fn_str = def_str + other_str + "\n" + compute_str + return_str
-        # print(full_fn_str)
+        print(full_fn_str)
         # layer map (for the closure above)
         # we feed the locals so that layers gets available in the above function
         layers = {v: k for k, v in node_map.items()}
@@ -345,11 +367,8 @@ class Graph:
                              f"\tinputs passed {len(input_values)}")
 
         ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_values)])
-        print(input_values)
         input_dict = dict(zip(ord_inputs.keys(), input_values))
         other_inputs = set(self.in_nodes).difference(ord_inputs)
-
-        print(input_dict)
 
         def compute(node):
             if node in other_inputs:

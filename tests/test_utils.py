@@ -1,12 +1,12 @@
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import unittest
 import tensorflow as tf
 import tensorx as tx
 from tensorx.utils import *
 import numpy as np
-
-import os
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class TestUtils(unittest.TestCase):
@@ -126,6 +126,39 @@ class TestUtils(unittest.TestCase):
 
         v.assign(x3)
         self.assertArrayEqual(tf.sparse.to_dense(v.value()), tf.sparse.to_dense(x3))
+
+    def test_dependency_iter(self):
+        x = tx.Input(n_units=2, name="x", constant=False)
+        y = tx.Linear(x, 2, name="y")
+        out1 = tx.Activation(y, tf.nn.softmax, name="out1")
+        out2 = tx.Activation(y, tf.nn.softmax, name="out2")
+
+        graph = Graph.build(inputs=None, outputs=[out1, out2])
+        dep = graph.dependency_iter()
+        dep = list(dep)
+
+        self.assertIs(dep[0], x)
+        self.assertIs(dep[1], y)
+        self.assertIs(dep[2], out1)
+        self.assertIs(dep[3], out2)
+
+    def test_override_out_nodes(self):
+        x = tx.Input(n_units=2, name="x", constant=False)
+        y = tx.Linear(x, 2, name="y")
+        out1 = tx.Activation(y, tf.nn.softmax, name="out1")
+        out2 = tx.Activation(out1, tf.nn.softmax, name="out2")
+
+        graph = Graph.build(inputs=x, outputs=[out1, out2])
+        self.assertIn(out1, graph.out_nodes)
+        self.assertIn(out2, graph.out_nodes)
+
+        graph = Graph.build(inputs=x, outputs=out1)
+        self.assertIn(out1, graph.out_nodes)
+        self.assertNotIn(out2, graph.out_nodes)
+
+        graph.append_layer(out2)
+        self.assertIn(out1, graph.out_nodes)
+        self.assertIn(out2, graph.out_nodes)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,7 @@
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import unittest
 import tensorflow as tf
 import tensorx as tx
@@ -5,9 +9,7 @@ from datetime import datetime
 from tensorx.utils import Graph
 
 from tensorflow.python.ops import summary_ops_v2
-import os
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import numpy as np
 
 

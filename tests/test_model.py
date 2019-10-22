@@ -31,7 +31,7 @@ class MyTestCase(unittest.TestCase):
         m = tx.Model(run_outputs=output, train_inputs=[inputs, target], train_loss=loss)
 
         lr = tx.Param(value=0.2, name="lr")
-        optimizer1 = m.add_optimizer(tf.optimizers.SGD, lr=lr)
+        optimizer1 = m.set_optimizer(tf.optimizers.SGD, lr=lr)
         optimizer2: tf.optimizers.Optimizer = m.optimizers[0]
 
         self.assertEqual(optimizer1, optimizer2)

@@ -6,10 +6,25 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 import tensorx as tx
 import numpy as np
+
+import unittest
 from tensorx.test_utils import TestCase
 
 
 class TestLayers(TestCase):
+    def test_shared_state(self):
+        inputs = np.ones([2, 4])
+        l1 = tx.Linear(inputs, 8)
+
+        l2 = tx.Linear(inputs, 8, share_state_with=l1)
+
+        p = tx.Linear.proto(n_units=8, share_state_with=l1)
+        l3 = p(inputs)
+
+        self.assertIs(l1.weights, l2.weights)
+        self.assertIs(l1.bias, l2.bias)
+        self.assertIs(l1.weights, l3.weights)
+        self.assertIs(l1.bias, l3.bias)
 
     def test_linear(self):
         inputs = np.ones([2, 4])

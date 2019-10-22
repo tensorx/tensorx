@@ -8,9 +8,10 @@ from collections import deque
 from tensorx.callbacks import OnValueChange
 from functools import partial
 from tensorx.math import embedding_lookup_sparse
+from tensorflow.python.training.tracking.tracking import AutoTrackable
 
 
-class LayerState:
+class LayerState(AutoTrackable):
     """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
     that contain ``tf.Variables`` that define the state of a ``Layer``.
 
@@ -135,7 +136,7 @@ class LayerProto:
         self.args_set.update(kwargs)
 
 
-class Layer:
+class Layer(AutoTrackable):
     """ Layer base class
 
     Attributes:
@@ -225,7 +226,6 @@ class Layer:
 
         """
         # @tf.function(input_signature=(tf.TensorSpec(shape=[None], dtype=tf.int32),))
-
         return tf.function(self.compute, input_signature)
 
     def init_state(self):
@@ -248,6 +248,20 @@ class Layer:
                                                                                 inputs=",".join(map(lambda x: x.name,
                                                                                                     self.input_layers))
                                                                                 )
+
+    def __repr__(self):
+        """
+            TODO ideally the layer configuration would be stored in an object (e.g. LayerProto)
+                and we can use this to serialize the layers
+        Returns:
+            a string representing the layer with all its parameters
+        """
+        if len(self.input_layers):
+            input_layers = ",".join(map(lambda x: x.name, self.input_layers))
+            input_layers += ","
+        else:
+            input_layers = ""
+        return f"{type(self).__name__}({input_layers}n_units={self.n_units},name=\"{self.name}\")"
 
     def __getitem__(self, item):
         if isinstance(item, tf.Tensor):
@@ -2258,7 +2272,6 @@ class Lookup(Layer):
                 # lookup_padding = sp_batch_size % self.seq_size
                 lookup_padding = tf.stack([[0, lookup_padding], [0, 0]])
                 output = tf.pad(output, lookup_padding)
-                # tensor = Print(tensor,[tensor[0],tensor[1]],message="padded")
 
                 # dynamic batch size with sparse tensors
                 # batch_size = tf.cast(tf.math.ceil(sp_batch_size / self.seq_size), tf.int32)
