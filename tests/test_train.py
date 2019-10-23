@@ -6,6 +6,7 @@ import tensorflow as tf
 import tensorx as tx
 from tensorx.test_utils import TestCase
 import numpy as np
+import logging
 
 
 class TestTrain(TestCase):
@@ -88,6 +89,31 @@ class TestTrain(TestCase):
         self.assertArrayEqual(result3[0], result2[0])
         self.assertArrayEqual(result3[1], result2[1])
 
+    def test_loss_model_dependencies(self):
+        x = tx.Input(n_units=2, name="x", constant=False)
+        labels = tx.Input(n_units=2, name="y_", constant=False)
+        y = tx.Linear(x, 2, name="y")
+        out1 = tx.Activation(y, tf.nn.softmax, name="out1")
+        out2 = tx.Activation(y, tf.nn.softmax, name="out2")
+
+        @tx.layer(n_units=2, name="loss")
+        def loss(pred, labels):
+            return tf.losses.categorical_crossentropy(labels, pred)
+
+        logging.basicConfig(level=logging.DEBUG)
+
+        model = tx.Model(run_inputs=x,
+                         run_outputs=[out1, out2],
+                         train_inputs=[x, labels],
+                         train_outputs=[out2, out1],
+                         train_loss=loss(out1, labels)
+                         )
+
+        lr = tx.Param(0.5)
+        opt = model.set_optimizer(tf.optimizers.SGD, lr=lr)
+
+        it = model.train_graph.dependency_iter()
+
     def test_set_optimizer(self):
         x = tx.Input(n_units=2, name="x", constant=False)
         labels = tx.Input(n_units=2, name="labels", constant=False)
@@ -102,7 +128,7 @@ class TestTrain(TestCase):
         model = tx.Model(run_inputs=x,
                          run_outputs=[out1, out2],
                          train_inputs=[x, labels],
-                         train_outputs=out1,
+                         train_outputs=[out2, out1],
                          train_loss=loss(out1, labels)
                          )
 
@@ -112,8 +138,8 @@ class TestTrain(TestCase):
 
         self.assertEqual(model.optimizer.lr, 0.5)
 
-        data1 = [[1., 1.]]
-        data2 = [[0., 1.]]
+        data1 = [[1., 1.], [1., 1.]]
+        data2 = [[0., 1.], [0., 1.]]
         data_dict, params_dict = model.parse_input({x: data1,
                                                     "learning_rate": 0.2},
                                                    model.run_graph,
@@ -123,4 +149,12 @@ class TestTrain(TestCase):
         self.assertIs(model.optimizer_params[opt]["learning_rate"], lr)
 
         result = model.train_step({x: data1, labels: data2})
-        print(result)
+        self.assertEqual(len(result), 3)
+
+        result = model.run({x: data1})
+        x.value = data1
+        o2 = out2()
+        o1 = out1()
+
+        self.assertArrayEqual(o2, result[0])
+        self.assertArrayEqual(o1, result[1])

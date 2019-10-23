@@ -164,12 +164,15 @@ class Model:
 
         train_fn = self.compiled[self.train_graph]
 
+        @tf.function
         def update_weights(*data):
             with tf.GradientTape() as tape:
-                train_out, loss = train_fn(*data)
+                *train_out, loss = train_fn(*data)
+
                 grads = tape.gradient(loss, self.trainable_variables)
                 self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
-                return loss
+
+                return train_out + [loss]
 
         self.update_model[optimizer] = update_weights
 

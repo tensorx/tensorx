@@ -1,5 +1,9 @@
 import tensorflow as tf
 
+import logging
+
+logger = logging.getLogger('tensorx')
+
 
 class Graph:
     """ Graph
@@ -91,36 +95,42 @@ class Graph:
 
     def dependency_iter(self):
         """ returns a dictionary with a map from nodes to dependency priorities
-        with lower values having higher priority. Keys are ordered by priority from
-        lower to higher.
+               with lower values having higher priority. Keys are ordered by priority from
+               lower to higher.
 
-        Transversing a graph by priority guarantees that when we visit a node
-        all it's dependencies have already been visited.
+           Transversing a graph by priority guarantees that when we visit a node
+           all it's dependencies have already been visited.
 
-        Returns:
-            dictionary from nodes to priorities
+           Returns:
+               dictionary from nodes to priorities
         """
         priority = dict()
-        max_priority = 0
         visited = set()
-        nodes = list(self.out_nodes)
+        nodes = list(self.in_nodes)
+
         while nodes:
             current = nodes.pop(0)
-            if current not in visited:
-                if current not in priority:
-                    priority[current] = 0
-                next_nodes = self.edges_in[current]
+            visited.add(current)
+            delayed = False
+
+            if not self.edges_in[current]:
+                priority[current] = 0
+            else:
+                # delay node if not all dependencies are ready
+                if any([dep not in priority for dep in self.edges_in[current]]):
+                    nodes.append(current)
+                    delayed = True
+                else:
+                    priorities = [priority[dep] for dep in self.edges_in[current]]
+                    priority[current] = max(priorities) + 1
+
+            if not delayed:
+                next_nodes = self.edges_out[current]
                 for next_node in next_nodes:
-                    p = priority[current] + 1
-                    priority[next_node] = p
-                    max_priority = max(p, max_priority)
-                    nodes.append(next_node)
-                visited.add(current)
+                    if next_node not in visited:
+                        nodes.insert(0, next_node)
 
-        rev = list(range(max_priority + 1))
-        rev.reverse()
-
-        sorted_priority = {k: rev[v] for k, v in sorted(priority.items(), key=lambda kv: kv[1], reverse=True)}
+        sorted_priority = dict(sorted(priority.items(), key=lambda kv: kv[1], reverse=False))
 
         return sorted_priority
 
@@ -237,6 +247,8 @@ class Graph:
         ord_inputs = as_list(ord_inputs)
         ord_outputs = as_list(ord_outputs)
 
+        ord_nodes = list(self.dependency_iter())
+
         input_set: set = set(graph.in_nodes)
         if ord_inputs and not input_set.issuperset(ord_inputs):
             raise ValueError("all feedable_inputs must be part of the graph inputs")
@@ -270,40 +282,25 @@ class Graph:
 
         other_str = "\n".join(other_str)
 
-        # create return and outputs
-        for node in outputs:
-            name = f"out_{node_index.pop()}"
-            node_map[node] = name
+        # remove inputs
+        for _ in range(node_index[0]):
+            ord_nodes.pop(0)
+
+        compute_str = []
+        for current_node in ord_nodes:
+            name = current_node.name.replace('/', '__')
+            node_map[current_node] = f"{name}_{node_index.pop(0)}"
+            name = node_map[current_node]
+            next_nodes = dict.fromkeys(graph.edges_in[current_node])
+            in_args = ", ".join([node_map[node] for node in next_nodes])
+            compute_str.append(f"\t{name} = layers[\"{name}\"].compute({in_args})")
+
+        compute_str = "\n".join(compute_str)
 
         return_str = "\n\treturn {output_str}\n".format(output_str=", ".join([node_map[out] for out in outputs]))
 
-        # for each layer not in inputs
-        visited = set(graph.in_nodes)
-        to_visit = set()
-        node_queue = list(outputs)
-
-        compute_str = []
-        while node_queue:
-            current_node = node_queue.pop(0)
-            if current_node not in visited:
-                next_nodes = dict.fromkeys(graph.edges_in[current_node])
-                for node in next_nodes:
-                    if node not in visited and node not in to_visit:
-                        name = node.name.replace('/', '__')
-                        node_map[node] = f"{name}_{node_index.pop()}"
-                        node_queue.append(node)
-                        to_visit.add(node)
-
-                name = node_map[current_node]
-                in_args = ", ".join([node_map[node] for node in next_nodes])
-                compute_str.append(f"\t{name} = layers[\"{name}\"].compute({in_args})")
-                visited.add(current_node)
-
-        compute_str.reverse()
-        compute_str = "\n".join(compute_str)
-
         full_fn_str = def_str + other_str + "\n" + compute_str + return_str
-        print(full_fn_str)
+        logger.log(logging.DEBUG, f"converted function {full_fn_str}")
         # layer map (for the closure above)
         # we feed the locals so that layers gets available in the above function
         layers = {v: k for k, v in node_map.items()}

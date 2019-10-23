@@ -7,47 +7,11 @@ import tensorflow as tf
 import tensorx as tx
 from tensorx.utils import *
 import numpy as np
+import functools
+from tensorx.test_utils import TestCase
 
 
-class TestUtils(unittest.TestCase):
-
-    def assertArrayEqual(self, actual, desired, verbose=True):
-        if isinstance(actual, tx.Layer):
-            actual = actual.tensor()
-        if isinstance(desired, tx.Layer):
-            desired = desired.tensor()
-
-        self.assertTrue(np.array_equal(actual, desired))
-
-    def assertArrayNotEqual(self, actual, desired):
-        if isinstance(actual, tx.Layer):
-            actual = actual.tensor()
-        if isinstance(desired, tx.Layer):
-            desired = desired.tensor()
-
-        self.assertFalse(np.array_equal(actual, desired))
-
-    def test_graph_depth(self):
-        x1 = tx.Input(n_units=1, name="x1")
-        x2 = tx.Input(n_units=1, name="x2")
-        x3 = tx.Input(n_units=1, name="x3")
-
-        h = tx.Add(x1, x2)
-        y = tx.Add(x3, h)
-
-        g = Graph.build(inputs=None, outputs=y)
-
-        priorities = g.dependency_iter()
-
-        for k in priorities:
-            print(f"{str(k)}:{priorities[k]}")
-
-        # self.assertLess(priorities[x1], priorities[y])
-        # self.assertLess(priorities[x2], priorities[y])
-        # self.assertLess(priorities[x3], priorities[y])
-        #
-        # self.assertLess(priorities[h], priorities[y])
-        # self.assertEqual(priorities[y], 0)
+class TestUtils(TestCase):
 
     def test_graph_build(self):
         x = tx.Input([[1]])
@@ -111,10 +75,6 @@ class TestUtils(unittest.TestCase):
 
         self.assertEqual(set([x, l1]), set(g.in_nodes))
 
-        # for a, b in g.edges_out.items():
-        #    for out in b:
-        #        print("{}==>{}".format(a.name, out.name))
-
     def test_sp_variable(self):
         x = tx.sparse_ones([[0, 2], [1, 1], [2, 0]], dense_shape=[3, 3])
         x2 = x * 2
@@ -126,21 +86,6 @@ class TestUtils(unittest.TestCase):
 
         v.assign(x3)
         self.assertArrayEqual(tf.sparse.to_dense(v.value()), tf.sparse.to_dense(x3))
-
-    def test_dependency_iter(self):
-        x = tx.Input(n_units=2, name="x", constant=False)
-        y = tx.Linear(x, 2, name="y")
-        out1 = tx.Activation(y, tf.nn.softmax, name="out1")
-        out2 = tx.Activation(y, tf.nn.softmax, name="out2")
-
-        graph = Graph.build(inputs=None, outputs=[out1, out2])
-        dep = graph.dependency_iter()
-        dep = list(dep)
-
-        self.assertIs(dep[0], x)
-        self.assertIs(dep[1], y)
-        self.assertIs(dep[2], out1)
-        self.assertIs(dep[3], out2)
 
     def test_override_out_nodes(self):
         x = tx.Input(n_units=2, name="x", constant=False)
@@ -159,6 +104,45 @@ class TestUtils(unittest.TestCase):
         graph.append_layer(out2)
         self.assertIn(out1, graph.out_nodes)
         self.assertIn(out2, graph.out_nodes)
+
+    def test_dependency_iter(self):
+        """ test dependency iterator after adding leafs to the graph
+        """
+
+        x1 = tx.Input(n_units=2, name="x1", constant=False)
+        x2 = tx.Input(n_units=2, name="x2", constant=False)
+
+        y1 = tx.Linear(x2, 2, name="y1")
+        y2 = tx.Linear(y1, 2, name="y2")
+        y3 = tx.Linear(x1, 2, name="y3")
+
+        graph = Graph.build(inputs=[x1, x2], outputs=[y2, y3])
+        dep = graph.dependency_iter()
+        dep_iter = list(dep)
+
+        self.assertTrue(sorted(dep.values()))
+
+        self.assertIs(dep_iter[0], x1)
+        self.assertIs(dep_iter[1], x2)
+        self.assertIn(y1, dep_iter[-2:])
+        self.assertIn(y2, dep_iter[-2:])
+
+        # ANOTHER GRAPH
+
+        x1 = tx.Input(n_units=1, name="x1")
+        x2 = tx.Input(n_units=1, name="x2")
+        x3 = tx.Input(n_units=1, name="x3")
+
+        h = tx.Add(x1, x2, name="h")
+        y = tx.Add(x3, h, name="y")
+
+        g = Graph.build(inputs=None, outputs=y)
+
+        priorities = g.dependency_iter()
+
+        self.assertEqual(priorities[y], 2)
+        self.assertEqual(priorities[x1], 0)
+        self.assertGreater(priorities[y], priorities[h])
 
 
 if __name__ == '__main__':
