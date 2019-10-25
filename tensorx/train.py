@@ -56,36 +56,13 @@ class Model:
         # model properties accessible to callbacks
         self.model_props = set()
 
-        self.update_model = dict()
+        self.update_weights = dict()
 
     @property
     def trainable_variables(self):
         return list(itertools.chain(*(layer.trainable_variables for layer in self.train_graph.nodes)))
 
-    # def _create_train_op(self):
-    #     @tf.function
-    #     def train_step(*args):
-    #         with tf.GradientTape() as tape:
-    #             # predictions = self.train_fn(args)
-    #             # TODO modify the train graph with loss output node only
-    #             loss = self.loss(*args)  # (labels, predictions)
-    #         grads = tape.gradient(loss, self.trainable_variables
-    #         # optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     #
-    #         # grads = tf.gradients(loss, params)
-    #         # for grad, param in zip(grads, params):
-    #
-    #         # if "clipglobalnorm" in config:
-    #         #     grads = [tf.clip_by_global_norm(g, config["clipglobalnorm"]) for g in grads]
-    #         #
-    #         # if "clipnorm"):
-    #         #     grads = [tf.clip_by_norm(g, self.clipnorm) for g in grads]
-    #         # if hasattr(self, "clipvalue"):
-    #         #     grads = [
-    #         #         clip_ops.clip_by_value(g, -self.clipvalue, self.clipvalue)
-    #         #         for g in grads
-    #         #
-    #         #      ]
     # TODO I wonder if I can get just one optimizer per model
     #   the use case would be train a model n steps with an optimizer then use a callback to switch
     #   to a different optimizer etc.
@@ -115,6 +92,10 @@ class Model:
             tensor to a constant value. I should add a way to save this configuration indicating which parameters
             are modifiable
 
+        TODO in the future optimizer will affect a particular loss if more than one is defined
+         or we should have a way to create a combined loss if multiple losses are defined but we
+         don't supply a way to handle them
+
         Optimizer Hyper parameters:
             arguments passed to the optimizer constructor. They can be either regular Python values,
             tensors, or callables. If they are callable, the callable will be called during
@@ -138,8 +119,6 @@ class Model:
             raise TypeError(f"optimizer_cls should be an instance of subclass of tf.optimizers.Optimizer:\n"
                             f"\tgot {type(optimizer)} instead.")
 
-        # TODO params have to be bound to optimizers after all
-
         self.optimizer = optimizer
         self.optimizer_params[optimizer] = dict()
 
@@ -148,17 +127,6 @@ class Model:
             if isinstance(param, tx.Param):
                 self.optimizer_params[optimizer][param_name] = param
 
-        # TODO in the future optimizer will affect a particular loss if more than one is defined
-        #   or we should have a way to create a combined loss if multiple losses are defined but we
-        #   don't supply a way to handle them
-
-        # TODO originally the train loss was defined as
-        #  train_loss: either a callable, layer, or dictionary mapping a callable or layer to the target outputs
-        # train_outputs
-        # loss (applied to train outputs?) or as a layer that has nodes in the train graph
-        # train_inputs should be defined or not, in any case, loss will have access to some inputs
-
-        # TODO a way to turn this into a layer is to allow us to set the values directly into the inputs
         if self.train_graph not in self.compiled:
             self.compiled[self.train_graph] = self.train_graph.compile(ord_inputs=self.train_graph.in_nodes)
 
@@ -168,13 +136,22 @@ class Model:
         def update_weights(*data):
             with tf.GradientTape() as tape:
                 *train_out, loss = train_fn(*data)
+                cfg = self.optimizer.get_config()
 
                 grads = tape.gradient(loss, self.trainable_variables)
+
+                if "clipnorm" in cfg:
+                    clipnorm = cfg["clipnorm"]
+                    grads = [tf.clip_by_norm(g, clipnorm) for g in grads]
+                if "clipvalue" in cfg:
+                    clipvalue = cfg["clipvalue"]
+                    grads = [tf.clip_by_value(g, -clipvalue, clipvalue) for g in grads]
+
                 self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
 
                 return train_out + [loss]
 
-        self.update_model[optimizer] = update_weights
+        self.update_weights[optimizer] = update_weights
 
         return optimizer
 
@@ -194,6 +171,7 @@ class Model:
             second from ``str`` values to scalar values to be given to either the current Optimizer or model properties
         """
         if not isinstance(input_feed, dict):
+            input_feed = as_list(input_feed)
             inputs = [x for x in graph.in_nodes if isinstance(x, tx.Input) and not x.constant]
             input_feed = dict(zip(inputs, input_feed))
 
@@ -231,7 +209,7 @@ class Model:
                 for param in param_feed:
                     param.value = param_feed[param]
 
-        optimization_fn = self.update_model[self.optimizer]
+        optimization_fn = self.update_weights[self.optimizer]
         return optimization_fn(*list(data_feed.values()))
 
     def _run(self, data_feed, graph: Graph, compiled_graph=False):

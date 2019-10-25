@@ -235,7 +235,7 @@ def dropout(tensor,
 
         probability = tf.convert_to_tensor(
             probability, dtype=tensor.dtype, name="drop_probability")
-        probability.get_shape().assert_is_compatible_with(tensor_shape.scalar())
+        probability.get_shape().assert_is_compatible_with(tf.TensorShape([]))
 
         # Do nothing if we know drop_probability == 0
         const_val = tensor_util.constant_value(probability)

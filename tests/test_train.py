@@ -133,7 +133,10 @@ class TestTrain(TestCase):
                          )
 
         lr = tx.Param(0.5)
-        opt = model.set_optimizer(tf.optimizers.SGD, lr=lr)
+        opt = model.set_optimizer(tf.optimizers.SGD,
+                                  learning_rate=lr,
+                                  clipnorm=0.1)
+
         self.assertIsInstance(opt, tf.optimizers.Optimizer)
 
         self.assertEqual(model.optimizer.lr, 0.5)
@@ -148,13 +151,24 @@ class TestTrain(TestCase):
         self.assertEqual(len(params_dict), 1)
         self.assertIs(model.optimizer_params[opt]["learning_rate"], lr)
 
-        result = model.train_step({x: data1, labels: data2})
-        self.assertEqual(len(result), 3)
+        result1 = model.train_step({x: data1, labels: data2})
+        result2 = model.train_step([data1, data2])
 
-        result = model.run({x: data1})
+        self.assertEqual(len(result1), 3)
+        self.assertEqual(len(result2), 3)
+        np.testing.assert_array_less(result2[-1], result1[-1])
+
+        result1 = model.run({x: data1})
+        result2 = model.run([data1])
+        result3 = model.run(np.array(data1, np.float32))
+
         x.value = data1
         o2 = out2()
         o1 = out1()
 
-        self.assertArrayEqual(o2, result[0])
-        self.assertArrayEqual(o1, result[1])
+        result4 = (o2, o1)
+
+        for i in range(2):
+            self.assertArrayEqual(result1[i], result2[i])
+            self.assertArrayEqual(result1[i], result3[i])
+            self.assertArrayEqual(result1[i], result4[i])

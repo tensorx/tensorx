@@ -228,17 +228,16 @@ class Graph:
         Args:
             ord_inputs: list of input that determines the order of resulting function arguments
             ord_outputs: list of outputs used to determine the return order
-            feedable input in the compiled graph
 
         Returns:
-            a callable tensorflow graph
+            an optimized TensorFlow static graph as a callable function
 
         """
         # NOTE another way to feed inputs is to use input layers normally like
         #   input_layer.value = in0
         #   input_Layer.value = in1
         #   that way the input slots are up to date
-        #   I guess this adds a bit of a overhead since we have to write to the variable
+        #   this adds a bit of a overhead since we have to write to the variable
 
         graph = self
 
@@ -280,7 +279,7 @@ class Graph:
         for x in other_inputs:
             other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"].compute()")
 
-        other_str = "\n".join(other_str)
+        other_str = "\n".join(other_str) + "\n" if other_str else ""
 
         # remove inputs
         for _ in range(node_index[0]):
@@ -299,8 +298,9 @@ class Graph:
 
         return_str = "\n\treturn {output_str}\n".format(output_str=", ".join([node_map[out] for out in outputs]))
 
-        full_fn_str = def_str + other_str + "\n" + compute_str + return_str
-        logger.log(logging.DEBUG, f"converted function {full_fn_str}")
+        full_fn_str = def_str + other_str + compute_str + return_str
+        logger.log(logging.DEBUG, f"converted function:\n {'-' * 10}\n\n {full_fn_str} \n{'-' * 10}")
+
         # layer map (for the closure above)
         # we feed the locals so that layers gets available in the above function
         layers = {v: k for k, v in node_map.items()}
