@@ -642,108 +642,142 @@ class TestLayers(TestCase):
         # self.assertEqual(np.shape(c1)[-1], m * 2)
         # self.assertEqual(np.shape(c2)[-1], m * 3)
 
+    def test_lookup_sequence_sparse(self):
+        input_dim = 10
+        embed_dim = 3
+        seq_size = 2
+        batch_size = 3
 
-def test_lookup_sequence_sparse(self):
-    input_dim = 10
-    embed_dim = 3
-    seq_size = 2
-    batch_size = 3
+        sparse_input = tf.SparseTensor([[0, 2], [1, 0], [2, 1]], [1, 1, 1], [3, input_dim])
+        sparse_input_1d = tf.SparseTensor([[2], [0], [1]], [1, 1, 1], [input_dim])
+        tensor_input = tx.Tensor(sparse_input, input_dim)
+        tensor_input_1d = tx.Tensor(sparse_input_1d, input_dim)
 
-    sparse_input = tf.SparseTensor([[0, 2], [1, 0], [2, 1]], [1, 1, 1], [3, input_dim])
-    sparse_input_1d = tf.SparseTensor([[2], [0], [1]], [1, 1, 1], [input_dim])
-    tensor_input = TensorLayer(sparse_input, input_dim)
-    tensor_input_1d = TensorLayer(sparse_input_1d, input_dim)
+        lookup = tx.Lookup(tensor_input, seq_size,
+                           embedding_shape=[input_dim, embed_dim],
+                           batch_size=batch_size,
+                           batch_padding=False)
 
-    lookup = Lookup(tensor_input, seq_size,
-                    lookup_shape=[input_dim, embed_dim],
-                    batch_size=batch_size,
-                    batch_padding=False)
+        lookup_padding = tx.Lookup(tensor_input, seq_size,
+                                   embedding_shape=[input_dim, embed_dim],
+                                   batch_size=batch_size,
+                                   batch_padding=True)
 
-    lookup_padding = Lookup(tensor_input, seq_size,
-                            lookup_shape=[input_dim, embed_dim],
-                            batch_size=batch_size,
-                            batch_padding=True)
+        lookup_1d = tx.Lookup(tensor_input_1d, seq_size,
+                              embedding_shape=[input_dim, embed_dim],
+                              batch_size=batch_size,
+                              batch_padding=True)
 
-    lookup_1d = Lookup(tensor_input_1d, seq_size,
-                       lookup_shape=[input_dim, embed_dim],
-                       batch_size=batch_size,
-                       batch_padding=True)
-
-    init = tf.global_variables_initializer()
-    with self.cached_session(use_gpu=True):
-        self.eval(init)
-
-        result = self.eval(lookup.tensor)
-        result_padding = self.eval(lookup_padding.tensor)
-        result_1d = self.eval(lookup_1d.tensor)
+        result = lookup()
+        result_padding = lookup_padding()
+        result_1d = lookup_1d()
 
         self.assertEqual(np.shape(result), (2, seq_size, embed_dim))
         self.assertEqual(np.shape(result_padding), (batch_size, seq_size, embed_dim))
         self.assertEqual(np.shape(result_1d), (batch_size, seq_size, embed_dim))
 
+    def test_lookup_sparse_padding(self):
+        input_dim = 6
+        embed_dim = 3
+        seq_size = 1
 
-def test_lookup_sparse_padding(self):
-    input_dim = 6
-    embed_dim = 3
-    seq_size = 1
+        sparse_input = tf.SparseTensor([[0, 1], [0, 3], [1, 0]], [1, 1, 1], [2, input_dim])
+        sparse_input = tx.Tensor(sparse_input, input_dim)
 
-    sparse_input = tf.SparseTensor([[0, 1], [0, 3], [1, 0]], [1, 1, 1], [2, input_dim])
-    sparse_input = TensorLayer(sparse_input, input_dim)
+        lookup = tx.Lookup(sparse_input,
+                           seq_size=seq_size,
+                           embedding_shape=[input_dim, embed_dim],
+                           batch_size=None,
+                           batch_padding=False)
 
-    lookup = Lookup(sparse_input,
-                    seq_size=seq_size,
-                    lookup_shape=[input_dim, embed_dim],
-                    batch_size=None,
-                    batch_padding=False)
+        result = lookup()
 
-    init = tf.global_variables_initializer()
-    with self.cached_session(use_gpu=True):
-        self.eval(init)
-        self.eval(lookup.tensor)
+    def test_lookup_sequence_bias(self):
+        vocab_size = 4
+        n_features = 3
+        seq_size = 2
 
+        inputs = tx.Input(n_units=seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2], [0, 2]])
+        lookup = tx.Lookup(input_layer=inputs,
+                           seq_size=seq_size,
+                           embedding_shape=[vocab_size, n_features],
+                           add_bias=True)
 
-def test_lookup_sequence_bias(self):
-    vocab_size = 4
-    n_features = 3
-    seq_size = 2
-
-    inputs = Input(seq_size, dtype=tf.int32)
-    input_data = np.array([[2, 0], [1, 2], [0, 2]])
-    lookup = Lookup(inputs, seq_size, lookup_shape=[vocab_size, n_features], bias=True)
-
-    init = tf.global_variables_initializer()
-    with self.cached_session(use_gpu=True):
-        self.eval(init)
-        v1 = self.eval(lookup.tensor, {inputs.placeholder: input_data})
+        inputs.value = input_data
+        v1 = lookup()
         self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, n_features))
 
+    def test_lookup_sequence_transform(self):
+        vocab_size = 4
+        embed_dim = 2
+        seq_size = 2
 
-def test_lookup_sequence_transform(self):
-    vocab_size = 4
-    embed_dim = 2
-    seq_size = 2
+        inputs = tx.Input(n_units=seq_size, dtype=tf.int32)
+        input_data = np.array([[2, 0], [1, 2], [0, 2]])
+        lookup = tx.Lookup(inputs,
+                           seq_size=seq_size,
+                           embedding_shape=[vocab_size, embed_dim],
+                           add_bias=True)
+        concat_lookup = lookup.as_concat()
+        seq_lookup = lookup.permute_batch_time()
 
-    inputs = Input(seq_size, dtype=tf.int32)
-    input_data = np.array([[2, 0], [1, 2], [0, 2]])
-    lookup = Lookup(inputs, seq_size, lookup_shape=[vocab_size, embed_dim], bias=True)
-    concat_lookup = lookup.as_concat()
-    seq_lookup = lookup.permute_batch_time()
+        self.assertTrue(hasattr(lookup, "seq_size"))
 
-    self.assertTrue(hasattr(lookup, "seq_size"))
+        inputs.value = input_data
 
-    init = tf.global_variables_initializer()
-    with self.cached_session(use_gpu=True):
-        self.eval(init)
-
-        v1 = self.eval(lookup.tensor, {inputs.placeholder: input_data})
-        v2 = self.eval(concat_lookup.tensor, {inputs.placeholder: input_data})
-        v3 = self.eval(seq_lookup.tensor, {inputs.placeholder: input_data})
+        v1 = lookup()
+        v2 = concat_lookup()
+        v3 = seq_lookup()
 
         self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, embed_dim))
         self.assertEqual(np.shape(v2), (np.shape(input_data)[0], seq_size * embed_dim))
 
         self.assertEqual(np.shape(v3), (seq_size, np.shape(input_data)[0], embed_dim))
         self.assertTrue(np.array_equal(v1[:, 0], v3[0]))
+
+    def test_reuse_dropout(self):
+        x1 = tx.Tensor(np.ones(shape=[2, 4]), dtype=tf.float32)
+
+        x2 = tx.Activation(x1)
+
+        drop1 = tx.Dropout(x2, probability=0.5, locked=True)
+
+        self.assertEqual(len(drop1.input_layers), 2)
+        self.assertIs(drop1.input_layers[0], x2)
+        self.assertIs(drop1.input_layers[-1], drop1.layer_state.mask)
+
+        # shared state overrides mask?
+        _, mask = tx.dropout(x2, return_mask=True)
+        drop2 = drop1.reuse_with(x2, mask)
+
+        self.assertEqual(len(drop2.input_layers), 2)
+        self.assertIs(drop2.input_layers[0], x2)
+        self.assertIs(drop2.input_layers[-1], drop2.layer_state.mask)
+
+        self.assertArrayNotEqual(drop1(), drop2())
+
+        graph = tx.Graph.build(inputs=None, outputs=[drop1, drop2])
+
+        print(list(graph.dependency_iter()))
+        #graph = graph.compile()
+
+        out1, out2 = graph()
+        print(out1)
+        print(out2)
+
+        # drop2 = tx.Dropout(x2, probability=0.5)
+        # drop3 = drop1.reuse_with(x1)
+        #
+        # d1, d2, d3 = drop1(),drop2(),drop3()
+        #
+        # self.assertIs(drop1.mask, drop3.mask)
+        # print(drop1.layer_state.mask)
+        # print(drop2.layer_state.mask)
+        # self.assertIsNot(drop1.mask, drop2.mask)
+        #
+        # self.assertArrayEqual(d1, d3)
+        # self.assertArrayNotEqual(d1, d2)
 
 
 if __name__ == '__main__':

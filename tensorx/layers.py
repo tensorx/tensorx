@@ -9,6 +9,7 @@ from tensorx.callbacks import OnValueChange
 from functools import partial
 from tensorx.math import embedding_lookup_sparse
 from tensorflow.python.training.tracking.tracking import AutoTrackable
+from tensorflow.python.training.tracking import data_structures as track
 
 
 class LayerState(AutoTrackable):
@@ -19,7 +20,10 @@ class LayerState(AutoTrackable):
         ideally ``LayerState`` objects would contain only ``Variable`` instances, but
         storing Layers can be more convenient.
     """
-    pass
+
+    def __init__(self, origin_layer):
+        # don't repeat tracking on layer
+        self.layer = track.NoDependency(origin_layer)
 
     def variables(self):
         """ returns a list of all variables contained in the layer state object
@@ -41,7 +45,7 @@ class LayerState(AutoTrackable):
         """
         all_vars = dict()
         for attr, state in self.__dict__.items():
-            if isinstance(state, Layer):
+            if isinstance(state, Layer) and not state == self.layer:
                 v = state.layer_state.var_dict()
                 all_vars.update(v)
             elif isinstance(state, tf.Variable):
@@ -108,19 +112,19 @@ class LayerProto:
 
     def _validate_args(self, **kwargs):
         for key in kwargs:
-            if key not in self.args:
+            if key not in self.arg_spec:
                 raise TypeError("{} prototype got an unexpected argument {}".format(self.layer_cls.__name__, key))
 
     def __init__(self, layer_cls, **kwargs):
         self.layer_cls = layer_cls
         spec = inspect.getfullargspec(layer_cls.__init__)
-        self.args = set(spec.args[1:] + spec.kwonlyargs)
+        self.arg_spec = set(spec.args[1:] + spec.kwonlyargs)
         self._validate_args(**kwargs)
 
-        self.args_set = kwargs
+        self.arg_dict = kwargs
 
     def __call__(self, *args, **kwargs):
-        new_args = dict(self.args_set)
+        new_args = dict(self.arg_dict)
         new_args.update(kwargs)
         return self.layer_cls(*args, **new_args)
 
@@ -133,7 +137,7 @@ class LayerProto:
             **kwargs: new values for constructor named arguments to be updated
         """
         self._validate_args(**kwargs)
-        self.args_set.update(kwargs)
+        self.arg_dict.update(kwargs)
 
 
 class Layer(AutoTrackable):
@@ -223,13 +227,13 @@ class Layer(AutoTrackable):
             input_signature:
 
         Returns:
-
+            a function with the entire graph traced from the current layer as the output
         """
         # @tf.function(input_signature=(tf.TensorSpec(shape=[None], dtype=tf.int32),))
         return tf.function(self.compute, input_signature)
 
     def init_state(self):
-        self.layer_state = LayerState()
+        self.layer_state = LayerState(self)
         return self.layer_state
 
     def __str__(self):
@@ -1074,7 +1078,6 @@ class Linear(Layer):
         super().__init__(input_layers=input_layer, n_units=n_units, dtype=dtype, name=name)
 
     def init_state(self):
-        self.layer_state = super().init_state()
 
         with layer_scope(self):
             input_layer = self.input_layers[0]
@@ -1085,8 +1088,10 @@ class Linear(Layer):
                 if not isinstance(self.share_state_with, Linear):
                     raise TypeError("Layer can only share variables with other layer of the same type")
 
+                self.layer_state = self.share_state_with.layer_state
+
                 shape = [input_layer.n_units, self.n_units]
-                shared_shape = self.share_state_with.weights.get_shape().as_list()
+                shared_shape = self.layer_state.weights.get_shape().as_list()
                 if self.transpose_weights:
                     shared_shape = shared_shape[::-1]
 
@@ -1095,6 +1100,8 @@ class Linear(Layer):
                                      "share_state_with is provided but \n"
                                      "self shape: {s0} different from "
                                      "other shape: {s1}".format(s0=shape, s1=shared_shape))
+            else:
+                self.layer_state = super().init_state()
 
             # if weights are passed, check that their shape matches the layer shape
             if self.shared_weights is not None:
@@ -1122,7 +1129,7 @@ class Linear(Layer):
                         "invalid shared bias: number of bias {} does not match number of units {}".format(bias_shape[0],
                                                                                                           self.n_units))
 
-            weights = self.share_state_with.weights if self.share_state_with is not None else self.shared_weights
+            weights = getattr(self.layer_state, "weights", self.shared_weights)
             if weights is None:
                 init_value = self.weight_init(self.shape, dtype=self.dtype)
                 weights = tf.Variable(initial_value=init_value,
@@ -1130,16 +1137,17 @@ class Linear(Layer):
                                       dtype=self.dtype,
                                       name="weights")
 
-            self.layer_state.weights = weights
+            if not hasattr(self.layer_state, "weights"):
+                self.layer_state.weights = weights
 
-            bias = self.share_state_with.bias if self.share_state_with is not None else self.shared_bias
+            bias = getattr(self.layer_state, "bias", self.shared_bias)
             if self.add_bias:
                 if bias is None:
                     bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
                                        name="bias", trainable=True)
-            else:
-                bias = None
-            self.layer_state.bias = bias
+
+            if not hasattr(self.layer_state, "bias"):
+                self.layer_state.bias = bias
 
     def compute(self, *input_layers):
         if not input_layers:
@@ -1210,7 +1218,7 @@ class Linear(Layer):
                                        b_is_sparse=self.sparse_weights)
 
             # y = xW + [b]
-            if self.bias is not None:
+            if self.add_bias:
                 tensor = tf.nn.bias_add(tensor, self.bias, name="add_b")
 
         return tensor
@@ -1375,10 +1383,17 @@ class ViewLayer(Layer):
 class DropConnect(ViewLayer):
     """ DropConnect
 
+    Wraps around a Linear layer to create a new layer where connections between input and linear units
+    can be dropped with a given probability.
+
+    Note:
+        as opposed to ``Dropout`` which does not wrap a layer but rather drops the outputs of it's previous
+        layer.
+
     Args:
-            layer (Layer):
-            probability (float):
-            locked (bool):
+            layer (Linear): ``Linear`` layer to be wrapped in DropConnect
+            probability (float): probability of dropping a connection between units
+            locked (bool): if true
             name (str):
 
     """
@@ -1414,25 +1429,28 @@ class DropConnect(ViewLayer):
         input_layer = as_layer(input_layers[0])
 
         with layer_scope(self):
-            w = self.inner_layer.weights
-            b = self.inner_layer.bias
+            weights = self.inner_layer.weights
+            bias = self.inner_layer.bias
 
-            drop_w, w_mask = txf.dropout(w, probability=self.probability, random_mask=self.layer_state.weight_mask,
+            drop_w, w_mask = txf.dropout(weights, probability=self.probability,
+                                         random_mask=self.layer_state.weight_mask,
                                          scale=False,
                                          return_mask=True)
             # self.layer_state.weight_mask = w_mask
-            drop_b = None
-            add_bias = b is not None
+            drop_bias = None
+            add_bias = bias is not None
             if add_bias:
-                drop_b, b_mask = txf.dropout(b, probability=self.probability, random_mask=self.layer_state.bias_mask,
-                                             scale=False,
-                                             return_mask=True)
+                drop_bias, b_mask = txf.dropout(bias,
+                                                probability=self.probability,
+                                                random_mask=self.layer_state.bias_mask,
+                                                scale=False,
+                                                return_mask=True)
                 # self.layer_state.bias_mask = b_mask
 
             new_linear = Linear(input_layer,
                                 n_units=self.n_units,
                                 shared_weights=drop_w,
-                                shared_bias=drop_b,
+                                shared_bias=drop_bias,
                                 add_bias=add_bias)
             # forward weights and bias
             self.weights = new_linear.weights
@@ -1482,6 +1500,7 @@ class Dropout(Layer):
     def __init__(self, input_layer,
                  probability=0.1,
                  scale=True,
+                 mask=None,
                  noise_shape=None,
                  locked=False,
                  seed=None,
@@ -1490,8 +1509,9 @@ class Dropout(Layer):
         self.seed = seed
         self.probability = probability
         self.scale = scale
-        self.noise_shape = noise_shape
         self.locked = locked
+        self.mask = mask
+        self.noise_shape = noise_shape
         self.share_state_with = share_state_with
 
         super().__init__(input_layers=input_layer,
@@ -1500,21 +1520,40 @@ class Dropout(Layer):
                          name=name)
 
     def init_state(self):
-        if self.share_state_with is None:
-            layer_state = super().init_state()
-            layer_state.mask = None
-            with layer_scope(self):
-                with tf.name_scope(name="random_mask"):
-                    if self.noise_shape is not None:
-                        keep_prob = 1 - self.probability
-                        random_state = tf.random.uniform(self.noise_shape, seed=self.seed,
-                                                         dtype=self.input_layers[0].dtype)
-                        mask = keep_prob + random_state
-                        mask = tf.math.floor(mask, name="binary_mask")
+        input_layer = self.input_layers[0]
+        mask = as_layer(self.mask) if self.mask is not None else None
 
-                        layer_state.mask = mask
+        # random mask layer
+        @layer(n_units=input_layer.n_units, name="random_mask")
+        def random_mask(input_layer):
+            noise_shape = tf.shape(input_layer)
+            dtype = input_layer.dtype
+
+            keep_prob = 1 - self.probability
+            random_state = tf.random.uniform(noise_shape,
+                                             seed=self.seed,
+                                             dtype=dtype)
+            mask = keep_prob + random_state
+            mask = tf.math.floor(mask, name="binary_mask")
+            return mask
+
+        if self.share_state_with is None:
+            self.layer_state = super().init_state()
+            if mask is not None:
+                self.layer_state.mask = mask
+            else:
+                with layer_scope(self):
+                    if self.locked:
+                        self.layer_state.mask = random_mask(input_layer)
+                    else:
+                        self.layer_state.mask = None
         else:
             self.layer_state = self.share_state_with.layer_state
+
+        # TODO usually we don't manipulate input_layers directly, but it might be needed in this case
+        #  because the random mask is a new dependency on this layer
+        if hasattr(self.layer_state, "mask"):
+            self._input_layers.append(self.layer_state.mask)
 
         return self.layer_state
 
@@ -1523,12 +1562,18 @@ class Dropout(Layer):
             input_layers = self.input_layers
 
         input_value = as_layer(input_layers[0]).compute()
+        if len(input_layers) > 1:
+            mask = as_layer(input_layers[1])
+        else:
+            mask = self.layer_state.mask
+
+        mask_value = mask.compute()
 
         with layer_scope(self):
             if isinstance(input_value, tf.SparseTensor):
                 # if input is sparse, noise_shape is not used
                 tensor, mask = txf.sparse_dropout(sp_tensor=input_value,
-                                                  mask=self.layer_state.mask,
+                                                  mask=mask_value,
                                                   probability=self.probability,
                                                   scale=self.scale,
                                                   return_mask=True,
@@ -1537,23 +1582,22 @@ class Dropout(Layer):
             else:
                 tensor, mask = txf.dropout(tensor=input_value,
                                            noise_shape=self.noise_shape,
-                                           random_mask=self.layer_state.mask,
+                                           random_mask=mask_value,
                                            probability=self.probability,
                                            scale=self.scale,
                                            return_mask=True,
                                            seed=self.seed)
 
-            if self.layer_state.mask is None:
-                self.layer_state.mask = mask
-
             return tensor
 
-    def reuse_with(self, layer, name=None, locked=None):
+    def reuse_with(self, layer, mask=None, name=None, locked=None):
         locked = self.locked if locked is None else locked
         name = self.name if name is None else name
         share_state_with = self if locked else None
+        mask = self.mask if mask is None else mask
 
         return Dropout(layer,
+                       mask=mask,
                        probability=self.probability,
                        noise_shape=self.noise_shape,
                        scale=self.scale,
@@ -3023,5 +3067,6 @@ __all__ = [
     "RNN",
     "Lookup",
     "ToDense",
-    "ToSparse"
+    "ToSparse",
+    "Dropout"
 ]

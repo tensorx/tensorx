@@ -310,7 +310,7 @@ def sparse_dropout(sp_tensor,
         name: A name for this operation (optional).
 
     """
-    with tf.name_scope(name=name, values=[sp_tensor]):
+    with tf.name_scope(name=name):
         dense_shape = sp_tensor.dense_shape
 
         if not sp_tensor.values.dtype.is_floating:

@@ -7,6 +7,8 @@ import unittest
 import tensorx as tx
 import tensorflow as tf
 from tensorflow.python.util import object_identity
+from tensorflow.python.training.tracking.tracking import AutoTrackable
+from tensorflow.python.training.tracking import util
 
 # checkpoint manager expexts trackable
 from tensorflow.python.training.tracking import base as trackable
@@ -27,8 +29,11 @@ class MyTestCase(TestCase):
 
         self.assertIsNot(w1, w2)
 
-        print(w1)
-        print(w2)
+        # print(w1)
+        # print(w2)
+
+        track: AutoTrackable = l1.layer_state
+        print(util.list_objects(track))
 
         ckpt = tf.train.Checkpoint(l1=l1)
         manager = tf.train.CheckpointManager(ckpt, './ckpts', max_to_keep=1)
@@ -36,15 +41,10 @@ class MyTestCase(TestCase):
         # manager.save(2)
 
         l1.weights.assign(l2.weights.value())
-        print(w1)
-        print(w2)
 
         status = ckpt.restore(manager.latest_checkpoint)
 
-        print(w1)
-        print(w2)
-
-        #print(status.assert_existing_objects_matched())
+        # print(status.assert_existing_objects_matched())
         print(tf.train.list_variables(manager.latest_checkpoint))
 
         # d = dict({w1: 0, w2: 1})

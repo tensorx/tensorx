@@ -159,15 +159,7 @@ class TestAutoGraph(unittest.TestCase):
             x1.value = in0
             return y2.compute()
 
-        @tf.function
-        def simple_graph2(in0):
-            y_2 = y1.compute(in0)
-            # y_1 = y10.compute(in0)
-            # y_2 = y11.compute(y_1)
-            # if we call y1.compute(in0) it calls reuse with on the input which creates more tensors
-            #   this is inefficient perhaps we can compile the module and use this function
-            # DONE
-            return y2.compute(y_2, tf.ones([1, 3]))
+        simple_graph_2 = Graph.build(inputs=[x1, x2], outputs=y2)
 
         g = Graph.build(inputs=[x1, x2], outputs=y2)
 
@@ -195,7 +187,7 @@ class TestAutoGraph(unittest.TestCase):
         t1 = timeit(update_run, number=n)
         t2 = timeit(lambda: compiled_fn(tf.random.uniform([256, 1000])), number=n)
         t3 = timeit(lambda: simple_graph(tf.random.uniform([256, 1000])), number=n)
-        t4 = timeit(lambda: simple_graph2(tf.random.uniform([256, 1000])), number=n)
+        t4 = timeit(lambda: simple_graph_2(tf.random.uniform([256, 1000])), number=n)
         # t5 = timeit(lambda: compiled_recursive(tf.random.uniform([256, 1000])), number=n)
 
         print(f"{t1}\tupdate input and run")

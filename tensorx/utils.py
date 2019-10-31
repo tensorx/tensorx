@@ -367,17 +367,43 @@ class Graph:
         input_dict = dict(zip(ord_inputs.keys(), input_values))
         other_inputs = set(self.in_nodes).difference(ord_inputs)
 
-        def compute(node):
-            if node in other_inputs:
-                out = node.compute()
-                return out
-            else:
-                ins = self.edges_in[node]
-                ins = map(lambda x: input_dict[x] if x in input_dict else compute(x), ins)
-                out = node.compute(*ins)
-                return out
+        # TODO problem with this, is that nodes that need to be visited by both
+        #   output paths will be called twice, we want to avoid this
+        #   how?? compute intersections to cache result?
+        # def compute(node):
+        #     if node in other_inputs:
+        #         out = node.compute()
+        #         return out
+        #     else:
+        #         ins = self.edges_in[node]
+        #         ins = map(lambda x: input_dict[x] if x in input_dict else compute(x), ins)
+        #         out = node.compute(*ins)
+        #         return out
+        node_iter = self.dependency_iter()
 
-        return tuple(map(compute, self.out_nodes))
+        result_cache = dict()
+        visited = set()
+
+        for node in node_iter:
+            if node in input_dict:
+                result_cache[node] = input_dict[node]
+            elif node in other_inputs:
+                result_cache[node] = node.compute()
+            else:
+                visited.add(node)
+
+                def get_args(node):
+                    ins = self.edges_in[node]
+                    for in_node in ins:
+                        res = result_cache[in_node]
+                        if visited.issuperset(self.edges_out[in_node]):
+                            del result_cache[in_node]
+                        yield res
+
+                args = get_args(node)
+                result_cache[node] = node.compute(*args)
+
+        return tuple(map(lambda x: result_cache[x], self.out_nodes))
 
 
 def as_tensor(x, dtype=None):
