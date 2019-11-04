@@ -1,9 +1,7 @@
 import tensorflow as tf
-
 import logging
 
 logger = logging.getLogger('tensorx')
-from tensorx.layers import as_layer
 
 
 class Graph:
@@ -97,13 +95,16 @@ class Graph:
     def dependency_iter(self):
         """ returns a dictionary with a map from nodes to dependency priorities
                with lower values having higher priority. Keys are ordered by priority from
-               lower to higher.
+               lower to higher and number of dependencies from lower to higher
 
-           Transversing a graph by priority guarantees that when we visit a node
-           all it's dependencies have already been visited.
+            Notes:
+               Transversing a graph by priority guarantees that when we visit a node
+               all it's dependencies have already been visited, additionally, ordering by
+               number of dependencies guarantees that we can maintain a minimum result
+               cache when transversing the graph.
 
            Returns:
-               dictionary from nodes to priorities
+               dictionary from nodes to (priorities,number of dependencies)
         """
         priority = dict()
         visited = set()
@@ -115,15 +116,15 @@ class Graph:
             delayed = False
 
             if not self.edges_in[current]:
-                priority[current] = 0
+                priority[current] = (0, len(self.edges_out[current]))
             else:
                 # delay node if not all dependencies are ready
                 if any([dep not in priority for dep in self.edges_in[current]]):
                     nodes.append(current)
                     delayed = True
                 else:
-                    priorities = [priority[dep] for dep in self.edges_in[current]]
-                    priority[current] = max(priorities) + 1
+                    priorities = [priority[dep][0] for dep in self.edges_in[current]]
+                    priority[current] = (max(priorities) + 1, len(self.edges_out[current]))
 
             if not delayed:
                 next_nodes = self.edges_out[current]
@@ -408,7 +409,6 @@ class Graph:
 
     @classmethod
     def eval(cls, layers):
-        layers = [as_layer(layer) for layer in layers]
         graph = Graph.build(inputs=None, outputs=layers)
         return graph()
 

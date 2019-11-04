@@ -217,9 +217,10 @@ class Layer(AutoTrackable):
         if not input_layers:
             input_tensors = self.subgraph()
         else:
+            input_layers = [as_layer(input_layer) for input_layer in input_layers]
             input_tensors = Graph.eval(input_layers)
 
-        return self.compute(*input_layers)
+        return self.compute(*input_tensors)
 
     def compile_graph(self, input_signature=None):
         """
@@ -3051,6 +3052,7 @@ def layer(n_units=None, name="layer", var_list=None):
 
 
 __all__ = [
+    "as_layer",
     "Activation",
     "Lambda",
     "Layer",

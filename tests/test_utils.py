@@ -140,8 +140,8 @@ class TestUtils(TestCase):
 
         priorities = g.dependency_iter()
 
-        self.assertEqual(priorities[y], 2)
-        self.assertEqual(priorities[x1], 0)
+        self.assertEqual(priorities[y], (2, 0))
+        self.assertEqual(priorities[x1], (0, 1))
         self.assertGreater(priorities[y], priorities[h])
 
 
