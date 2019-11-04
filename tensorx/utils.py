@@ -3,6 +3,7 @@ import tensorflow as tf
 import logging
 
 logger = logging.getLogger('tensorx')
+from tensorx.layers import as_layer
 
 
 class Graph:
@@ -404,6 +405,12 @@ class Graph:
                 result_cache[node] = node.compute(*args)
 
         return tuple(map(lambda x: result_cache[x], self.out_nodes))
+
+    @classmethod
+    def eval(cls, layers):
+        layers = [as_layer(layer) for layer in layers]
+        graph = Graph.build(inputs=None, outputs=layers)
+        return graph()
 
 
 def as_tensor(x, dtype=None):

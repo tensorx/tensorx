@@ -60,23 +60,23 @@ class LayerScope:
     """ LayerScope creates a unique name for the scope if not executing eagerly
 
     Args:
-        layer: layer to be used in this scope, the layer name is used as scope name for tensorflow tf.name_scope
+        current_layer: layer to be used in this scope, the layer name is used as scope name for tensorflow tf.name_scope
         and variable_scope, also modifies the layer name if the scope name clashes with existing names
 
         reuse: if True does not change the input layer name but it does create a unique name for tf.name_scope
         (for debug purposes only)
     """
 
-    def __init__(self, layer, name=None, reuse=False):
+    def __init__(self, current_layer, name=None, reuse=False):
         self.reuse = reuse
-        self.layer = layer
-        if name is not None and layer is not None:
+        self.layer = current_layer
+        if name is not None and current_layer is not None:
             self.layer.name = name
 
-        if layer is None and name is None:
+        if current_layer is None and name is None:
             raise ValueError("layer scope needs a Layer or a name but both are None")
 
-        self.name = self.layer.name if layer is not None else name
+        self.name = self.layer.name if current_layer is not None else name
         self._stack = None
 
     def __enter__(self):
@@ -148,7 +148,6 @@ class Layer(AutoTrackable):
         n_units: the number of units for the current layer (last dim)
         name: name to be used for the layer scope
         scoped_name: layer full scope name
-        variables: a list of `tf.Variable` that define the state of this layer
 
     Notes:
         * If a layer is created inside the scope of another layer, its scoped_name is the final name attributed
@@ -181,6 +180,12 @@ class Layer(AutoTrackable):
         if self.layer_state is not None:
             self.__dict__.update(self.layer_state.__dict__)
 
+        # save this for __call__
+        subgraph = Graph.build(inputs=None,
+                               outputs=self.input_layers)
+
+        self.subgraph = track.NoDependency(subgraph)
+
     @property
     def trainable_variables(self):
         variables = self.layer_state.variables()
@@ -207,6 +212,14 @@ class Layer(AutoTrackable):
 
     def compute(self, *args):
         raise NotImplementedError("computation not implemented for this layer")
+
+    def __call__(self, *input_layers):
+        if not input_layers:
+            input_tensors = self.subgraph()
+        else:
+            input_tensors = Graph.eval(input_layers)
+
+        return self.compute(*input_layers)
 
     def compile_graph(self, input_signature=None):
         """
@@ -260,7 +273,7 @@ class Layer(AutoTrackable):
         Returns:
             a string representing the layer with all its parameters
         """
-        if len(self.input_layers):
+        if self.input_layers:
             input_layers = ",".join(map(lambda x: x.name, self.input_layers))
             input_layers += ","
         else:
@@ -277,9 +290,7 @@ class Layer(AutoTrackable):
                          fn=lambda tensor: tensor[item],
                          name="{}_item_{}".format(self.name, item_name))
 
-    def __call__(self, *input_layers):
-        return self.compute(*input_layers)
-
+    # TODO REMOVE
     def tensor(self):
         """ tensor() alias for compute without arguments
 
@@ -495,7 +506,7 @@ class WrapLayer(Layer):
             wrapped_layer = wrapped_layer.reuse_with(*input_layers)
 
         with layer_scope(self, name=self.name):
-            fn_inputs = wrapped_layer.tensor() if not self.apply_to_layer else wrapped_layer
+            fn_inputs = wrapped_layer() if not self.apply_to_layer else wrapped_layer
             output = self.fn(fn_inputs)
             dtype = output.dtype if not isinstance(output, tf.Operation) else None
             fn_n_units = output.get_shape().as_list()[-1]
@@ -1149,12 +1160,7 @@ class Linear(Layer):
             if not hasattr(self.layer_state, "bias"):
                 self.layer_state.bias = bias
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        input_layer = input_layers[0]
-        input_tensor = as_layer(input_layer).compute()
+    def compute(self, input_tensor: Tensor):
         weights = self.layer_state.weights
 
         if input_tensor.dtype != weights.dtype:
@@ -1897,7 +1903,7 @@ class RNN(Layer):
                 xt = Input(xt, constant=True)
                 c = cell.reuse_with(xt, previous_state=state)
 
-                y = y.write(t, c.tensor())
+                y = y.write(t, c())
                 if self.reverse:
                     t = t - 1
                 else:
