@@ -128,7 +128,7 @@ class Model:
                 self.optimizer_params[optimizer][param_name] = param
 
         if self.train_graph not in self.compiled:
-            self.compiled[self.train_graph] = self.train_graph.compile(ord_inputs=self.train_graph.in_nodes)
+            self.compiled[self.train_graph] = self.train_graph.as_function(ord_inputs=self.train_graph.in_nodes)
 
         train_fn = self.compiled[self.train_graph]
 
@@ -227,7 +227,7 @@ class Model:
             return graph(data_feed)
         else:
             if graph not in self.compiled:
-                self.compiled[graph] = graph.compile(ord_inputs=graph.in_nodes)
+                self.compiled[graph] = graph.as_function(ord_inputs=graph.in_nodes)
                 params = list(data_feed.values())
                 return self.compiled[graph](*params)
 

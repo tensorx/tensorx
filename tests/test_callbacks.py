@@ -37,7 +37,7 @@ class MyTestCase(unittest.TestCase):
         p1.value = 3
         self.assertEqual(p1().numpy(), p1.value.numpy())
 
-        fn = p1.compile_graph()
+        fn = p1.as_function()
         self.assertEqual(fn().numpy(), p1.value.numpy())
 
         # there should be no problem with compilation to tf graph since

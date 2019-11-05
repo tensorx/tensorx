@@ -90,7 +90,7 @@ class TestLayers(TestCase):
 
     def test_dynamic_input_graph(self):
         x = tx.Input(tf.zeros([2, 2]), n_units=2, constant=False)
-        g = x.compile_graph()
+        g = x.as_function()
 
         out1 = g()
         x.value = tf.ones([2, 2])

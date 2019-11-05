@@ -222,7 +222,7 @@ class Layer(AutoTrackable):
 
         return self.compute(*input_tensors)
 
-    def compile_graph(self, input_signature=None):
+    def as_function(self, input_signature=None):
         """
         Notes:
             I generally don't use python objects to control how the graph is created (e.g. number of layers)
@@ -244,7 +244,7 @@ class Layer(AutoTrackable):
             a function with the entire graph traced from the current layer as the output
         """
         # @tf.function(input_signature=(tf.TensorSpec(shape=[None], dtype=tf.int32),))
-        return tf.function(self.compute, input_signature)
+        return tf.function(self.__call__, input_signature)
 
     def init_state(self):
         self.layer_state = LayerState(self)
@@ -1293,8 +1293,8 @@ class Module(Layer):
             self.graph = Graph.build(self.inputs, self.output)
 
             # to that we don't need to call reuse on compute with params
-            self.graph_compute = self.graph.compile(ord_inputs=self.inputs,
-                                                    ord_outputs=self.output)
+            self.graph_compute = self.graph.as_function(ord_inputs=self.inputs,
+                                                        ord_outputs=self.output)
             if not self.inputs:
                 self.inputs = list(self.graph.in_nodes)
         except ValueError as e:
@@ -2865,21 +2865,15 @@ class Activation(Layer):
     """
 
     def __init__(self, layer, fn=tf.identity, name="activation", **kwargs):
-
         self.fn = partial(fn, **kwargs)
         self.kw = kwargs
         super().__init__(input_layers=layer, n_units=layer.n_units, dtype=layer.dtype, name=name)
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        input_value = as_layer(input_layers[0]).compute()
-
+    def compute(self, input_tensor):
         with layer_scope(self):
-            if isinstance(input_value, tf.SparseTensor):
-                input_value = tf.sparse.to_dense(input_value)
-            output = self.fn(input_value)
+            if isinstance(input_tensor, tf.SparseTensor):
+                input_tensor = tf.sparse.to_dense(input_tensor)
+            output = self.fn(input_tensor)
             return output
 
     def reuse_with(self, layer, name=None):
@@ -2931,12 +2925,8 @@ class Merge(Layer):
 
         super().__init__(input_layers=layers, n_units=n_units, dtype=dtype, name=name)
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        outputs = [as_layer(layer).compute() for layer in input_layers]
-
+    def compute(self, *input_tensors):
+        outputs = input_tensors
         if self.weights is not None:
             outputs = [tf.math.scalar_mul(self.weights[i], outputs[i]) for i in
                        range(len(outputs))]
@@ -2944,19 +2934,21 @@ class Merge(Layer):
         with layer_scope(self):
             output = self.merge_fn(outputs)
 
-        if self.n_units is None:
-            if len(output.shape) > 0:
-                self.n_units = output.shape[-1]
-        elif self.n_units > 0:
-            if output.shape[-1] != self.n_units:
-                raise ValueError(
-                    f"output n_units {output.shape[-1]} does not match n_units {self.n_units}")
-
-        if self.dtype is None:
-            self.dtype = output.dtype
-        else:
-            if self.dtype != output.dtype:
-                output = tf.cast(output, self.dtype)
+        # move validation to construction
+        # if self.n_units is None:
+        #     if len(tf.shape(output)) > 0:
+        #         self.n_units = tf.shape(output)[-1]
+        # elif self.n_units > 0:
+        #     if tf.shape(output)[-1] != self.n_units:
+        #         raise ValueError(
+        #             f"output n_units {tf.shape(output)[-1]} does not match n_units {self.n_units}")
+        #
+        # if self.dtype is None:
+        #     self.dtype = output.dtype
+        # else:
+        #     if self.dtype != output.dtype:
+        #         output = tf.cast(output, self.dtype)
+        output = tf.cast(output, self.dtype)
 
         return output
 

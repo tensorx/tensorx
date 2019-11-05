@@ -34,7 +34,7 @@ class MyTestCase(unittest.TestCase):
         # otherwise it will try to add the inputs detected to inputs
         graph = tx.Graph.build(inputs=None,
                                outputs=y)
-        fn = graph.compile()
+        fn = graph.as_function()
 
         @tf.function
         def loss(labels):

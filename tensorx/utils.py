@@ -213,7 +213,7 @@ class Graph:
 
         return graph
 
-    def compile(self, ord_inputs=None, ord_outputs=None):
+    def as_function(self, ord_inputs=None, ord_outputs=None):
         """ compiles the graph into a tensorflow callable compiled graph
 
         the idea is to use exec to create a function and then call tf.function
@@ -312,32 +312,6 @@ class Graph:
 
         return out
 
-    # def compile_recursive(self, ord_inputs):
-    #     ord_inputs = dict.fromkeys(as_list(ord_inputs))
-    #     other_inputs = set(self.in_nodes).difference(ord_inputs)
-    #     in_map = {node: i for i, node in enumerate(ord_inputs)}
-    #
-    #     @tf.function
-    #     def compiled_graph(*inputs):
-    #         if len(inputs) != len(inputs):
-    #             raise ValueError("missing parameters")
-    #
-    #         # THIS IS CONSIDERABLY SLOWER THAN THE DYNAMIC FUNCTION ALTERNATIVE
-    #         def compute(node):
-    #             if node in other_inputs:
-    #                 out = node.compute()
-    #                 return out
-    #             else:
-    #                 ins = self.edges_in[node]
-    #                 ins = map(lambda x: inputs[in_map[x]] if x in in_map else compute(x), ins)
-    #                 out = node.compute(*ins)
-    #                 return out
-    #
-    #         outs = tuple(map(compute, self.out_nodes))
-    #         return outs
-    #
-    #     return compiled_graph
-
     def __call__(self, *input_values):
         """ computes the graph output values based on the given input values
 
@@ -382,6 +356,7 @@ class Graph:
         #         out = node.compute(*ins)
         #         return out
         node_iter = self.dependency_iter()
+        # print(node_iter)
 
         result_cache = dict()
         visited = set()
@@ -395,12 +370,16 @@ class Graph:
                 visited.add(node)
 
                 def get_args(node):
+                    args = []
                     ins = self.edges_in[node]
                     for in_node in ins:
                         res = result_cache[in_node]
-                        if visited.issuperset(self.edges_out[in_node]):
+                        priority, num_deps = node_iter[node]
+                        node_iter[node] = (priority, num_deps - 1)
+                        if num_deps - 1 == 0:
                             del result_cache[in_node]
-                        yield res
+                        args.append(res)
+                    return args
 
                 args = get_args(node)
                 result_cache[node] = node.compute(*args)

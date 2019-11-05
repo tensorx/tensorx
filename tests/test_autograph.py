@@ -1,6 +1,7 @@
 import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['AUTOGRAPH_VERBOSITY'] = '10'
 
 import unittest
 import tensorflow as tf
@@ -43,7 +44,7 @@ class TestAutoGraph(unittest.TestCase):
         y4 = tx.layer(3, 'add')(lambda x1, x2: tf.add(x1, x2))(v2, y3)
 
         # z = tf.function(y4.compute)
-        z = y4.compile_graph()
+        z = y4.as_function()
 
         tf.summary.trace_on(graph=True, profiler=True)
         z()
@@ -62,7 +63,7 @@ class TestAutoGraph(unittest.TestCase):
         logdir = "/home/davex32/tmp/logs/test"  # + datetime.now().strftime("%Y%m%d-%H%M%S")
         writer = summary_ops_v2.create_file_writer(logdir)
 
-        fn = x.compile_graph()
+        fn = x.as_function()
         x.value = [[4]]
 
         tf.summary.trace_on(graph=True, profiler=True)
@@ -151,32 +152,35 @@ class TestAutoGraph(unittest.TestCase):
         output = y2
 
         test_graph = Graph.build(inputs=None, outputs=[y1, y2])
-        print(test_graph.out_nodes)
-        print(test_graph.in_nodes)
+
+        # print(test_graph.out_nodes)
+        # print(test_graph.in_nodes)
 
         @tf.function
         def simple_graph(in0):
             x1.value = in0
-            return y2.compute()
+            return y2()
 
         simple_graph_2 = Graph.build(inputs=[x1, x2], outputs=y2)
+        simple_graph_2 = tf.function(simple_graph_2)
 
         g = Graph.build(inputs=[x1, x2], outputs=y2)
 
-        y2fn = y2.compile_graph()
+        y2fn = y2.as_function()
 
         data = tf.ones([256, 1000])
 
         x1.value = data
 
-        compiled_fn = g.compile(ord_inputs=x1,
-                                ord_outputs=output)
+        compiled_fn = g.as_function(ord_inputs=x1,
+                                    ord_outputs=output)
 
         # compiled_recursive = g.compile_recursive(x1)
         # print(compiled_recursive)
         # print(compiled_recursive(tf.random.uniform([256, 1000])))
 
         np.testing.assert_array_equal(compiled_fn(data), y2fn())
+        np.testing.assert_array_equal(compiled_fn(data), simple_graph_2()[0])
 
         from timeit import timeit
         def update_run():
@@ -193,7 +197,7 @@ class TestAutoGraph(unittest.TestCase):
         print(f"{t1}\tupdate input and run")
         print(f"{t2}\tgenerated function")
         print(f"{t3}\tcompile value change and graph call")
-        print(f"{t4}\thand crafted function and compute")
+        print(f"{t4}\tgraph call with autograph")
         # TODO I'm almost sure this slow down is due to reference to outside collections
         # print(f"{t5}\trecursive autograph")
         # TODO the problem with simple graph is that if we want to create a graph for
