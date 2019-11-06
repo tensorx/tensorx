@@ -738,7 +738,6 @@ class TestLayers(TestCase):
 
     def test_reuse_dropout(self):
         x1 = tx.Tensor(np.ones(shape=[2, 4]), dtype=tf.float32)
-
         x2 = tx.Activation(x1)
 
         drop1 = tx.Dropout(x2, probability=0.5, locked=True)
@@ -759,15 +758,18 @@ class TestLayers(TestCase):
 
         graph = tx.Graph.build(inputs=None, outputs=[drop1, drop2])
 
-        print(list(graph.dependency_iter()))
-        #graph = graph.compile()
+        # print(list(graph.dependency_iter()))
+        # graph = graph.compile()
 
         out1, out2 = graph()
-        print(out1)
-        print(out2)
+        self.assertArrayEqual(out1, out2)
+        # print(out1)
+        # print(out2)
 
-        # drop2 = tx.Dropout(x2, probability=0.5)
-        # drop3 = drop1.reuse_with(x1)
+        drop1 = tx.Dropout(x2, probability=0.5)
+        drop2 = drop1.reuse_with(x1)
+
+        graph.eval(drop1,drop2)
         #
         # d1, d2, d3 = drop1(),drop2(),drop3()
         #

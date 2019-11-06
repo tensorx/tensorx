@@ -356,7 +356,6 @@ class Graph:
         #         out = node.compute(*ins)
         #         return out
         node_iter = self.dependency_iter()
-        # print(node_iter)
 
         result_cache = dict()
         visited = set()
@@ -387,7 +386,7 @@ class Graph:
         return tuple(map(lambda x: result_cache[x], self.out_nodes))
 
     @classmethod
-    def eval(cls, layers):
+    def eval(cls, *layers):
         graph = Graph.build(inputs=None, outputs=layers)
         return graph()
 

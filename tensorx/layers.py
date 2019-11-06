@@ -298,7 +298,7 @@ class Layer(AutoTrackable):
         Returns:
             the results of the graph at the current layer
         """
-        return self.compute()
+        return self()
 
 
 class Lambda(Layer):
@@ -341,15 +341,9 @@ class Lambda(Layer):
             setattr(layer_state, f"var_{i}", var)
         return layer_state
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        input_layers = [as_layer(x) for x in input_layers]
-        inputs = [x.compute() if not self.apply_to_layer else x for x in input_layers]
-
+    def compute(self, *input_tensors):
         with layer_scope(self):
-            output = self.fn(*inputs)
+            output = self.fn(*input_tensors)
             if self.dtype is not None and output.dtype != self.dtype and not isinstance(output, tf.Operation):
                 output = tf.cast(output, self.dtype)
 
@@ -1552,8 +1546,8 @@ class Dropout(Layer):
                 with layer_scope(self):
                     if self.locked:
                         self.layer_state.mask = random_mask(input_layer)
-                    else:
-                        self.layer_state.mask = None
+                    # else:
+                    #    self.layer_state.mask = None
         else:
             self.layer_state = self.share_state_with.layer_state
 
@@ -1572,9 +1566,12 @@ class Dropout(Layer):
         if len(input_layers) > 1:
             mask = as_layer(input_layers[1])
         else:
-            mask = self.layer_state.mask
+            if hasattr(self.layer_state, "mask"):
+                mask = self.layer_state.mask
+            else:
+                mask = None
 
-        mask_value = mask.compute()
+        mask_value = mask.compute() if mask is not None else None
 
         with layer_scope(self):
             if isinstance(input_value, tf.SparseTensor):
@@ -3018,7 +3015,7 @@ def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
 def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
     name = name if name is not None else layer.name
     with tf.name_scope(name):
-        return as_tensor(layer.tensor(), dtype=dtype)
+        return as_tensor(layer(), dtype=dtype)
 
 
 tf.register_tensor_conversion_function(
