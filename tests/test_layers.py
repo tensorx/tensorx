@@ -113,10 +113,21 @@ class TestLayers(TestCase):
     def test_wrap_transpose(self):
         x = tf.reshape(tf.range(9), [3, 3])
         t = tf.transpose(x)
-        y = tx.Transpose(t, n_units=3)
-        w = tx.WrapLayer(y, lambda x: x * 2, apply_to_layer=False)
-        self.assertArrayEqual(w(), x * 2)
+
+        trans = tx.Transpose(t, n_units=3)
+        # using this or a module is practically the same (in this case) except we
+        # don't have to create the graph and then the module
+        w = tx.Wrap(trans, lambda layer: tx.Lambda(layer, fn=lambda x: x * 2))
+        w2 = w.reuse_with(x)
+
+        self.assertArrayEqual(w2(), t * 2)
         self.assertArrayEqual(w(x), t * 2)
+
+        self.assertArrayEqual(w(t), w())
+
+        self.assertArrayEqual(w.compute(t), tf.transpose(t) * 2)
+        self.assertArrayEqual(trans.compute(t), x)
+        self.assertArrayEqual(w2.compute(x), w2())
 
     def test_input(self):
         inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
@@ -359,9 +370,9 @@ class TestLayers(TestCase):
         rnn_3 = rnn_1.reuse_with(inputs,
                                  previous_state=tx.GRUCell.zero_state(rnn_1.n_units))
 
-        res1 = rnn_1.tensor()
-        res2 = rnn_2.tensor()
-        res3 = rnn_3.tensor()
+        res1 = rnn_1()
+        res2 = rnn_2()
+        res3 = rnn_3()
 
         self.assertEqual((batch_size, n_hidden), np.shape(res1))
         self.assertArrayEqual(res1, res3)
@@ -769,7 +780,7 @@ class TestLayers(TestCase):
         drop1 = tx.Dropout(x2, probability=0.5)
         drop2 = drop1.reuse_with(x1)
 
-        graph.eval(drop1,drop2)
+        graph.eval(drop1, drop2)
         #
         # d1, d2, d3 = drop1(),drop2(),drop3()
         #

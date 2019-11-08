@@ -218,7 +218,7 @@ class Layer(AutoTrackable):
             input_tensors = self.subgraph()
         else:
             input_layers = [as_layer(input_layer) for input_layer in input_layers]
-            input_tensors = Graph.eval(input_layers)
+            input_tensors = Graph.eval(*input_layers)
 
         return self.compute(*input_tensors)
 
@@ -286,10 +286,10 @@ class Layer(AutoTrackable):
             item_name = item.op.name
         else:
             item_name = str(item)
-        return WrapLayer(layer=self,
-                         n_units=self.n_units,
-                         fn=lambda tensor: tensor[item],
-                         name="{}_item_{}".format(self.name, item_name))
+        return Wrap(wrapped_layer=self,
+                    n_units=self.n_units,
+                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=lambda tensor: tensor[item]),
+                    name="{}_item_{}".format(self.name, item_name))
 
     # TODO REMOVE
     def tensor(self):
@@ -372,21 +372,12 @@ class ToSparse(Layer):
         super().__init__(input_layers=input_layer, n_units=input_layer.n_units, dtype=input_layer.dtype,
                          name=input_layer.name + "_sparse")
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        # there's no guarantee that input_layers have layer objects
-        input_layers = [as_layer(x) for x in input_layers]
-
-        input_layer = input_layers[0]
-        input_value = input_layer.compute()
-
+    def compute(self, input_tensor):
         with layer_scope(self):
-            if isinstance(input_value, tf.SparseTensor):
-                return input_value
+            if isinstance(input_tensor, tf.SparseTensor):
+                return input_tensor
             else:
-                return txf.to_sparse(input_value)
+                return txf.to_sparse(input_tensor)
 
     def reuse_with(self, input_layer):
         return ToSparse(input_layer)
@@ -404,28 +395,18 @@ class ToDense(Layer):
         super().__init__(input_layers=input_layer, n_units=input_layer.n_units, dtype=input_layer.dtype,
                          name=input_layer.name + "_dense")
 
-    # TODO should I return a list if it receives a list?
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        # there's no guarantee that input_layers have layer objects
-        input_layers = [as_layer(x) for x in input_layers]
-
-        input_layer = input_layers[0]
-        input_value = input_layer.compute()
-
+    def compute(self, input_tensor):
         with layer_scope(self):
-            if isinstance(input_value, tf.SparseTensor):
-                return tf.sparse.to_dense(input_value)
+            if isinstance(input_tensor, tf.SparseTensor):
+                return tf.sparse.to_dense(input_tensor)
             else:
-                return input_value
+                return input_tensor
 
     def reuse_with(self, input_layer):
         return ToDense(input_layer)
 
 
-class WrapLayer(Layer):
+class Wrap(Layer):
     """ Wraps another layer with tf code
 
     Utility layer used to wrap arbitrary layers with another tensorflow graph op
@@ -456,53 +437,51 @@ class WrapLayer(Layer):
 
 
     Attributes:
-        fn
-        apply_to_layer
+        wrap_fn
 
 
     Args:
-        layer: a `Layer` to be wrapped by this Layer
+        wrapped_layer: a `Layer` to be wrapped by this Layer
         n_units: the new number of units this layer will have
-        fn: a callable returning a `Tensor` or `SparseTensor`
+        wrap_fn: a callable returning a `Layer`
         name: name for this layer, defaults to wrap_[layer]
-        apply_to_layer: if False applies the fn to the layer tensor outputs
-        if false applies to the layer itself. if False applies to the layer itself and expects
-        the output to be a tensor.
-
-
-
     """
 
-    def __init__(self, layer, fn, n_units=None, forward_attributes=None, name="wrap", apply_to_layer=False):
-        self.apply_to_layer = apply_to_layer
-        self.fn = fn
-        self.layer = layer
+    def __init__(self, wrapped_layer, wrap_fn, n_units=None, forward_attributes=None, name="wrap"):
+        self.wrap_fn = wrap_fn
+        self.wrapped = wrapped_layer
         self.n_units = n_units
         self.forward_attributes = as_list(forward_attributes)
 
         for attr in self.forward_attributes:
-            if hasattr(layer, attr):
-                setattr(self, attr, getattr(layer, attr))
+            if hasattr(wrapped_layer, attr):
+                setattr(self, attr, getattr(wrapped_layer, attr))
 
         if name == "wrap":
-            name = "wrap_{}".format(layer.name)
+            name = "wrap_{}".format(wrapped_layer.name)
 
-        super().__init__(input_layers=layer, n_units=n_units, dtype=layer.dtype, name=name)
+        super().__init__(input_layers=wrapped_layer.input_layers,
+                         n_units=n_units,
+                         dtype=wrapped_layer.dtype,
+                         name=name)
+
+    def init_state(self):
+        state = super().init_state()
+        with layer_scope(self, name=self.name):
+            state.wrapped = self.wrapped
+            wrap = self.wrap_fn(self.wrapped)
+            # to make sure compute applies to the whole function
+            state.wrap = Module(inputs=self.wrapped.input_layers,
+                                output=wrap)
+        return state
 
     @property
     def variables(self):
-        return self.layer.variables
+        return self.layer_state.wrap.variables
 
-    def compute(self, *input_layers):
-        wrapped_layer = self.input_layers[0]
-
-        if input_layers:
-            input_layers = [as_layer(x) for x in input_layers]
-            wrapped_layer = wrapped_layer.reuse_with(*input_layers)
-
+    def compute(self, *inputs):
         with layer_scope(self, name=self.name):
-            fn_inputs = wrapped_layer() if not self.apply_to_layer else wrapped_layer
-            output = self.fn(fn_inputs)
+            output = self.wrap.compute(*inputs)
             dtype = output.dtype if not isinstance(output, tf.Operation) else None
             fn_n_units = output.get_shape().as_list()[-1]
 
@@ -514,7 +493,7 @@ class WrapLayer(Layer):
             if dtype != self.dtype:
                 self.dtype = dtype
 
-            return output
+        return output
 
     def reuse_with(self, *layers, name=None):
         """ Reuse with a different input layer
@@ -522,22 +501,21 @@ class WrapLayer(Layer):
             Calls reuse with on the wrapped layer and then creates a new wrapped layer
             around it, using the current tensor function.
         """
-        new_wrapped = self.input_layers[0].reuse_with(*layers)
+        new_wrapped = self.wrapped.reuse_with(*layers)
 
         # forward any previous attributes if we're wrapping over other WrapLayer instances
         attr_fwd = self.forward_attributes
-        if isinstance(new_wrapped, WrapLayer):
+        if isinstance(new_wrapped, Wrap):
             attr_fwd += new_wrapped.forward_attributes
 
         if name is None:
             name = self.name
 
-        return WrapLayer(layer=new_wrapped,
-                         n_units=self.n_units,
-                         fn=self.fn,
-                         forward_attributes=attr_fwd,
-                         name=name,
-                         apply_to_layer=self.apply_to_layer)
+        return Wrap(wrapped_layer=new_wrapped,
+                    n_units=self.n_units,
+                    wrap_fn=self.wrap_fn,
+                    forward_attributes=attr_fwd,
+                    name=name)
 
 
 class Input(Layer):
@@ -2395,18 +2373,18 @@ class Lookup(Layer):
             return tf.reshape(x, new_shape)
 
         # TODO check if wrap layer can infer n_units
-        return WrapLayer(self,
-                         n_units=None,
-                         fn=concat_fn,
-                         forward_attributes=["weights", "bias", "seq_size"],
-                         name="concat")
+        return Wrap(self,
+                    n_units=None,
+                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=concat_fn),
+                    forward_attributes=["weights", "bias", "seq_size"],
+                    name="concat")
 
     def permute_batch_time(self):
-        return WrapLayer(layer=self,
-                         n_units=self.n_units,
-                         fn=lambda x: tf.transpose(x, [1, 0, 2]),
-                         forward_attributes=["weights", "bias", "seq_size"],
-                         name="permute_batch_time")
+        return Wrap(wrapped_layer=self,
+                    n_units=self.n_units,
+                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=lambda x: tf.transpose(x, [1, 0, 2])),
+                    forward_attributes=["weights", "bias", "seq_size"],
+                    name="permute_batch_time")
 
     def reuse_with(self, input_layer, name=None):
         """ Reuses the current layer on a different input.
@@ -3050,7 +3028,7 @@ __all__ = [
     "Input",
     "Tensor",
     "Param",
-    "WrapLayer",
+    "Wrap",
     "VariableLayer",
     "Transpose",
     "Reshape",
