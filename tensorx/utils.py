@@ -279,7 +279,7 @@ class Graph:
 
         # requires outer access to layers var
         for x in other_inputs:
-            other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"].compute()")
+            other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"]()")
 
         other_str = "\n".join(other_str) + "\n" if other_str else ""
 
@@ -294,7 +294,7 @@ class Graph:
             name = node_map[current_node]
             next_nodes = dict.fromkeys(graph.edges_in[current_node])
             in_args = ", ".join([node_map[node] for node in next_nodes])
-            compute_str.append(f"\t{name} = layers[\"{name}\"].compute({in_args})")
+            compute_str.append(f"\t{name} = layers[\"{name}\"]({in_args})")
 
         compute_str = "\n".join(compute_str)
 

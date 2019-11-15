@@ -60,9 +60,9 @@ class TestLayers(TestCase):
         self.assertIs(linear.bias, linear2.bias)
 
         # with eager we can do this in the tests
-        self.assertArrayEqual(linear.compute() * 2, linear2.compute())
+        self.assertArrayEqual(linear() * 2, linear2())
         # in alternative to
-        # self.assertTrue(np.array_equal(linear.compute().numpy()*2, linear2.compute().numpy())
+        # self.assertTrue(np.array_equal(linear().numpy()*2, linear2().numpy())
 
     def test_linear_rank3(self):
         x = tx.Input([[[1], [1]], [[2], [2]]], dtype=tf.float32)
@@ -83,10 +83,10 @@ class TestLayers(TestCase):
             pass
 
         linear_flat = linear1.reuse_with(x_flat)
-        linear_flat = tx.Reshape(linear_flat, x.compute().get_shape().as_list()[:-1] + [2])
+        linear_flat = tx.Reshape(linear_flat, x().get_shape().as_list()[:-1] + [2])
 
-        self.assertTrue(np.array_equal(linear1.compute(), linear_flat.compute()))
-        self.assertTrue(np.array_equal(tf.shape(linear2.compute()), [1, 2, 1]))
+        self.assertTrue(np.array_equal(linear1(), linear_flat()))
+        self.assertTrue(np.array_equal(tf.shape(linear2()), [1, 2, 1]))
 
     def test_dynamic_input_graph(self):
         x = tx.Input(tf.zeros([2, 2]), n_units=2, constant=False)
@@ -144,8 +144,8 @@ class TestLayers(TestCase):
             pass
         inputs.value = np.ones([2, 4])
         self.assertIsNotNone(inputs.value)
-        self.assertIsNotNone(inputs.compute())
-        self.assertEqual(inputs.compute().dtype, tf.int32)
+        self.assertIsNotNone(inputs())
+        self.assertEqual(inputs().dtype, tf.int32)
 
         # test sparse input
         inputs = tx.Input(n_units=4, n_active=2, dtype=tf.int64, constant=False)
@@ -158,12 +158,12 @@ class TestLayers(TestCase):
 
         inputs.value = [[0, 2]]
         # create an equivalent sparse input
-        sp_input = inputs.compute()
+        sp_input = inputs()
         self.assertIsInstance(sp_input, tf.SparseTensor)
         inputs2 = tx.Input(n_units=4, value=sp_input)
 
-        dense_value = tf.sparse.to_dense(inputs.compute())
-        dense_value2 = tf.sparse.to_dense(inputs2.compute())
+        dense_value = tf.sparse.to_dense(inputs())
+        dense_value2 = tf.sparse.to_dense(inputs2())
         expected = np.array([[1, 0, 1, 0]], dtype=np.float32)
         self.assertTrue(np.array_equal(expected, dense_value))
         self.assertTrue(np.array_equal(dense_value, dense_value2))
@@ -175,7 +175,7 @@ class TestLayers(TestCase):
         # print(var_layer.tensor())
 
         init_value = var_layer.variable.numpy()
-        after_update = var_layer.compute().numpy()
+        after_update = var_layer().numpy()
 
         self.assertArrayNotEqual(init_value, after_update)
         self.assertArrayEqual(after_update, var_layer.variable.numpy())
@@ -194,11 +194,11 @@ class TestLayers(TestCase):
         input_layer.value = data1
         self.assertEqual(layer_once.counter.numpy(), 0)
         input_layer.value = data2
-        y1 = layer_once.compute()
+        y1 = layer_once()
         self.assertEqual(layer_once.counter.numpy(), 1)
         self.assertTrue(np.array_equal(layer_once.variable.value(), y1))
         input_layer.value = data3
-        y2 = layer_once.compute()
+        y2 = layer_once()
         self.assertEqual(layer_once.counter.numpy(), 1)
         self.assertTrue(np.array_equal(y1, y2))
         self.assertTrue(np.array_equal(y1, layer_once.variable.value()))
@@ -206,12 +206,12 @@ class TestLayers(TestCase):
         # dynamic var layer
         input_layer.value = data1
         self.assertEqual(layer_var.counter.numpy(), 0)
-        y1 = layer_var.compute()
+        y1 = layer_var()
         self.assertEqual(layer_var.counter.numpy(), 1)
         self.assertTrue(np.array_equal(layer_var.variable.value(), y1))
 
         input_layer.value = data2
-        y2 = layer_var.compute()
+        y2 = layer_var()
         self.assertEqual(layer_var.counter.numpy(), 2)
         self.assertFalse(np.array_equal(y1, y2))
 
@@ -223,17 +223,17 @@ class TestLayers(TestCase):
         var2 = var1.reuse_with(input_layer)
         var3 = var1.reuse_with(input_layer2)
 
-        v0 = var1.compute()
-        v1 = var2.compute()
+        v0 = var1()
+        v1 = var2()
         self.assertFalse(np.array_equal(v0, v1))
 
         # v0 inner variable changed when we evaluate v1
-        v2 = var1.compute()
+        v2 = var1()
         self.assertFalse(np.array_equal(v0, v1))
 
-        v3 = var3.compute()
+        v3 = var3()
         self.assertFalse(np.array_equal(v2, v3))
-        v4 = var1.compute()
+        v4 = var1()
         self.assertTrue(np.array_equal(v3, v4))
 
         # variable batch dimension is dynamic its shape will be different
@@ -242,7 +242,7 @@ class TestLayers(TestCase):
 
     def test_standalone_variable_layer(self):
         var_layer = tx.VariableLayer(shape=[10])
-        self.assertTrue(np.array_equal(np.zeros([10]), var_layer.compute()))
+        self.assertTrue(np.array_equal(np.zeros([10]), var_layer()))
 
     def test_module_reuse_order(self):
         x1 = tx.Input([[2.]], n_units=1, name="x1")
@@ -278,9 +278,9 @@ class TestLayers(TestCase):
         with tf.name_scope("module_reuse"):
             m2 = m.reuse_with(in2, in3, in1)
 
-        self.assertTrue(np.array_equal(m.compute(), m2.compute()))
+        self.assertTrue(np.array_equal(m(), m2()))
         in2.value = [[3]]
-        self.assertFalse(np.array_equal(m.compute(), m2.compute()))
+        self.assertFalse(np.array_equal(m(), m2()))
 
     def test_rnn_cell(self):
         n_inputs = 4
@@ -291,7 +291,7 @@ class TestLayers(TestCase):
 
         rnn_1 = tx.RNNCell(inputs, n_hidden)
 
-        rnn_2 = rnn_1.reuse_with(inputs, rnn_1.state[0].compute())
+        rnn_2 = rnn_1.reuse_with(inputs, rnn_1.state[0]())
         rnn_3 = rnn_1.reuse_with(inputs)
 
         try:
@@ -300,9 +300,9 @@ class TestLayers(TestCase):
         except TypeError:
             pass
 
-        res1 = rnn_1.compute()
-        res2 = rnn_2.compute()
-        res3 = rnn_3.compute()
+        res1 = rnn_1()
+        res2 = rnn_2()
+        res3 = rnn_3()
 
         self.assertEqual((batch_size, n_hidden), np.shape(res1))
         self.assertTrue(np.array_equal(res1, res3))
@@ -327,7 +327,7 @@ class TestLayers(TestCase):
         rnn4 = rnn1.reuse_with(inputs2, previous_state=None, regularized=False)
         rnn5 = rnn4.reuse_with(inputs2, previous_state=None, regularized=True)
 
-        r1, r2, r3, r4, r5 = rnn1.compute(), rnn2.compute(), rnn3.compute(), rnn4.compute(), rnn5.compute()
+        r1, r2, r3, r4, r5 = rnn1(), rnn2(), rnn3(), rnn4(), rnn5()
         # w is a linear layer from the input but a regularized layer applies dropout to the input, so we have a dropout
         # in between
 
@@ -391,8 +391,8 @@ class TestLayers(TestCase):
 
         m2 = gate_module.reuse_with(x3, x4)
 
-        result1 = gate_module.compute()
-        result2 = m2.compute()
+        result1 = gate_module()
+        result2 = m2()
         result3 = gate_module.compute(x3, x4)
 
         self.assertArrayEqual(result1, result2 * 2)
@@ -412,7 +412,7 @@ class TestLayers(TestCase):
         # previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
         # rnn3 = rnn1.reuse_with(inputs, previous_state=previous_state)
 
-        res1 = rnn1.compute()
+        res1 = rnn1()
         # res2 = rnn2.tensor()
         # res3 = rnn3.tensor()
 

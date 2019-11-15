@@ -2046,15 +2046,24 @@ class RNNCell(BaseRNNCell):
 
         return layer_state
 
-    def compute(self, input_layer=None, previous_state=None):
+    def compute(self, input_layer, *previous_state):
 
-        if previous_state and len(previous_state) != len(self.state_size):
-            raise ValueError(f"previous state:\n"
-                             f"\thas {len(previous_state)} elements\n"
-                             f"\texpected {self.state_size}")
+        # I don't think we need to test this here, I should also remove any verifications from other compute functions
+        # all verification should be done at input time, any layer that allows for dynamic inputs should document that
+        # if previous_state and len(previous_state) != len(self.state_size):
+        #     raise ValueError(f"previous state:\n"
+        #                      f"\thas {len(previous_state)} elements\n"
+        #                      f"\texpected {self.state_size}")
 
-        input_layer = self.input_layers[0] if input_layer is None else input_layer
-        previous_state = self.previous_state if previous_state is None else tuple(as_list(previous_state))
+        # input_layer = self.input_layers[0] if input_layer is None else input_layer
+        # previous_state = self.previous_state if previous_state is None else tuple(as_list(previous_state))
+
+        # TODO problem with previous state when this might be a tuple
+        # since this might be a tuple and we know how many inputs the layer has
+        # we just need to get the previous state that is based on possible multiple arguments
+        # the code is cleaner as well
+
+        # previous_state = tuple(as_list(previous_state))
         output = self.output.compute(previous_state[0], input_layer)
 
         return output
