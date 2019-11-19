@@ -405,20 +405,23 @@ class TestLayers(TestCase):
 
         inputs = tx.Input(np.ones([batch_size, n_inputs], np.float32), n_units=n_inputs, constant=True)
         rnn1 = tx.LSTMCell(inputs, n_hidden, gate_activation=tf.sigmoid)
-        previous_state = (None, rnn1.state[-1].tensor())
+        previous_state = (None, rnn1.state[-1]())
         rnn2 = rnn1.reuse_with(inputs, previous_state=previous_state)
 
         # if we don't wipe the memory it reuses it
-        # previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
-        # rnn3 = rnn1.reuse_with(inputs, previous_state=previous_state)
+        previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
+        rnn3 = rnn1.reuse_with(inputs, previous_state=previous_state)
+        rnn4 = rnn1.reuse_with(inputs)
 
         res1 = rnn1()
-        # res2 = rnn2.tensor()
-        # res3 = rnn3.tensor()
+        res2 = rnn2()
+        res3 = rnn3()
+        res4 = rnn4()
 
-        # self.assertEqual((batch_size, n_hidden), np.shape(res1))
-        # self.assertArrayEqual(res1, res3)
-        # self.assertArrayNotEqual(res1, res2)
+        self.assertEqual((batch_size, n_hidden), np.shape(res1))
+        self.assertArrayEqual(res1, res3)
+        self.assertArrayNotEqual(res1, res2)
+        self.assertArrayEqual(res1, res4)
 
     def test_lstm_cell_regularization(self):
 

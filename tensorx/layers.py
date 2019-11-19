@@ -2064,6 +2064,7 @@ class RNNCell(BaseRNNCell):
         # the code is cleaner as well
 
         # previous_state = tuple(as_list(previous_state))
+        print(f"prev, state {previous_state}")
         output = self.output.compute(previous_state[0], input_layer)
 
         return output
@@ -2812,10 +2813,9 @@ class LSTMCell(BaseRNNCell):
         self.state = [state, memory_state]
         return layer_state
 
-    def compute(self, input_layer=None, previous_state=None):
-        input_layer = self.input_layers[0] if input_layer is None else input_layer
-        previous_h, previous_memory = self.previous_state if previous_state is None else previous_state
-
+    def compute(self, input_layer, *previous_state):
+        # input_layer = self.input_layers[0] if input_layer is None else input_layer
+        previous_h, previous_memory = previous_state
         output = self.output.compute(input_layer, previous_h, previous_memory)
         return output
 
