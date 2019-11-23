@@ -385,6 +385,9 @@ class Graph:
 
         return tuple(map(lambda x: result_cache[x], self.out_nodes))
 
+    def compute(self, *input_values):
+        return self.__call__(*input_values)
+
     @classmethod
     def eval(cls, *layers):
         graph = Graph.build(inputs=None, outputs=layers)

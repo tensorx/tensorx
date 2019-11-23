@@ -256,10 +256,14 @@ class TestLayers(TestCase):
 
         x1_ = tx.Tensor([[2.]], name="x1b")
         x2_ = tx.Tensor([[2.]], name="x2b")
+        x3_ = tx.Tensor([[1.]], name="x2b")
 
         m2 = m.reuse_with(x1_, x2_)
 
-        self.assertArrayEqual(m(), m2())
+        m1 = m()
+        m2 = m2()
+
+        self.assertArrayEqual(m1, m2)
 
     def test_module(self):
         l1 = tx.Input([[1]], n_units=1, dtype=tf.float32)
@@ -289,10 +293,13 @@ class TestLayers(TestCase):
 
         inputs = tx.Input(tf.ones([batch_size, n_inputs]))
 
-        rnn_1 = tx.RNNCell(inputs, n_hidden)
+        rnn1 = tx.RNNCell(inputs, n_hidden)
 
-        rnn_2 = rnn_1.reuse_with(inputs, rnn_1.state[0]())
-        rnn_3 = rnn_1.reuse_with(inputs)
+        state = rnn1.state
+        state = state[0]()
+
+        rnn_2 = rnn1.reuse_with(inputs, state)
+        rnn_3 = rnn1.reuse_with(inputs)
 
         try:
             tx.RNNCell(inputs, n_hidden, share_state_with=inputs)
@@ -300,7 +307,9 @@ class TestLayers(TestCase):
         except TypeError:
             pass
 
-        res1 = rnn_1()
+        print(rnn1)
+        res1 = rnn1()
+        print(res1)
         res2 = rnn_2()
         res3 = rnn_3()
 
@@ -467,6 +476,34 @@ class TestLayers(TestCase):
         w2, w3 = rnn2.w_c, rnn3.w_c
         self.assertArrayEqual(w2, w3)
 
+    def test_lstm_cell_state(self):
+        n_inputs = 8
+        n_hidden = 2
+        batch = 3
+
+        x = tf.ones([batch, n_inputs], dtype=tf.float32)
+
+        cell = tx.LSTMCell(x, n_hidden,
+                           u_dropconnect=0.1,
+                           w_dropconnect=0.1,
+                           name="cell")
+
+        state = cell.previous_state
+        state = [s() for s in state]
+
+        print(f"prev state: {state}")
+
+        state = tx.Graph.build(inputs=None,
+                               outputs=cell.state)
+
+        print(state.in_nodes)
+
+        x = tf.random.uniform([batch, n_inputs])
+        s = state.compute(x)
+        print(s)
+        s_ = state.compute(x, *s)
+        print(s_)
+
     def test_rnn_layer(self):
         n_features = 5
         embed_size = 4
@@ -481,14 +518,16 @@ class TestLayers(TestCase):
         ones_state = tf.ones([batch_size, hdim])
         zero_state = (tf.zeros([batch_size, hdim]))
 
-        def rnn_proto(x, **kwargs):
-            return tx.RNNCell(x, n_units=hdim, **kwargs)
+        rnn_proto = tx.RNNCell.proto(n_units=hdim)
 
         rnn1 = tx.RNN(seq, cell_proto=rnn_proto, previous_state=ones_state)
         rnn2 = rnn1.reuse_with(seq)
 
-        out1, last1 = rnn1.tensor()
-        out2, last2 = rnn2.tensor()
+        # TODO problem with RNN layer is that it uses modules that require
+        # all the params to output the right answer
+        # we need to supply the default values for the rest or all the inputs
+        out1, last1 = rnn1()
+        out2, last2 = rnn2()
 
         self.assertArrayEqual(out1, out2)
         self.assertArrayEqual(last1, last2)
@@ -546,10 +585,11 @@ class TestLayers(TestCase):
         self.assertEqual(len(zero_state0), 1)
         self.assertArrayEqual(zero_state0[0], np.zeros([1, hdim]))
 
-        # g = rnn1.compile_graph()
-        # run once get output and last state
         out1, state1 = rnn1()
+        # print(rnn1())
 
+        layers = tx.Graph.build(lstm1)
+        print()
         out2, state2, memory2 = lstm1()
 
         # state after single run

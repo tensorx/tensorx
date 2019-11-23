@@ -181,10 +181,10 @@ class Layer(AutoTrackable):
             self.__dict__.update(self.layer_state.__dict__)
 
         # save this for __call__
-        subgraph = Graph.build(inputs=None,
-                               outputs=self.input_layers)
+        input_graph = Graph.build(inputs=None,
+                                  outputs=self.input_layers)
 
-        self.subgraph = track.NoDependency(subgraph)
+        self.input_graph = track.NoDependency(input_graph)
 
     @property
     def trainable_variables(self):
@@ -215,7 +215,7 @@ class Layer(AutoTrackable):
 
     def __call__(self, *input_layers):
         if not input_layers:
-            input_tensors = self.subgraph()
+            input_tensors = self.input_graph()
         else:
             input_layers = [as_layer(input_layer) for input_layer in input_layers]
             input_tensors = Graph.eval(*input_layers)
@@ -1284,12 +1284,9 @@ class Module(Layer):
         for i, node in enumerate(self.graph.nodes):
             setattr(state, f"layer_{i}", node)
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            return self.output.compute()
-        else:
-            input_layers = [as_layer(x).compute() for x in input_layers]
-            return self.graph_compute(*input_layers)
+    def compute(self, *input_tensors):
+        # graph compute respects the input node order
+        return self.graph_compute(*input_tensors)
 
     def reuse_with(self, *layers, name=None):
         if name is None:
@@ -1401,12 +1398,7 @@ class DropConnect(ViewLayer):
 
         return self.layer_state
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        input_layer = as_layer(input_layers[0])
-
+    def compute(self, input_tensor):
         with layer_scope(self):
             weights = self.inner_layer.weights
             bias = self.inner_layer.bias
@@ -1426,7 +1418,7 @@ class DropConnect(ViewLayer):
                                                 return_mask=True)
                 # self.layer_state.bias_mask = b_mask
 
-            new_linear = Linear(input_layer,
+            new_linear = Linear(input_tensor,
                                 n_units=self.n_units,
                                 shared_weights=drop_w,
                                 shared_bias=drop_bias,
@@ -1435,7 +1427,7 @@ class DropConnect(ViewLayer):
             self.weights = new_linear.weights
             self.bias = new_linear.bias
 
-            return new_linear.compute()
+            return new_linear.compute(input_tensor)
 
     def reuse_with(self, layer, name=None, locked=None):
         new_layer = self.inner_layer.reuse_with(layer)
@@ -1797,13 +1789,20 @@ class RNN(Layer):
 
     def __init__(self,
                  input_seq,
-                 cell_proto: Callable[[Union[Layer, tf.Tensor]], BaseRNNCell],
                  previous_state=None,
+                 cell_proto: Callable[[Union[Layer, tf.Tensor]], BaseRNNCell] = None,
+                 n_units=None,
                  reverse=False,
                  regularized=False,
                  stateful=False,
                  share_state_with: Optional['RNN'] = None,
                  name="rnn_layer"):
+
+        if not cell_proto and not n_units:
+            raise ValueError("cell proto and n_units cannot both be None")
+        else:
+            if not cell_proto:
+                cell_proto = RNNCell.proto(n_units=n_units)
 
         self.cell_proto = cell_proto
         self.share_state_with = share_state_with
@@ -1815,7 +1814,7 @@ class RNN(Layer):
 
         # n_units and shape are set after the first cell is created
         super().__init__(input_layers=[input_seq] + as_list(previous_state),
-                         n_units=None,
+                         n_units=cell_proto.arg_dict["n_units"],
                          dtype=tf.float32,
                          name=name)
 
@@ -1824,37 +1823,30 @@ class RNN(Layer):
         input_seq = self.input_layers[0]
 
         with layer_scope(self):
-            if self.reverse:
-                i0 = tf.shape(input_seq)[0] - 1
-            else:
-                i0 = 0
-
-            x0 = Input(input_seq[i0], constant=True)
+            # TODO add input_dim to RNNCells for syntax sugar
+            # create dummy input which is used to init the cell init state
+            x0 = tf.ones_like(input_seq[0])
 
             if self.share_state_with is not None:
                 cell = self.share_state_with.cell
                 cell = cell.reuse_with(input_layer=x0,
-                                       previous_state=self.previous_state,
+                                       # previous_state=self.previous_state,
                                        regularized=self.regularized)
             else:
                 cell = self.cell_proto(x0, previous_state=self.previous_state)
                 if cell.regularized != self.regularized:
                     # create a new regularized cell if somehow the regularized parameter doesn't match the constructor
                     cell = cell.reuse_with(input_layer=x0,
-                                           previous_state=self.previous_state,
+                                           # previous_state=self.previous_state,
                                            regularized=self.regularized)
 
             layer_state.cell = cell
-            self.previous_state = cell.previous_state
+            # self.previous_state = cell.previous_state
             self.n_units = cell.n_units
 
         return layer_state
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-        input_seq = as_layer(input_layers[0]).compute()
-        cell = self.cell
+    def compute(self, input_seq, *prev_state):
 
         with layer_scope(self):
             seq_len = tf.shape(input_seq)[0]
@@ -1862,6 +1854,7 @@ class RNN(Layer):
                                       clear_after_read=False)
             input_ta = input_ta.unstack(input_seq)
             output_ta = tf.TensorArray(dtype=self.dtype, size=seq_len, tensor_array_name="outputs")
+            # state_ta = tf.TensorArray(dtype=self.dtype, size=seq_len, tensor_array_name="states")
 
             if self.reverse:
                 i0 = seq_len - 1
@@ -1872,46 +1865,53 @@ class RNN(Layer):
                 ii = i0 + 1
                 fi = seq_len
 
-            output_ta = output_ta.write(i0, cell.compute())
+            x0 = input_ta.read(i0)
+            output_ta = output_ta.write(i0, self.cell.compute(x0, *prev_state))
+            state = tuple([state_i.compute(x0, *prev_state) for state_i in self.cell.state])
+
+            # state_ta = state_ta.write(i0, state)
 
             def rnn_unroll(t, y, state):
                 xt = input_ta.read(t)
-                xt = Input(xt, constant=True)
-                c = cell.reuse_with(xt, previous_state=state)
+                # xt = Input(xt, constant=True)
+                c = self.cell.compute(xt, *state)
+                curr_state = tuple([state_i.compute(xt, *state) for state_i in self.cell.state])
 
-                y = y.write(t, c())
+                y = y.write(t, c)
+                # s = s.write(t, curr_state)
                 if self.reverse:
                     t = t - 1
                 else:
                     t = t + 1
-                return t, y, c.state
+                return t, y, curr_state
 
             i, out, last_state = tf.while_loop(cond=lambda t, *_: tf.math.not_equal(t, fi),
-                                               body=rnn_unroll,
-                                               loop_vars=(ii, output_ta, cell.state),
-                                               name="rnn_unroll",
-                                               parallel_iterations=1)
+                                                       body=rnn_unroll,
+                                                       # loop_vars=(ii, output_ta, self.cell.state),
+                                                       loop_vars=(ii, output_ta, state),
+                                                       name="rnn_unroll",
+                                                       parallel_iterations=1)
 
             # getting the results stores them in the previous state
             if self.stateful:
                 # TODO fix this zero state assign
                 # this is no longer necessary because we can assign directly
                 # with zero_state.variable.assign(last_state)
-                # for zero_state in cell.previous_state:
 
-                updates = [
-                    zero_state.reuse_with(last_state, init_from_input=False).tensor()
-                    for zero_state, last_state in zip(cell.previous_state, last_state)
-                ]
+                for zero_state, last_state in zip(self.cell.previous_state, last_state):
+                    zero_state.variable.assign(last_state)
 
-                # TODO unnecessary because assigns are done when we call tensor
+                # updates = [
+                #     zero_state.reuse_with(last_state, init_from_input=False)()
+                #         for zero_state, last_state in zip(self.cell.previous_state, last_state)
+                # ]
                 # with tf.control_dependencies(updates):
                 out = out.stack()
             else:
                 out = out.stack()
 
             # since the loop outputs a state which is a list
-            return [out] + last_state
+            return out, last_state
 
     def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, stateful=None, name=None):
         name = self.name if name is None else None
@@ -1922,9 +1922,9 @@ class RNN(Layer):
         stateful = self.stateful if stateful is None else stateful
 
         return RNN(input_seq=input_seq,
+                   previous_state=previous_state,
                    cell_proto=self.cell_proto,
                    regularized=regularized,
-                   previous_state=previous_state,
                    stateful=stateful,
                    reverse=reverse,
                    share_state_with=share_state_with,
@@ -1969,7 +1969,7 @@ class RNNCell(BaseRNNCell):
 
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
-                         state_size=None,
+                         state_size=[n_units],
                          n_units=n_units,
                          activation=activation,
                          dtype=tf.float32,
@@ -2029,7 +2029,7 @@ class RNNCell(BaseRNNCell):
             output = Add(w, u)
             output = Activation(output, self.activation)
 
-            state = Module(inputs=[previous_state, input_layer],
+            state = Module(inputs=[input_layer, previous_state],
                            output=output,
                            name=self.name + "_h")
 
@@ -2037,12 +2037,12 @@ class RNNCell(BaseRNNCell):
                 if self.y_dropout is not None and self.y_dropout > 0:
                     output = self.y_reg(output)
 
-            output = Module(inputs=[previous_state, input_layer],
+            output = Module(inputs=[input_layer, previous_state],
                             output=output,
                             name=self.name + "_output")
 
             self.output = output
-            self.state = [state]
+            self.state = tuple([state])
 
         return layer_state
 
@@ -2064,8 +2064,7 @@ class RNNCell(BaseRNNCell):
         # the code is cleaner as well
 
         # previous_state = tuple(as_list(previous_state))
-        print(f"prev, state {previous_state}")
-        output = self.output.compute(previous_state[0], input_layer)
+        output = self.output.compute(input_layer, *previous_state)
 
         return output
 
@@ -2099,12 +2098,12 @@ class Gate(Layer):
                          dtype=tf.float32,
                          name=name)
 
-    def compute(self, input_layer=None, gate_input=None):
-        input_layer = input_layer if input_layer is not None else self.input_layers[0]
-        gate_input = gate_input if gate_input is not None else self.input_layers[1]
+    def compute(self, input_tensor=None, gate_tensor=None):
+        # input_layer = input_layer if input_layer is not None else self.input_layers[0]
+        # gate_input = gate_input if gate_input is not None else self.input_layers[1]
 
-        input_tensor = as_layer(input_layer).compute()
-        gate_tensor = as_layer(gate_input).compute()
+        # input_tensor = as_layer(input_layer).compute()
+        # gate_tensor = as_layer(gate_input).compute()
 
         with layer_scope(self):
             gate = self.gate_fn(gate_tensor)
@@ -2192,13 +2191,14 @@ class Lookup(Layer):
             weight_shape = self.shared_weights.get_shape().as_list()
             if self.embedding_shape != weight_shape:
                 raise ValueError(
-                    "shared weight shape {} and feature shape {} mismatch".format(weight_shape, lookup_shape))
+                    "shared weight shape {} and feature shape {} mismatch".format(weight_shape, self.embedding_shape))
 
         if self.shared_bias is not None:
             num_bias = self.shared_bias.get_shape().as_list()[-1]
             if self.embedding_shape[0] != num_bias:
                 raise ValueError(
-                    "number of bias {} and number of feature rows {} mismatch".format(num_bias, lookup_shape[0]))
+                    "number of bias {} and number of feature rows {} mismatch".format(num_bias,
+                                                                                      self.embedding_shape[0]))
 
         if self.share_state_with is not None:
             if not isinstance(self.share_state_with, Lookup):
@@ -2233,31 +2233,39 @@ class Lookup(Layer):
             layer_state.bias = bias
         return layer_state
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
+    def compute(self, input_tensor):
+        # if not input_layers:
+        #     input_layers = self.input_layers
 
-        input_layer = input_layers[0]
-        input_tensor = as_layer(input_layer).compute()
+        # input_layer = input_layers[0]
+        # input_tensor = as_layer(input_layer).compute()
 
         # Warn. this validation cannot be done without computing the input
+
         if isinstance(input_tensor, tf.SparseTensor) and self.seq_size is None:
             raise ValueError("cannot use unknown seq_size with sparse inputs")
 
-        if not isinstance(input_tensor, tf.SparseTensor) and input_layer.dtype not in (tf.int32, tf.int64):
+        if not isinstance(input_tensor, tf.SparseTensor) and input_tensor.dtype not in (tf.int32, tf.int64):
             raise TypeError("invalid input layer dtype {}: should be {} or {}".format(
-                input_layer.dtype,
+                input_tensor.dtype,
                 tf.int32,
                 tf.int64
             ))
 
-        if len(input_tensor.shape) > 2:
-            raise ValueError("expected 1D/2D input layer")
-        elif not isinstance(input_tensor, tf.SparseTensor) and input_layer.n_units is not None:
-            if self.seq_size is not None and input_layer.n_units > self.seq_size:
-                raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
-                                 "if n_units < seq_size the lookup will be padded".format(input_layer.n_units,
-                                                                                          self.seq_size))
+        try:
+            tf.assert_less(tf.rank(input_tensor), 3)
+        except tf.errors.InvalidArgumentError:
+            raise ValueError("expected 1D/2D input tensor")
+
+        if not isinstance(input_tensor, tf.SparseTensor):
+            shape = tf.shape(input_tensor)
+            if self.seq_size is not None:
+                try:
+                    tf.less_equal(shape[0], self.seq_size)
+                except tf.errors.InvalidArgumentError:
+                    raise ValueError("input layer n_units ({}) and seq_size ({}) should match for dense input layers \n"
+                                     "if n_units < seq_size the lookup will be padded".format(shape[-1],
+                                                                                              self.seq_size))
 
         with layer_scope(self):
             # batch size is unknown for sparse lookups
@@ -2332,9 +2340,10 @@ class Lookup(Layer):
                 output = tf.pad(output, padding)
             else:
                 # layer is dense
-                n_units = input_layer.n_units
-                if n_units is None:
-                    n_units = tf.shape(input_layer.tensor())[-1]
+                shape = tf.shape(input_tensor)
+                n_units = shape[-1]
+                # if n_units is None:
+                #     n_units = tf.shape(input_layer.tensor())[-1]
 
                 # input_tensor = tf.reshape(input_layer.tensor, tf.stack([-1, n_units]))
                 lookup_weights = tf.nn.embedding_lookup(params=self.weights,
@@ -2361,7 +2370,7 @@ class Lookup(Layer):
 
                 # pad to seq_size if se_size is specified
                 if self.seq_size is not None:
-                    seq_padding = tf.math.maximum(self.seq_size - input_layer.n_units, 0)
+                    seq_padding = tf.math.maximum(self.seq_size - n_units, 0)
                     padding.append([0, seq_padding])
                 else:
                     padding.append([0, 0])
@@ -2618,32 +2627,32 @@ class GRUCell(BaseRNNCell):
             candidate = Activation(Add(w_c, r_u_c, name="add_c"), fn=self.activation, name="candidate")
             output = CoupledGate(candidate, previous_h, Add(w_z, u_z, name="add_z"), name="output")
 
-            state = Module(inputs=[previous_h, input_layer],
+            state = Module(inputs=[input_layer, previous_h],
                            output=output,
                            name=self.name + "_h")
             if self.regularized:
                 if self.y_dropout is not None and self.y_dropout > 0:
                     output = self.y_reg(output)
 
-            output = Module(inputs=[previous_h, input_layer],
+            output = Module(inputs=[input_layer, previous_h],
                             output=output,
                             name=self.name + "_output")
 
             self.output = output
-            self.state = [state]
+            self.state = ([state])
 
         return layer_state
 
-    def compute(self, input_layer=None, previous_state=None):
-        if previous_state and len(previous_state) != len(self.state_size):
-            raise ValueError(f"previous state:\n"
-                             f"\thas {len(previous_state)} elements\n"
-                             f"\texpected {self.state_size}")
+    def compute(self, input_layer, *previous_state):
+        # if previous_state and len(previous_state) != len(self.state_size):
+        #     raise ValueError(f"previous state:\n"
+        #                      f"\thas {len(previous_state)} elements\n"
+        #                      f"\texpected {self.state_size}")
 
-        input_layer = self.input_layers[0] if input_layer is None else input_layer
-        previous_state = self.previous_state if previous_state is None else tuple(as_list(previous_state))
+        # input_layer = self.input_layers[0] if input_layer is None else input_layer
+        # previous_state = self.previous_state if previous_state is None else tuple(as_list(previous_state))
 
-        output = self.output.compute(previous_state[0], input_layer)
+        output = self.output.compute(input_layer, *previous_state)
         return output
 
     def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
@@ -2786,9 +2795,7 @@ class LSTMCell(BaseRNNCell):
                 memory_state = Add(memory_state, candidate, name="add_to_memory")
 
                 # wrap memory transformation with something that can be treated as a layer
-                memory_state = Module(inputs=[previous_memory,
-                                              previous_h,
-                                              input_layer],
+                memory_state = Module(inputs=[input_layer, previous_h, previous_memory],
                                       output=memory_state,
                                       name=self.name + "_memory")
 
@@ -2810,11 +2817,20 @@ class LSTMCell(BaseRNNCell):
                             name=self.name + "_output")
 
         self.output = output
-        self.state = [state, memory_state]
+        self.state = (state, memory_state)
         return layer_state
 
     def compute(self, input_layer, *previous_state):
-        # input_layer = self.input_layers[0] if input_layer is None else input_layer
+        """ compute layer value based on input `Tensor` values
+
+        Args:
+            input_layer: a `Tensor` or `Layer` input to the current cell
+            *previous_state: (previous_h, previous_memory)
+
+        Returns:
+            `Tensor`: a tensor with the cell's output
+
+        """
         previous_h, previous_memory = previous_state
         output = self.output.compute(input_layer, previous_h, previous_memory)
         return output
@@ -2918,21 +2934,22 @@ class Merge(Layer):
         with layer_scope(self):
             output = self.merge_fn(outputs)
 
-        # move validation to construction
-        # if self.n_units is None:
-        #     if len(tf.shape(output)) > 0:
-        #         self.n_units = tf.shape(output)[-1]
-        # elif self.n_units > 0:
-        #     if tf.shape(output)[-1] != self.n_units:
-        #         raise ValueError(
-        #             f"output n_units {tf.shape(output)[-1]} does not match n_units {self.n_units}")
-        #
-        # if self.dtype is None:
-        #     self.dtype = output.dtype
-        # else:
-        #     if self.dtype != output.dtype:
-        #         output = tf.cast(output, self.dtype)
-        output = tf.cast(output, self.dtype)
+            shape = tf.shape(output)
+
+            # if self.n_units is None:
+            #     if len(shape) > 0:
+            #         self.n_units = shape[-1]
+            # elif self.n_units > 0:
+            #     if shape[-1] != self.n_units:
+            #         raise ValueError(
+            #             f"output n_units {tf.shape(output)[-1]} does not match n_units {self.n_units}")
+
+            if self.dtype is None:
+                self.dtype = output.dtype
+            else:
+                if self.dtype != output.dtype:
+                    output = tf.cast(output, self.dtype)
+            output = tf.cast(output, self.dtype)
 
         return output
 
@@ -2975,6 +2992,8 @@ class Add(Merge):
             for tensor in tensors:
                 res = res + tensor
             return res
+
+        # merge_add = tf.add_n
 
         super().__init__(*layers, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
 
