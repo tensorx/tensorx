@@ -307,9 +307,7 @@ class TestLayers(TestCase):
         except TypeError:
             pass
 
-        print(rnn1)
         res1 = rnn1()
-        print(res1)
         res2 = rnn_2()
         res3 = rnn_3()
 
@@ -491,18 +489,12 @@ class TestLayers(TestCase):
         state = cell.previous_state
         state = [s() for s in state]
 
-        print(f"prev state: {state}")
-
         state = tx.Graph.build(inputs=None,
                                outputs=cell.state)
 
-        print(state.in_nodes)
-
         x = tf.random.uniform([batch, n_inputs])
         s = state.compute(x)
-        print(s)
         s_ = state.compute(x, *s)
-        print(s_)
 
     def test_rnn_layer(self):
         n_features = 5
@@ -524,8 +516,8 @@ class TestLayers(TestCase):
         rnn2 = rnn1.reuse_with(seq)
 
         # TODO problem with RNN layer is that it uses modules that require
-        # all the params to output the right answer
-        # we need to supply the default values for the rest or all the inputs
+        #  all the params to output the right answer
+        #  we need to supply the default values for the rest or all the inputs
         out1, last1 = rnn1()
         out2, last2 = rnn2()
 
@@ -573,24 +565,26 @@ class TestLayers(TestCase):
         lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
         seq = lookup.permute_batch_time()
 
-        def rnn_proto(x, **kwargs):
-            return tx.RNNCell(x, n_units=hdim, **kwargs)
+        rnn_proto = tx.RNNCell.proto(n_units=hdim)
 
         # print("slice", seq.tensor()[0])
         rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True)
         lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hdim), stateful=True)
 
-        zero_state0 = [layer.tensor() for layer in rnn1.previous_state]
+        zero_state0 = [layer() for layer in rnn1.previous_state]
 
         self.assertEqual(len(zero_state0), 1)
         self.assertArrayEqual(zero_state0[0], np.zeros([1, hdim]))
 
+        import logging
+        logging.getLogger("tensorx").setLevel(logging.DEBUG)
+
         out1, state1 = rnn1()
         # print(rnn1())
 
-        layers = tx.Graph.build(lstm1)
+        layers = tx.Graph.build(inputs=None, outputs=lstm1)
         print()
-        out2, state2, memory2 = lstm1()
+        out2, state2 = lstm1()
 
         # state after single run
         # zero_state1 = [layer.tensor() for layer in ]
@@ -834,6 +828,33 @@ class TestLayers(TestCase):
         #
         # self.assertArrayEqual(d1, d3)
         # self.assertArrayNotEqual(d1, d2)
+
+    def test_rnn_implementation(self):
+        from tensorflow.keras.layers import SimpleRNNCell
+        n_inputs = 3
+        n_units = 4
+        batch_size = 2
+        inputs = tx.Input(n_units=n_inputs)
+
+        rnn0 = tx.RNNCell(inputs, n_units)
+
+        # Keras RNN cell
+        rnn1 = SimpleRNNCell(n_units)
+        state = rnn1.get_initial_state(inputs, batch_size=1)
+        self.assertArrayEqual(state, rnn0.previous_state[0]())
+
+        inputs.value = tf.ones([batch_size, n_inputs])
+        res1 = rnn1(inputs, (state,))
+
+        rnn1.kernel = rnn0.layer_state.w.weights
+        rnn1.bias = rnn0.layer_state.w.bias
+        rnn1.recurrent_kernel = rnn0.layer_state.u.weights
+
+        res2 = rnn1(inputs, (state,))
+        self.assertArrayNotEqual(res1, res2)
+
+        res0 = rnn0()
+        self.assertArrayEqual(res2[0], res0)
 
 
 if __name__ == '__main__':

@@ -49,7 +49,8 @@ class LayerState(AutoTrackable):
                 v = state.layer_state.var_dict()
                 all_vars.update(v)
             elif isinstance(state, tf.Variable):
-                all_vars[attr] = state
+                # TODO Tensors are not hashable but this gets the object id
+                all_vars[state.experimental_ref()] = state
         return all_vars
 
     def __str__(self):
@@ -1285,7 +1286,6 @@ class Module(Layer):
             setattr(state, f"layer_{i}", node)
 
     def compute(self, *input_tensors):
-        # graph compute respects the input node order
         return self.graph_compute(*input_tensors)
 
     def reuse_with(self, *layers, name=None):
@@ -1841,13 +1841,15 @@ class RNN(Layer):
                                            regularized=self.regularized)
 
             layer_state.cell = cell
-            # self.previous_state = cell.previous_state
+            if self.previous_state is None:
+                self.previous_state = cell.previous_state
+                # if no previous state is provided we need to add it from current cell
+                self._input_layers += as_list(self.previous_state)
             self.n_units = cell.n_units
 
         return layer_state
 
     def compute(self, input_seq, *prev_state):
-
         with layer_scope(self):
             seq_len = tf.shape(input_seq)[0]
             input_ta = tf.TensorArray(dtype=input_seq.dtype, size=seq_len, tensor_array_name="inputs",
@@ -1871,41 +1873,32 @@ class RNN(Layer):
 
             # state_ta = state_ta.write(i0, state)
 
-            def rnn_unroll(t, y, state):
-                xt = input_ta.read(t)
-                # xt = Input(xt, constant=True)
-                c = self.cell.compute(xt, *state)
-                curr_state = tuple([state_i.compute(xt, *state) for state_i in self.cell.state])
+            def rnn_unroll(i, outputs, previous_state):
+                xt = input_ta.read(i)
+                c = self.cell.compute(xt, *previous_state)
+                curr_state = tuple([state_i.compute(xt, *previous_state) for state_i in self.cell.state])
 
-                y = y.write(t, c)
-                # s = s.write(t, curr_state)
+                outputs = outputs.write(i, c)
                 if self.reverse:
-                    t = t - 1
+                    i = i - 1
                 else:
-                    t = t + 1
-                return t, y, curr_state
+                    i = i + 1
+                return i, outputs, curr_state
 
-            i, out, last_state = tf.while_loop(cond=lambda t, *_: tf.math.not_equal(t, fi),
-                                                       body=rnn_unroll,
-                                                       # loop_vars=(ii, output_ta, self.cell.state),
-                                                       loop_vars=(ii, output_ta, state),
-                                                       name="rnn_unroll",
-                                                       parallel_iterations=1)
+            i, out, last_state = tf.while_loop(cond=lambda i, *_: tf.math.not_equal(i, fi),
+                                               body=rnn_unroll,
+                                               loop_vars=(ii, output_ta, state),
+                                               name="rnn_unroll",
+                                               parallel_iterations=1)
 
             # getting the results stores them in the previous state
             if self.stateful:
                 # TODO fix this zero state assign
                 # this is no longer necessary because we can assign directly
                 # with zero_state.variable.assign(last_state)
-
                 for zero_state, last_state in zip(self.cell.previous_state, last_state):
                     zero_state.variable.assign(last_state)
 
-                # updates = [
-                #     zero_state.reuse_with(last_state, init_from_input=False)()
-                #         for zero_state, last_state in zip(self.cell.previous_state, last_state)
-                # ]
-                # with tf.control_dependencies(updates):
                 out = out.stack()
             else:
                 out = out.stack()
