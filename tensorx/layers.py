@@ -2632,7 +2632,7 @@ class GRUCell(BaseRNNCell):
             r_uc = Gate(u_c, r, name="gated_previous")
             candidate = Activation(Add(w_c, r_uc, name="candidate"), fn=self.activation, name="candidate")
             z = Add(w_z, u_z, name="z")
-            # Note:
+
             #   (it's indifferent after training but) keras implementation is:
             #       h = z * prev_h + (1-z) * candidate
             #   and I had:
