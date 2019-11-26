@@ -829,32 +829,6 @@ class TestLayers(TestCase):
         # self.assertArrayEqual(d1, d3)
         # self.assertArrayNotEqual(d1, d2)
 
-    def test_rnn_implementation(self):
-        from tensorflow.keras.layers import SimpleRNNCell
-        n_inputs = 3
-        n_units = 4
-        batch_size = 2
-        inputs = tx.Input(n_units=n_inputs)
-
-        rnn0 = tx.RNNCell(inputs, n_units)
-
-        # Keras RNN cell
-        rnn1 = SimpleRNNCell(n_units)
-        state = rnn1.get_initial_state(inputs, batch_size=1)
-        self.assertArrayEqual(state, rnn0.previous_state[0]())
-
-        inputs.value = tf.ones([batch_size, n_inputs])
-        res1 = rnn1(inputs, (state,))
-
-        rnn1.kernel = rnn0.layer_state.w.weights
-        rnn1.bias = rnn0.layer_state.w.bias
-        rnn1.recurrent_kernel = rnn0.layer_state.u.weights
-
-        res2 = rnn1(inputs, (state,))
-        self.assertArrayNotEqual(res1, res2)
-
-        res0 = rnn0()
-        self.assertArrayEqual(res2[0], res0)
 
 
 if __name__ == '__main__':

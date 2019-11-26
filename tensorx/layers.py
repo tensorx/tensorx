@@ -1611,6 +1611,7 @@ class BaseRNNCell(Layer):
                  dtype=tf.float32,
                  w_init=tf.initializers.glorot_uniform(),
                  u_init=tf.initializers.glorot_uniform(),
+                 bias_init=tf.initializers.zeros(),
                  activation=tf.tanh,
                  w_dropconnect=None,
                  u_dropconnect=None,
@@ -1671,6 +1672,7 @@ class BaseRNNCell(Layer):
         self.y_dropout = y_dropout
         self.w_init = w_init
         self.u_init = u_init
+        self.bias_init = bias_init
         self.activation = activation
 
         # util class to apply regularizers or forward views
@@ -1753,6 +1755,7 @@ class BaseRNNCell(Layer):
             n_units=self.n_units,
             previous_state=previous_state,
             activation=self.activation,
+            bias_init=self.bias_init,
             share_state_with=share_state_with,
             w_dropconnect=self.w_dropconnect,
             u_dropconnect=self.u_dropconnect,
@@ -1950,6 +1953,7 @@ class RNNCell(BaseRNNCell):
                  activation=tf.tanh,
                  w_init=tf.initializers.glorot_uniform(),
                  u_init=tf.initializers.glorot_uniform(),
+                 bias_init=tf.initializers.zeros(),
                  share_state_with=None,
                  w_dropconnect=None,
                  u_dropconnect=None,
@@ -1965,6 +1969,7 @@ class RNNCell(BaseRNNCell):
                          state_size=[n_units],
                          n_units=n_units,
                          activation=activation,
+                         bias_init=bias_init,
                          dtype=tf.float32,
                          w_init=w_init,
                          u_init=u_init,
@@ -2519,6 +2524,7 @@ class GRUCell(BaseRNNCell):
                  gate_activation=tf.sigmoid,
                  w_init=tf.initializers.glorot_uniform(),
                  u_init=tf.initializers.glorot_uniform(),
+                 bias_init=tf.initializers.zeros(),
                  u_dropconnect=None,
                  w_dropconnect=None,
                  x_dropout=None,
@@ -2536,6 +2542,7 @@ class GRUCell(BaseRNNCell):
                          state_size=None,
                          n_units=n_units,
                          activation=activation,
+                         bias_init=bias_init,
                          dtype=tf.float32,
                          w_init=w_init,
                          u_init=u_init,
@@ -2669,6 +2676,7 @@ class LSTMCell(BaseRNNCell):
                  previous_state=None,
                  activation=tf.tanh,
                  gate_activation=tf.sigmoid,
+                 bias_init=tf.initializers.zeros(),
                  forget_bias_init=tf.initializers.ones(),
                  w_init=tf.initializers.glorot_uniform(),
                  u_init=tf.initializers.glorot_uniform(),
@@ -2692,6 +2700,7 @@ class LSTMCell(BaseRNNCell):
                          state_size=[n_units] * 2,
                          n_units=n_units,
                          activation=activation,
+                         bias_init=bias_init,
                          dtype=tf.float32,
                          w_init=w_init,
                          u_init=u_init,
@@ -2720,25 +2729,27 @@ class LSTMCell(BaseRNNCell):
 
             # create new weights
             if self.share_state_with is None:
-                # forget gate linear
-                # http://proceedings.mlr.press/v37/jozefowicz15.pdf bias forget = 1
-                w_f = Linear(input_layer, self.n_units, add_bias=True, bias_init=self.forget_bias_init, name="w_f")
-                u_f = Linear(previous_h, self.n_units, add_bias=False, name="u_f")
 
                 # input gate linear
-                w_i = Linear(input_layer, self.n_units, add_bias=True, name="w_i")
+                w_i = Linear(input_layer, self.n_units, add_bias=True, bias_init=self.bias_init, name="w_i")
                 u_i = Linear(previous_h, self.n_units, add_bias=False, name="u_i")
 
+                # forget gate linear
+                # http://proceedings.mlr.press/v37/jozefowicz15.pdf bias forget = 1
+                forget_bias_init = self.bias_init if self.forget_bias_init is None else self.forget_bias_init
+                w_f = Linear(input_layer, self.n_units, add_bias=True, bias_init=forget_bias_init, name="w_f")
+                u_f = Linear(previous_h, self.n_units, add_bias=False, name="u_f")
+
                 # candidate linear
-                w_c = Linear(input_layer, self.n_units, add_bias=True, name="w_c")
+                w_c = Linear(input_layer, self.n_units, add_bias=True, bias_init=self.bias_init, name="w_c")
                 u_c = Linear(previous_h, self.n_units, add_bias=False, name="u_c")
 
                 # output gate
-                w_o = Linear(input_layer, self.n_units, add_bias=True, name="w_o")
+                w_o = Linear(input_layer, self.n_units, add_bias=True, bias_init=self.bias_init, name="w_o")
                 u_o = Linear(previous_h, self.n_units, add_bias=False, name="u_o")
 
-                w = [w_f, w_i, w_c, w_o]
-                u = [u_f, u_i, u_c, u_o]
+                w = [w_i, w_f, w_c, w_o]
+                u = [u_i, u_f, u_c, u_o]
 
             else:
                 w = self.share_state_with.w
@@ -2752,8 +2763,8 @@ class LSTMCell(BaseRNNCell):
                 w = [wi.reuse_with(input_layer) for wi in w]
                 u = [ui.reuse_with(previous_h) for ui in u]
 
-                w_f, w_i, w_c, w_o = w
-                u_f, u_i, u_c, u_o = u
+                w_i, w_f, w_c, w_o = w
+                u_i, u_f, u_c, u_o = u
 
             # apply regularizers to weights
             if self.regularized:
@@ -2762,8 +2773,8 @@ class LSTMCell(BaseRNNCell):
                 if self.u_dropconnect is not None and self.u_dropconnect > 0:
                     u = self.u_reg(*u)
 
-                w_f, w_i, w_c, w_o = w
-                u_f, u_i, u_c, u_o = u
+                w_i, w_f, w_c, w_o = w
+                u_i, u_f, u_c, u_o = u
 
             layer_state.w_f = w_f
             layer_state.w_i = w_i
@@ -2795,22 +2806,24 @@ class LSTMCell(BaseRNNCell):
             with tf.name_scope("output"):
                 gate_o = Add(w_o, u_o, name="add_o")
                 output = Activation(memory_state, fn=self.activation, name="output")
-                state = Gate(output, gate_o, gate_fn=self.gate_activation, name="gated_output")
+                output = Gate(output, gate_o, gate_fn=self.gate_activation, name="gated_output")
 
+            h = Module(inputs=[input_layer, previous_h, previous_memory],
+                       output=output,
+                       name=self.name + "_h")
+
+            # when we use y_regularized we don't want to regularize the previous state
+            # when we reuse cells, only the output
             if self.regularized:
                 if self.y_dropout is not None and self.y_dropout > 0:
                     output = self.y_reg(output)
-
-            state = Module(inputs=[input_layer, previous_h, previous_memory],
-                           output=state,
-                           name=self.name + "_h")
 
             output = Module(inputs=[input_layer, previous_h, previous_memory],
                             output=output,
                             name=self.name + "_output")
 
         self.output = output
-        self.state = (state, memory_state)
+        self.state = (h, memory_state)
         return layer_state
 
     def compute(self, input_layer, *previous_state):
