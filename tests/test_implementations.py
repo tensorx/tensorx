@@ -9,7 +9,7 @@ import numpy as np
 
 import unittest
 from tensorx.test_utils import TestCase
-from tensorflow.keras.layers import SimpleRNNCell, LSTMCell
+from tensorflow.keras.layers import SimpleRNNCell, LSTMCell, GRUCell
 
 
 class MyTestCase(TestCase):
@@ -93,6 +93,65 @@ class MyTestCase(TestCase):
         res2 = lstm1(inputs, state0)
         self.assertArrayNotEqual(res1, res2)
         res0 = lstm0()
+        self.assertArrayEqual(res0, res2[0])
+
+    def test_gru_cell(self):
+        from tensorflow.keras.backend import dot
+        n_inputs = 3
+        n_units = 4
+        batch_size = 1
+        inputs = tx.Input(n_units=n_inputs)
+
+        gru0 = tx.GRUCell(inputs, n_units,
+                          activation=tf.tanh,
+                          gate_activation=tf.sigmoid)
+
+        # after applies gate after matrix multiplication and uses
+        # recurrent biases, this makes it compatible with cuDNN implementation
+        gru1 = GRUCell(n_units,
+                       activation='tanh',
+                       recurrent_activation='sigmoid',
+                       reset_after=False,
+                       implementation=1,
+                       use_bias=True)
+        try:
+            gru1.kernel
+        except AttributeError as e:
+            pass
+            # keras layers are not initialized without running for the first time
+
+        state0 = [s() for s in gru0.previous_state]
+        # Note: get_initial_state from keras returns either a tuple or a single
+        #  state see `test_rnn_cell`, but the __call__ API requires an iterable
+        state1 = gru1.get_initial_state(inputs, batch_size=1)
+
+        self.assertArrayEqual((state1,), state0)
+
+        inputs.value = tf.ones([batch_size, n_inputs])
+
+        res1 = gru1(inputs, state0)
+        res1_ = gru1(inputs, state0)
+
+        for r1, r2 in zip(res1, res1_):
+            self.assertArrayEqual(r1, r2)
+
+        # the only difference is that keras kernels are fused together
+        kernel = tf.concat([w.weights.value() for w in gru0.layer_state.w], axis=-1)
+        recurrent_kernel = tf.concat([u.weights for u in gru0.layer_state.u], axis=-1)
+        bias = tf.concat([w.bias for w in gru0.layer_state.w], axis=-1)
+
+        self.assertArrayEqual(tf.shape(kernel), tf.shape(gru1.kernel))
+        self.assertArrayEqual(tf.shape(recurrent_kernel), tf.shape(gru1.recurrent_kernel))
+        self.assertArrayEqual(tf.shape(bias), tf.shape(gru1.bias))
+
+        gru1.kernel = kernel
+        gru1.recurrent_kernel = recurrent_kernel
+        gru1.bias = bias
+
+        res2 = gru1(inputs, state0)
+        self.assertArrayNotEqual(res1, res2)
+        res0 = gru0()
+        res0_ = gru0.state[0]()
         self.assertArrayEqual(res0, res2[0])
 
 

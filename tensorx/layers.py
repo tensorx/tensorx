@@ -2466,32 +2466,13 @@ class CoupledGate(Layer):
                          dtype=tf.float32,
                          name=name)
 
-    def compute(self, layer1=None, layer2=None, gate_input=None):
-
-        layer1 = layer1 if layer1 is not None else self.input_layers[0]
-        layer2 = layer2 if layer2 is not None else self.input_layers[1]
-        gate_input = gate_input if gate_input is not None else self.input_layers[2]
-
-        input1 = as_layer(layer1).compute()
-        input2 = as_layer(layer2).compute()
-        gate_input = as_layer(gate_input).compute()
-
-        # TODO check where modules might loose shape when compiled and input to a gate
-        #   the bellow verification could not be done
-
-        # if input1.shape[-1] % input2.shape[-1] != 0:
-        #     raise ValueError("layers must have the same last dim: {}!={}".format(input1.shape, input2.shape))
-        #
-        # if input1.shape[-1] % gate_input.shape[-1] != 0:
-        #     raise ValueError("the n_units of the input layer {} is not a multiple of gate n_units {}".format(
-        #         input1.shape[-1], gate_input.shape[-1]))
-
+    def compute(self, tensor1, tensor2, gate_input):
         with layer_scope(self):
             gate1 = self.gate_fn(gate_input)
             gate2 = 1 - gate1
 
-            output1 = txf.apply_gate(input1, gate1)
-            output2 = txf.apply_gate(input2, gate2)
+            output1 = txf.apply_gate(tensor1, gate1)
+            output2 = txf.apply_gate(tensor2, gate2)
             output = tf.math.add(output1, output2)
 
             return output
@@ -2523,7 +2504,7 @@ class GRUCell(BaseRNNCell):
                  activation=tf.tanh,
                  gate_activation=tf.sigmoid,
                  w_init=tf.initializers.glorot_uniform(),
-                 u_init=tf.initializers.glorot_uniform(),
+                 u_init=tf.initializers.orthogonal(),
                  bias_init=tf.initializers.zeros(),
                  u_dropconnect=None,
                  w_dropconnect=None,
@@ -2536,6 +2517,8 @@ class GRUCell(BaseRNNCell):
                  name="gru_cell"):
 
         self.gate_activation = gate_activation
+        self.output = None
+        self.state = None
 
         super().__init__(input_layer=input_layer,
                          previous_state=previous_state,
@@ -2558,8 +2541,7 @@ class GRUCell(BaseRNNCell):
 
     def init_state(self):
         layer_state = super().init_state()
-        input_layer = self.input_layers[0]
-        previous_h = self.previous_state[0]
+        input_layer, previous_h = self.input_layers
 
         with layer_scope(self):
             if self.regularized:
@@ -2568,30 +2550,54 @@ class GRUCell(BaseRNNCell):
                 if self.r_dropout and self.r_dropout > 0:
                     previous_h = self.r_reg(previous_h)
 
-            # TODO
-            # if state init is delayed the condition has to be
-            # if getattr(layer_state,"w",None) is not None
-            # if getattr(layer_state,"u",None) is not None
-            # otherwise the else statement would throw an error if w and u where not initialized
             if self.share_state_with is None:
-                # reset gate
-                # forget / reset bias init to one http://proceedings.mlr.press/v37/jozefowicz15.pdf
-                w_r = Linear(input_layer, self.n_units, add_bias=True, bias_init=tf.initializers.ones(), name="w_r")
-                u_r = Linear(previous_h, self.n_units, add_bias=False, name="u_r")
+                # update gate kernel
+                w_z = Linear(input_layer,
+                             n_units=self.n_units,
+                             add_bias=True,
+                             bias_init=self.bias_init,
+                             weight_init=self.w_init,
+                             name="w_z")
+                u_z = Linear(previous_h,
+                             n_units=self.n_units,
+                             weight_init=self.u_init,
+                             add_bias=False,
+                             name="u_z")
 
-                w_c = Linear(input_layer, self.n_units, add_bias=True, weight_init=self.w_init, name="w_c")
-                u_c = Linear(previous_h, self.n_units, add_bias=False, weight_init=self.u_init, name="u_c")
+                # reset kernel
+                w_r = Linear(input_layer,
+                             n_units=self.n_units,
+                             add_bias=True,
+                             bias_init=self.bias_init,
+                             weight_init=self.w_init,
+                             name="w_r")
+                u_r = Linear(previous_h,
+                             n_units=self.n_units,
+                             add_bias=False,
+                             weight_init=self.u_init,
+                             name="u_r")
 
-                w_z = Linear(input_layer, self.n_units, add_bias=True, name="w_z")
-                u_z = Linear(previous_h, self.n_units, add_bias=False, name="u_z")
+                # output candidate kernel
+                w_c = Linear(input_layer,
+                             n_units=self.n_units,
+                             add_bias=True,
+                             bias_init=self.bias_init,
+                             weight_init=self.w_init,
+                             name="w_c")
+                u_c = Linear(previous_h,
+                             n_units=self.n_units,
+                             add_bias=False,
+                             bias_init=self.bias_init,
+                             weight_init=self.u_init,
+                             name="u_c")
 
-                w = [w_r, w_c, w_z]
-                u = [u_r, u_c, u_z]
+                w = [w_z, w_r, w_c]
+                u = [u_z, u_r, u_c]
             else:
                 w = self.share_state_with.layer_state.w
                 u = self.share_state_with.layer_state.u
 
-                # in case the layer with wich we share the state has a state wich is regularized
+                # in case the layer with which we share the state has a regularized state
                 # TODO store both regularized ViewLayers in the state and normal layers
                 # this way we can just retrieve the regularized state
                 if not self.regularized:
@@ -2601,8 +2607,8 @@ class GRUCell(BaseRNNCell):
                 w = [wi.reuse_with(input_layer) for wi in w]
                 u = [ui.reuse_with(previous_h) for ui in u]
 
-                w_r, w_c, w_z = w
-                u_r, u_c, u_z = u
+                w_z, w_r, w_c = w
+                u_z, u_r, u_c = u
 
             if self.regularized:
                 if self.w_dropconnect is not None and self.w_dropconnect > 0:
@@ -2610,10 +2616,9 @@ class GRUCell(BaseRNNCell):
                 if self.u_dropconnect is not None and self.u_dropconnect > 0:
                     u = self.u_reg(*u)
 
-                w_r, w_c, w_z = w
-                u_r, u_c, u_z = u
+                w_z, w_r, w_c = w
+                u_z, u_r, u_c = u
 
-            # TODO there has to be a more elegant way to update the namespace
             layer_state.w_r = w_r
             layer_state.w_c = w_c
             layer_state.w_z = w_z
@@ -2623,13 +2628,23 @@ class GRUCell(BaseRNNCell):
             layer_state.w = w
             layer_state.u = u
 
-            r_u_c = Gate(u_c, Add(w_r, u_r, name="add_r"), name="reset_gate")
-            candidate = Activation(Add(w_c, r_u_c, name="add_c"), fn=self.activation, name="candidate")
-            output = CoupledGate(candidate, previous_h, Add(w_z, u_z, name="add_z"), name="output")
+            r = Add(w_r, u_r, name="r")
+            r_uc = Gate(u_c, r, name="gated_previous")
+            candidate = Activation(Add(w_c, r_uc, name="candidate"), fn=self.activation, name="candidate")
+            z = Add(w_z, u_z, name="z")
+            # Note:
+            #   (it's indifferent after training but) keras implementation is:
+            #       h = z * prev_h + (1-z) * candidate
+            #   and I had:
+            #       h = z * candidate + (1-z) * prev_h
+            #       (CoupledGate(candidate,previous_h z, name="output")
+            #   but changed it to have comparable cells
+            output = CoupledGate(previous_h, candidate, z, name="output")
 
-            state = Module(inputs=[input_layer, previous_h],
-                           output=output,
-                           name=self.name + "_h")
+            h = Module(inputs=[input_layer, previous_h],
+                       output=output,
+                       name=self.name + "_h")
+
             if self.regularized:
                 if self.y_dropout is not None and self.y_dropout > 0:
                     output = self.y_reg(output)
@@ -2639,7 +2654,7 @@ class GRUCell(BaseRNNCell):
                             name=self.name + "_output")
 
             self.output = output
-            self.state = ([state])
+            self.state = tuple([h])
 
         return layer_state
 
