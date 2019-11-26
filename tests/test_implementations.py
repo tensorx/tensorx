@@ -96,7 +96,6 @@ class MyTestCase(TestCase):
         self.assertArrayEqual(res0, res2[0])
 
     def test_gru_cell(self):
-        from tensorflow.keras.backend import dot
         n_inputs = 3
         n_units = 4
         batch_size = 1
