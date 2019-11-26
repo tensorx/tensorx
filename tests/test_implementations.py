@@ -135,6 +135,7 @@ class MyTestCase(TestCase):
         for r1, r2 in zip(res1, res1_):
             self.assertArrayEqual(r1, r2)
 
+
         # the only difference is that keras kernels are fused together
         kernel = tf.concat([w.weights.value() for w in gru0.layer_state.w], axis=-1)
         recurrent_kernel = tf.concat([u.weights for u in gru0.layer_state.u], axis=-1)
