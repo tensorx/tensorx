@@ -48,6 +48,8 @@ class Graph:
         self.edges_in = dict()
         self.edges_out = dict()
 
+
+
     def add_node(self, node):
         if node not in self.nodes:
             self.nodes.add(node)
@@ -151,6 +153,7 @@ class Graph:
         """
         graph = Graph()
         inputs = dict.fromkeys(as_list(inputs))
+        graph.outputs = as_list(outputs)
         outputs = dict.fromkeys(as_list(outputs))
 
         # add terminals to the graph
@@ -247,7 +250,6 @@ class Graph:
             raise ValueError("can't compile an empty graph")
         ord_inputs = as_list(ord_inputs)
         ord_outputs = as_list(ord_outputs)
-
         ord_nodes = list(self.dependency_iter())
 
         input_set: set = set(graph.in_nodes)

@@ -221,11 +221,13 @@ class Layer(AutoTrackable):
 
     def __call__(self, *input_layers):
         if not input_layers:
-            input_tensors = self.input_graph()
+            ord_inputs = {out: i for i, out in enumerate(self.input_graph.out_nodes)}
+            results = self.input_graph()
+
+            input_tensors = tuple([results[ord_inputs[out]] for out in self.input_layers])
         else:
             input_layers = [as_layer(input_layer) for input_layer in input_layers]
             input_tensors = Graph.eval(*input_layers)
-
         return self.compute(*input_tensors)
 
     def as_function(self, input_signature=None):
@@ -3173,6 +3175,137 @@ class Conv1D(Layer):
                       share_state_with=share_state_with)
 
 
+class Attention(Layer):
+    """ Scaled Dot Product MultiHead Attention Layer
+
+    Args:
+        input_layer
+        n_units: output number of units, each attentio head has n_units // n_head units, meaning that n_units needs to
+        be a multiple of n_heads.
+
+    """
+
+    def __init__(self,
+                 query_layer,
+                 key_layer,
+                 value_layer,
+                 n_units=None,
+                 n_heads=1,
+                 attention_fn=tf.nn.softmax,
+                 causality=False,
+                 attention_dropout=0.0,
+                 regularized=False,
+                 name="attention",
+                 share_state_with=None):
+        self.n_heads = n_heads
+        n_units = query_layer.n_units if n_units is None else n_units
+        self.causality = causality
+        self.share_state_with = share_state_with
+        self.regularized = regularized
+        self.attention_dropout = attention_dropout
+        self.attention_fn = attention_fn
+
+        if n_units % n_heads != 0:
+            raise ValueError(
+                "The n_units {} is not a multiple of the number of attention "
+                "heads {}".format(self.n_units, n_heads))
+
+        self.head_units = n_units // n_heads
+        super().__init__(input_layers=[query_layer, key_layer, value_layer], n_units=n_units, name=name)
+
+    def init_state(self):
+        if self.share_state_with is not None:
+            if not isinstance(self.share_state_with, Attention):
+                raise TypeError("Layer can only share state with other layer of the same type")
+
+            layer_state = self.share_state_with.layer_state
+
+        else:
+            layer_state = super().init_state()
+
+        q, k, v = self.input_layers
+        h_dim = self.n_units
+
+        with layer_scope(self):
+            if self.share_state_with is None:
+                # (batch_size, t, n_units)
+                wq = Linear(q, n_units=h_dim, add_bias=False, name="wq")
+                wk = Linear(k, n_units=h_dim, add_bias=False, name="wk")
+                # TODO check this bias in implementation I was not using it in the previous
+                wv = Linear(v, n_units=h_dim, add_bias=True, name="wv")
+
+                layer_state.wq = wq
+                layer_state.wk = wk
+                layer_state.wv = wv
+            # else:
+            #     wq = layer_state.wq.reuse_with(q)
+            #     wk = layer_state.wq.reuse_with(k)
+            #     wv = layer_state.wq.reuse_with(v)
+
+        return layer_state
+
+    def compute(self, *input_tensors):
+
+        # (n_heads*batch_size, steps, n_units//n_heads)
+        def heads(w):
+            return tf.concat(tf.split(w, self.n_heads, axis=2), axis=0)
+
+        with layer_scope(self):
+            q, k, v = input_tensors
+
+            wq = self.wq.compute(q)
+            wk = self.wq.compute(k)
+            wv = self.wv.compute(v)
+
+            qh = heads(wq)
+            kh = heads(wk)
+            vh = heads(wv)
+
+            # attention scores from scaled dot product
+            dotprod = tf.matmul(qh, tf.transpose(kh, [0, 2, 1]))
+            dotprod /= self.n_units ** 0.5
+            output = dotprod
+
+            # mask information from the future
+            if self.causality:
+                diag_values = tf.ones_like(output[0, :, :])  # (tq, tk)
+                triangular = tf.linalg.LinearOperatorLowerTriangular(diag_values).to_dense()  # (tq, tk)
+                masks = tf.tile(tf.expand_dims(triangular, 0), [tf.shape(output)[0], 1, 1])  # (N, tq, tk)
+                # mask to - inf before softmax
+                padding = tf.ones_like(masks) * (-2 ** 32 + 1)
+                output = tf.where(tf.equal(masks, 0), padding, output)
+
+            scores = self.attention_fn(output)
+
+            if self.attention_dropout > 0 and self.regularized:
+                scores = txf.dropout(tensor=scores,
+                                     probability=self.attention_dropout,
+                                     scale=True,
+                                     name="dropout")
+
+            # weighted sum (context vectors) weighted by attention scores
+            context_vectors = tf.matmul(scores, vh)
+            # restore shape (batch_size, tq, n_units)
+            output = tf.concat(tf.split(context_vectors, self.n_heads, axis=0), axis=2)
+
+            return output
+
+    def reuse_with(self, query_layer, key_layer, value_layer, regularized=None, name=None):
+        regularized = self.regularized if regularized is None else regularized
+        name = self.name if name is None else name
+
+        return Attention(query_layer=query_layer,
+                         key_layer=key_layer,
+                         value_layer=value_layer,
+                         n_units=self.n_units,
+                         attention_fn=self.attention_fn,
+                         n_heads=self.n_heads,
+                         attention_dropout=self.attention_dropout,
+                         regularized=regularized,
+                         name=name,
+                         share_state_with=self)
+
+
 def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
     """ Converts a ``Tensor``,``SparseTensor`` or tensor convertible to a ``Layer``
 
@@ -3247,5 +3380,6 @@ __all__ = [
     "ToDense",
     "ToSparse",
     "Dropout",
-    "Conv1D"
+    "Conv1D",
+    "Attention"
 ]

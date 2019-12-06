@@ -854,6 +854,48 @@ class TestLayers(TestCase):
         self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
         self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
 
+    def test_multihead_attention(self):
+
+        n_features = 3
+        embed_size = 128
+        seq_size = 3
+        batch_size = 2
+        n_heads = 8
+
+        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+
+        attention = tx.Attention(query_layer=emb,
+                                 key_layer=emb,
+                                 value_layer=emb,
+                                 n_units=embed_size,
+                                 n_heads=n_heads,
+                                 causality=False,
+                                 attention_dropout=0.1,
+                                 regularized=False)
+
+        self.assertEqual(len(attention.input_layers), 3)
+
+        # 3 "kernels" + bias
+        self.assertEqual(len(attention.variables), 4)
+
+        attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
+        attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
+
+        result = attention()
+        result_reg = attention_reg()
+        result2 = attention_2()
+
+        self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
+        self.assertArrayEqual(result, result2)
+
+        vars1 = map(lambda v: v.experimental_ref(), attention.variables)
+        vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
+
+        self.assertSetEqual(set(vars1), set(vars2))
+
+        # TODO need to check reference implementation and add more tests
+
 
 if __name__ == '__main__':
     unittest.main()
