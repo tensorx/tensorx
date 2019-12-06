@@ -170,8 +170,9 @@ class Layer(AutoTrackable):
 
         self.attr_names = []
 
-        self.layer_state = None
-        self.init_state()
+        # self.layer_state = None
+        # self.init_state()
+        self.layer_state = self.init_state()
 
         # TODO I think referring to state explicitly should be the preferred way to
         #   access it but this is only a problem if a shared state changes somehow
@@ -186,6 +187,10 @@ class Layer(AutoTrackable):
                                   outputs=self.input_layers)
 
         self.input_graph = track.NoDependency(input_graph)
+
+    def init_state(self):
+        self.layer_state = LayerState(self)
+        return self.layer_state
 
     @property
     def trainable_variables(self):
@@ -246,10 +251,6 @@ class Layer(AutoTrackable):
         """
         # @tf.function(input_signature=(tf.TensorSpec(shape=[None], dtype=tf.int32),))
         return tf.function(self.__call__, input_signature)
-
-    def init_state(self):
-        self.layer_state = LayerState(self)
-        return self.layer_state
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -1073,10 +1074,10 @@ class Linear(Layer):
                 if not isinstance(self.share_state_with, Linear):
                     raise TypeError("Layer can only share variables with other layer of the same type")
 
-                self.layer_state = self.share_state_with.layer_state
+                layer_state = self.share_state_with.layer_state
 
                 shape = [input_layer.n_units, self.n_units]
-                shared_shape = self.layer_state.weights.get_shape().as_list()
+                shared_shape = layer_state.weights.get_shape().as_list()
                 if self.transpose_weights:
                     shared_shape = shared_shape[::-1]
 
@@ -1086,7 +1087,7 @@ class Linear(Layer):
                                      "self shape: {s0} different from "
                                      "other shape: {s1}".format(s0=shape, s1=shared_shape))
             else:
-                self.layer_state = super().init_state()
+                layer_state = super().init_state()
 
             # if weights are passed, check that their shape matches the layer shape
             if self.shared_weights is not None:
@@ -1114,7 +1115,7 @@ class Linear(Layer):
                         "invalid shared bias: number of bias {} does not match number of units {}".format(bias_shape[0],
                                                                                                           self.n_units))
 
-            weights = getattr(self.layer_state, "weights", self.shared_weights)
+            weights = getattr(layer_state, "weights", self.shared_weights)
             if weights is None:
                 init_value = self.weight_init(self.shape, dtype=self.dtype)
                 weights = tf.Variable(initial_value=init_value,
@@ -1122,19 +1123,21 @@ class Linear(Layer):
                                       dtype=self.dtype,
                                       name="weights")
 
-            if not hasattr(self.layer_state, "weights"):
-                self.layer_state.weights = weights
+            if not hasattr(layer_state, "weights"):
+                layer_state.weights = weights
 
-            bias = getattr(self.layer_state, "bias", self.shared_bias)
+            bias = getattr(layer_state, "bias", self.shared_bias)
             if self.add_bias:
                 if bias is None:
                     bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
                                        name="bias", trainable=True)
 
-            if not hasattr(self.layer_state, "bias"):
-                self.layer_state.bias = bias
+            if not hasattr(layer_state, "bias"):
+                layer_state.bias = bias
 
-    def compute(self, input_tensor: Tensor):
+        return layer_state
+
+    def compute(self, input_tensor):
         weights = self.layer_state.weights
 
         if input_tensor.dtype != weights.dtype:
@@ -1389,14 +1392,14 @@ class DropConnect(ViewLayer):
 
     def init_state(self):
         if self.share_state_with is not None:
-            self.layer_state = self.share_state_with.layer_state
+            layer_state = self.share_state_with.layer_state
         else:
-            self.layer_state = super().init_state()
-            self.layer_state.weight_mask = txf.binary_mask(self.inner_layer.weights, self.probability)
+            layer_state = super().init_state()
+            layer_state.weight_mask = txf.binary_mask(self.inner_layer.weights, self.probability)
             if self.inner_layer.bias is not None:
-                self.layer_state.bias_mask = txf.binary_mask(self.inner_layer.bias)
+                layer_state.bias_mask = txf.binary_mask(self.inner_layer.bias)
 
-        return self.layer_state
+        return layer_state
 
     def compute(self, input_tensor):
         with layer_scope(self):
@@ -1509,24 +1512,24 @@ class Dropout(Layer):
             return mask
 
         if self.share_state_with is None:
-            self.layer_state = super().init_state()
+            layer_state = super().init_state()
             if mask is not None:
-                self.layer_state.mask = mask
+                layer_state.mask = mask
             else:
                 with layer_scope(self):
                     if self.locked:
-                        self.layer_state.mask = random_mask(input_layer)
+                        layer_state.mask = random_mask(input_layer)
                     # else:
                     #    self.layer_state.mask = None
         else:
-            self.layer_state = self.share_state_with.layer_state
+            layer_state = self.share_state_with.layer_state
 
         # TODO usually we don't manipulate input_layers directly, but it might be needed in this case
         #  because the random mask is a new dependency on this layer
-        if hasattr(self.layer_state, "mask"):
-            self._input_layers.append(self.layer_state.mask)
+        if hasattr(layer_state, "mask"):
+            self._input_layers.append(layer_state.mask)
 
-        return self.layer_state
+        return layer_state
 
     def compute(self, *input_layers):
         if not input_layers:
@@ -2434,7 +2437,6 @@ class Lookup(Layer):
                       batch_padding=self.batch_padding)
 
 
-# TODO needs tests
 class CoupledGate(Layer):
     """ Creates a Gate Layer that modulates between two layers using a gate:
 
@@ -3019,6 +3021,158 @@ class Add(Merge):
         super().__init__(*layers, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
 
 
+def _conv_output_length(input_length, kernel_size, padding, stride, dilation=1):
+    if input_length is None:
+        return None
+    assert padding in {'SAME', 'VALID', 'CAUSAL'}
+    dilated_filter_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    if padding == 'SAME':
+        output_length = input_length
+    elif padding == 'VALID':
+        output_length = input_length - dilated_filter_size + 1
+    elif padding == 'CAUSAL':
+        output_length = input_length
+    return (output_length + stride - 1) // stride
+
+
+def _conv_out_shape(input_shape, filter_shape, padding, stride, dilation_rate):
+    stride = as_list(stride)
+    dilation_rate = as_list(dilation_rate)
+
+    space = input_shape[1:-1]
+    new_space = []
+    for i in range(len(space)):
+        new_dim = _conv_output_length(
+            space[i],
+            filter_shape[i],
+            padding=padding,
+            stride=stride[i],
+            dilation=dilation_rate[i])
+        new_space.append(new_dim)
+    return (input_shape[0],) + tuple(new_space) + (filter_shape[-1],)
+
+
+class Conv1D(Layer):
+    """1D Convolution
+
+    Assumes the input to have a shape [b,s,n]
+    produces an output of shape [b,s,m] where m is the number of filters
+
+    Args:
+        input_layer: input `Layer`
+        n_units: number of output units for this layer (number of filters)
+        filter_size: convolution filter size
+
+    """
+
+    def __init__(self, input_layer,
+                 n_units,
+                 filter_size,
+                 stride=1,
+                 dilation_rate=1,
+                 same_padding=True,
+                 filter_init=tf.initializers.glorot_uniform(),
+                 bias_init=tf.initializers.zeros(),
+                 add_bias=True,
+                 name="conv1D",
+                 share_state_with=None,
+                 shared_filters=None,
+                 shared_bias=None):
+
+        self.same_padding = same_padding
+        self.dilation_rate = dilation_rate
+        self.stride = stride
+        self.filter_size = filter_size
+        self.filter_init = filter_init
+        self.bias_init = bias_init
+        self.shared_bias = shared_bias
+        self.add_bias = add_bias
+
+        self.share_state_with = share_state_with
+        self.shared_filters = shared_filters
+        self.padding = "SAME" if same_padding else "VALID"
+
+        # input_tensor_shape = input_layer.tensor.get_shape()
+        # output_shape = _conv_out_shape(input_tensor_shape, self.filter_shape, self.padding, stride, dilation_rate)
+        # self.output_shape = tf.TensorShape(output_shape).as_list()
+
+        super().__init__(input_layers=input_layer, n_units=n_units, dtype=tf.float32, name=name)
+
+    def init_state(self):
+        input_layer = self.input_layers[0]
+        filter_shape = [self.filter_size, input_layer.n_units, self.n_units]
+
+        if self.share_state_with is not None:
+            if not isinstance(self.share_state_with, Conv1D):
+                raise TypeError("Layer can only share variables with other layer of the same type")
+
+            layer_state = self.share_state_with.layer_state
+        else:
+            layer_state = super().init_state()
+
+        with layer_scope(self):
+            filters = getattr(layer_state, "filters", self.shared_filters)
+
+            if filters is None:
+                init_value = self.filter_init(filter_shape, dtype=self.dtype)
+                filters = tf.Variable(initial_value=init_value,
+                                      dtype=self.dtype,
+                                      name="filters")
+
+            if not hasattr(layer_state, "filters"):
+                layer_state.filters = filters
+
+            bias = getattr(layer_state, "bias", self.shared_bias)
+            if self.add_bias:
+                if bias is None:
+                    bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
+                                       name="bias", trainable=True)
+
+            if not hasattr(self.layer_state, "bias"):
+                self.layer_state.bias = bias
+
+        return layer_state
+
+    def compute(self, input_tensor):
+        with layer_scope(self):
+            if isinstance(input_tensor, tf.SparseTensor):
+                input_tensor = tf.sparse.to_dense(layer.tensor)
+
+            # if input_tensor.dtype == tf.float64:
+            #     input_tensor = tf.cast(input_tensor, tf.float32)
+
+            output = tf.nn.convolution(input=input_tensor,
+                                       filters=self.layer_state.filters,
+                                       padding=self.padding,
+                                       strides=(self.stride,),
+                                       dilations=(self.dilation_rate,),
+                                       data_format="NWC")
+
+            if self.add_bias:
+                output = tf.nn.bias_add(output, self.layer_state.bias, name="add_b")
+
+            return output
+
+    def reuse_with(self, input_layer, name=None):
+        share_state_with = self if self.share_state_with is None else self.share_state_with
+        if name is None:
+            name = self.name
+
+        return Conv1D(input_layer=input_layer,
+                      n_units=self.n_units,
+                      filter_size=self.filter_size,
+                      stride=self.stride,
+                      dilation_rate=self.dilation_rate,
+                      same_padding=self.same_padding,
+                      filter_init=self.weight_init,
+                      bias_init=self.bias_init,
+                      add_bias=self.add_bias,
+                      name=name,
+                      shared_bias=self.shared_bias,
+                      shared_filters=self.shared_filters,
+                      share_state_with=share_state_with)
+
+
 def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
     """ Converts a ``Tensor``,``SparseTensor`` or tensor convertible to a ``Layer``
 
@@ -3092,5 +3246,6 @@ __all__ = [
     "Lookup",
     "ToDense",
     "ToSparse",
-    "Dropout"
+    "Dropout",
+    "Conv1D"
 ]

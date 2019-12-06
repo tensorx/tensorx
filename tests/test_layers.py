@@ -829,6 +829,30 @@ class TestLayers(TestCase):
         # self.assertArrayEqual(d1, d3)
         # self.assertArrayNotEqual(d1, d2)
 
+    def test_conv1d(self):
+        num_filters = 2
+        input_dim = 4
+        seq_size = 3
+        batch_size = 2
+        filter_size = 2
+
+        filter_shape = [filter_size, input_dim, num_filters]
+
+        x = tf.ones([batch_size, seq_size, input_dim])
+        x_layer = tx.Tensor(x, input_dim)
+
+        filters = tf.ones(filter_shape)
+        conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
+        conv = tf.nn.conv1d(input=x,
+                            filters=filters,
+                            stride=1,
+                            padding="SAME",
+                            data_format="NWC")
+
+        output = conv_layer()
+        self.assertArrayEqual(conv, output)
+        self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
+        self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
 
 
 if __name__ == '__main__':
