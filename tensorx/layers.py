@@ -141,6 +141,9 @@ class LayerProto:
         self.arg_dict.update(kwargs)
 
 
+# TODO if we change a class attribute that is in a layer state, the layer state is not changed
+#  perhaps I can check if a particular attribute is in layer state, if so, change layer state
+#  this is a bad idea for the end-user anyway, they should not be setting inner states like that
 class Layer(AutoTrackable):
     """ Layer base class
 
@@ -191,6 +194,27 @@ class Layer(AutoTrackable):
     def init_state(self):
         self.layer_state = LayerState(self)
         return self.layer_state
+
+    def __setattr__(self, key, value):
+        """ if key is in layer_state, changes layer state as well
+        Note:
+            During debugging I noticed that changing an instance member shared with the layer state would not
+            change the layer state, this could be problematic if users are trying to debug something using
+            member names as a shortcut to layer_state.member, so this method checks if the attribute we're
+            trying to change is in a layer_state of an initialized Layer.
+
+        Args:
+            key:
+            value:
+
+        Returns:
+
+        """
+        if hasattr(self, "layer_state") and self.layer_state is not None:
+            if hasattr(self.layer_state, key):
+                setattr(self.layer_state, key, value)
+
+        super(Layer, self).__setattr__(key, value)
 
     @property
     def trainable_variables(self):
@@ -1130,8 +1154,9 @@ class Linear(Layer):
 
             bias = getattr(layer_state, "bias", self.shared_bias)
             if self.add_bias:
+                n_units = self.n_units if self.n_units is not None else tf.shape(weights)[-1]
                 if bias is None:
-                    bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
+                    bias = tf.Variable(initial_value=self.bias_init([n_units], self.dtype),
                                        name="bias", trainable=True)
 
             if not hasattr(layer_state, "bias"):
@@ -3057,14 +3082,13 @@ def _conv_out_shape(input_shape, filter_shape, padding, stride, dilation_rate):
 class Conv1D(Layer):
     """1D Convolution
 
-    Assumes the input to have a shape [b,s,n]
-    produces an output of shape [b,s,m] where m is the number of filters
+    Assumes the input to have a shape (batch,time_step,n)
+    produces an output of shape (batch,time_step,m) where m is the number of filters
 
     Args:
-        input_layer: input `Layer`
+        input_layer: input `Layer` with shape (batch,time_step,dim)
         n_units: number of output units for this layer (number of filters)
         filter_size: convolution filter size
-
     """
 
     def __init__(self, input_layer,
@@ -3236,10 +3260,6 @@ class Attention(Layer):
                 layer_state.wq = wq
                 layer_state.wk = wk
                 layer_state.wv = wv
-            else:
-                layer_state.wq = layer_state.wq.reuse_with(q)
-                layer_state.wk = layer_state.wq.reuse_with(k)
-                layer_state.wv = layer_state.wq.reuse_with(v)
 
         return layer_state
 
@@ -3293,15 +3313,17 @@ class Attention(Layer):
 
             return output
 
-    def reuse_with(self, query_layer, key_layer, value_layer, regularized=None, name=None):
+    def reuse_with(self, query_layer, key_layer, value_layer, regularized=None, causality=None, name=None):
         regularized = self.regularized if regularized is None else regularized
         name = self.name if name is None else name
+        causality = self.causality if causality is None else causality
 
         return Attention(query_layer=query_layer,
                          key_layer=key_layer,
                          value_layer=value_layer,
                          n_units=self.n_units,
                          attention_fn=self.attention_fn,
+                         causality=causality,
                          n_heads=self.n_heads,
                          attention_dropout=self.attention_dropout,
                          regularized=regularized,

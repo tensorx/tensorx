@@ -138,6 +138,7 @@ class Graph:
 
         return sorted_priority
 
+    # TODO this doesn't take Tensors, only layers
     @staticmethod
     def build(inputs, outputs, missing_inputs=False):
         """ build_graph

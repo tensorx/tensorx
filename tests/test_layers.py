@@ -877,10 +877,13 @@ class TestLayers(TestCase):
         self.assertEqual(len(attention.input_layers), 3)
 
         # 3 "kernels" + bias
-        self.assertEqual(len(attention.variables), 4)
+        self.assertEqual(len(attention.variables), 3)
 
         attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
         attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
+        attention_causal = attention.reuse_with(emb, emb, emb, causality=True)
+
+        res = attention_causal()
 
         result = attention()
         result_reg = attention_reg()
@@ -893,8 +896,6 @@ class TestLayers(TestCase):
         vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
 
         self.assertSetEqual(set(vars1), set(vars2))
-
-        # TODO need to check reference implementation and add more tests
 
 
 if __name__ == '__main__':

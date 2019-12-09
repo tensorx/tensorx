@@ -9,7 +9,7 @@ import numpy as np
 
 import unittest
 from tensorx.test_utils import TestCase
-from tensorflow.keras.layers import SimpleRNNCell, LSTMCell, GRUCell
+from tensorflow.keras.layers import SimpleRNNCell, LSTMCell, GRUCell, Attention, Conv1D
 
 
 class MyTestCase(TestCase):
@@ -134,7 +134,6 @@ class MyTestCase(TestCase):
         for r1, r2 in zip(res1, res1_):
             self.assertArrayEqual(r1, r2)
 
-
         # the only difference is that keras kernels are fused together
         kernel = tf.concat([w.weights.value() for w in gru0.layer_state.w], axis=-1)
         recurrent_kernel = tf.concat([u.weights for u in gru0.layer_state.u], axis=-1)
@@ -153,6 +152,75 @@ class MyTestCase(TestCase):
         res0 = gru0()
         res0_ = gru0.state[0]()
         self.assertArrayEqual(res0, res2[0])
+
+    def test_conv1d(self):
+        n_features = 3
+        embed_size = 128
+        seq_size = 3
+        batch_size = 2
+
+        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        seq = emb()
+
+        n_units = 100
+        filter_size = 4
+        cnn = tf.keras.layers.Conv1D(
+            filters=n_units,
+            kernel_size=filter_size,
+            padding='same')
+
+        res = cnn(seq)
+
+        cnn2 = tx.Conv1D(emb, n_units=100, filter_size=filter_size)
+        res2 = cnn2(seq)
+
+        self.assertTrue(len(cnn.variables), len(cnn.variables))
+
+        cnn.kernel = cnn2.filters
+        cnn.bias = cnn2.bias
+
+        res3 = cnn(seq)
+
+        self.assertArrayNotEqual(res, res2)
+        self.assertArrayEqual(res2, res3)
+
+    def test_attention(self):
+        n_features = 3
+        embed_size = 8
+        seq_size = 3
+        batch_size = 2
+
+        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        seq = emb()
+
+        # keras attention doesn't have multiple heads
+        attention = Attention(use_scale=False)
+
+        res = attention([seq, seq, seq])
+        # print(np.shape(res))
+        # print(attention.variables)
+
+        attention2 = tx.Attention(emb, emb, emb, n_units=embed_size, n_heads=1)
+        self.assertTrue(len(attention2.variables), 3)
+
+        attention2.wq = tx.Linear(emb, n_units=None,
+                                  shared_weights=tf.linalg.eye(embed_size, embed_size),
+                                  add_bias=False)
+        attention2.wk = tx.Linear(emb, n_units=None,
+                                  shared_weights=tf.linalg.eye(embed_size, embed_size),
+                                  add_bias=False)
+        attention2.wv = tx.Linear(emb, n_units=None,
+                                  shared_weights=tf.linalg.eye(embed_size, embed_size),
+                                  add_bias=False)
+        # print(attention2.layer_state.wq.weights)
+        # print(attention2.wq.weights)
+        self.assertArrayEqual(attention2.wq(seq), seq)
+
+        res2 = attention2()
+
+        self.assertArrayEqual(res, res2)
 
 
 if __name__ == '__main__':
