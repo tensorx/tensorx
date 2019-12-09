@@ -3231,27 +3231,26 @@ class Attention(Layer):
                 # (batch_size, t, n_units)
                 wq = Linear(q, n_units=h_dim, add_bias=False, name="wq")
                 wk = Linear(k, n_units=h_dim, add_bias=False, name="wk")
-                # TODO check this bias in implementation I was not using it in the previous
-                wv = Linear(v, n_units=h_dim, add_bias=True, name="wv")
+                wv = Linear(v, n_units=h_dim, add_bias=False, name="wv")
 
                 layer_state.wq = wq
                 layer_state.wk = wk
                 layer_state.wv = wv
-            # else:
-            #     wq = layer_state.wq.reuse_with(q)
-            #     wk = layer_state.wq.reuse_with(k)
-            #     wv = layer_state.wq.reuse_with(v)
+            else:
+                layer_state.wq = layer_state.wq.reuse_with(q)
+                layer_state.wk = layer_state.wq.reuse_with(k)
+                layer_state.wv = layer_state.wq.reuse_with(v)
 
         return layer_state
 
     def compute(self, *input_tensors):
-
         # (n_heads*batch_size, steps, n_units//n_heads)
         def heads(w):
             return tf.concat(tf.split(w, self.n_heads, axis=2), axis=0)
 
         with layer_scope(self):
             q, k, v = input_tensors
+            dk = self.n_units
 
             wq = self.wq.compute(q)
             wk = self.wq.compute(k)
@@ -3263,7 +3262,11 @@ class Attention(Layer):
 
             # attention scores from scaled dot product
             dotprod = tf.matmul(qh, tf.transpose(kh, [0, 2, 1]))
-            dotprod /= self.n_units ** 0.5
+
+            # hypothesis: for large values of √dk, the dot products grow large in magnitude, pushing the
+            # softmax function into regions with extremely small gradients. To counteract this effect, we scale
+            # the dot products by1 √dk.
+            dotprod /= dk ** 0.5
             output = dotprod
 
             # mask information from the future
