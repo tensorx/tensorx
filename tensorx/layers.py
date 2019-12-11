@@ -3199,20 +3199,27 @@ class Conv1D(Layer):
                       share_state_with=share_state_with)
 
 
-class Attention(Layer):
+class MHAttention(Layer):
     """ Scaled Dot Product MultiHead Attention Layer
 
+    (Q,K,V):
+        Encodes representation of the input as a set of key-value pairs, (K,V), both of dimension n (input sequence
+        length); in the context of sequence-to-sequence models, both keys and values are the encoder hidden states.
+        In the decoder, the previous output is compressed into a query (Q of dimension m)
+
     Args:
-        input_layer
+        query:
+        key:
+        value:
         n_units: output number of units, each attentio head has n_units // n_head units, meaning that n_units needs to
         be a multiple of n_heads.
 
     """
 
     def __init__(self,
-                 query_layer,
-                 key_layer,
-                 value_layer,
+                 query,
+                 key,
+                 value,
                  n_units=None,
                  n_heads=1,
                  attention_fn=tf.nn.softmax,
@@ -3222,7 +3229,7 @@ class Attention(Layer):
                  name="attention",
                  share_state_with=None):
         self.n_heads = n_heads
-        n_units = query_layer.n_units if n_units is None else n_units
+        n_units = query.n_units if n_units is None else n_units
         self.causality = causality
         self.share_state_with = share_state_with
         self.regularized = regularized
@@ -3235,11 +3242,11 @@ class Attention(Layer):
                 "heads {}".format(self.n_units, n_heads))
 
         self.head_units = n_units // n_heads
-        super().__init__(input_layers=[query_layer, key_layer, value_layer], n_units=n_units, name=name)
+        super().__init__(input_layers=[query, key, value], n_units=n_units, name=name)
 
     def init_state(self):
         if self.share_state_with is not None:
-            if not isinstance(self.share_state_with, Attention):
+            if not isinstance(self.share_state_with, MHAttention):
                 raise TypeError("Layer can only share state with other layer of the same type")
 
             layer_state = self.share_state_with.layer_state
@@ -3247,15 +3254,15 @@ class Attention(Layer):
         else:
             layer_state = super().init_state()
 
-        q, k, v = self.input_layers
+        query, key, value = self.input_layers
         h_dim = self.n_units
 
         with layer_scope(self):
             if self.share_state_with is None:
                 # (batch_size, t, n_units)
-                wq = Linear(q, n_units=h_dim, add_bias=False, name="wq")
-                wk = Linear(k, n_units=h_dim, add_bias=False, name="wk")
-                wv = Linear(v, n_units=h_dim, add_bias=False, name="wv")
+                wq = Linear(query, n_units=h_dim, add_bias=False, name="wq")
+                wk = Linear(key, n_units=h_dim, add_bias=False, name="wk")
+                wv = Linear(value, n_units=h_dim, add_bias=False, name="wv")
 
                 layer_state.wq = wq
                 layer_state.wk = wk
@@ -3269,12 +3276,12 @@ class Attention(Layer):
             return tf.concat(tf.split(w, self.n_heads, axis=2), axis=0)
 
         with layer_scope(self):
-            q, k, v = input_tensors
+            query, key, value = self.input_layers
             dk = self.n_units
 
-            wq = self.wq.compute(q)
-            wk = self.wq.compute(k)
-            wv = self.wv.compute(v)
+            wq = self.wq.compute(query)
+            wk = self.wq.compute(key)
+            wv = self.wv.compute(value)
 
             qh = heads(wq)
             kh = heads(wk)
@@ -3313,22 +3320,22 @@ class Attention(Layer):
 
             return output
 
-    def reuse_with(self, query_layer, key_layer, value_layer, regularized=None, causality=None, name=None):
+    def reuse_with(self, query, key, value, regularized=None, causality=None, name=None):
         regularized = self.regularized if regularized is None else regularized
         name = self.name if name is None else name
         causality = self.causality if causality is None else causality
 
-        return Attention(query_layer=query_layer,
-                         key_layer=key_layer,
-                         value_layer=value_layer,
-                         n_units=self.n_units,
-                         attention_fn=self.attention_fn,
-                         causality=causality,
-                         n_heads=self.n_heads,
-                         attention_dropout=self.attention_dropout,
-                         regularized=regularized,
-                         name=name,
-                         share_state_with=self)
+        return MHAttention(query=query,
+                           key=key,
+                           value=value,
+                           n_units=self.n_units,
+                           attention_fn=self.attention_fn,
+                           causality=causality,
+                           n_heads=self.n_heads,
+                           attention_dropout=self.attention_dropout,
+                           regularized=regularized,
+                           name=name,
+                           share_state_with=self)
 
 
 def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
@@ -3406,5 +3413,5 @@ __all__ = [
     "ToSparse",
     "Dropout",
     "Conv1D",
-    "Attention"
+    "MHAttention"
 ]

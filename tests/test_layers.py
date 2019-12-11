@@ -865,14 +865,14 @@ class TestLayers(TestCase):
         inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
 
-        attention = tx.Attention(query_layer=emb,
-                                 key_layer=emb,
-                                 value_layer=emb,
-                                 n_units=embed_size,
-                                 n_heads=n_heads,
-                                 causality=False,
-                                 attention_dropout=0.1,
-                                 regularized=False)
+        attention = tx.MHAttention(query=emb,
+                                   key=emb,
+                                   value=emb,
+                                   n_units=embed_size,
+                                   n_heads=n_heads,
+                                   causality=False,
+                                   attention_dropout=0.1,
+                                   regularized=False)
 
         self.assertEqual(len(attention.input_layers), 3)
 

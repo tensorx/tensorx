@@ -202,7 +202,7 @@ class MyTestCase(TestCase):
         # print(np.shape(res))
         # print(attention.variables)
 
-        attention2 = tx.Attention(emb, emb, emb, n_units=embed_size, n_heads=1)
+        attention2 = tx.MHAttention(emb, emb, emb, n_units=embed_size, n_heads=1)
         self.assertTrue(len(attention2.variables), 3)
 
         attention2.wq = tx.Linear(emb, n_units=None,
