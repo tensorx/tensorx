@@ -855,7 +855,6 @@ class TestLayers(TestCase):
         self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
 
     def test_multihead_attention(self):
-
         n_features = 3
         embed_size = 128
         seq_size = 3

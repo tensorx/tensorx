@@ -252,6 +252,7 @@ class Layer(AutoTrackable):
         else:
             input_layers = [as_layer(input_layer) for input_layer in input_layers]
             input_tensors = Graph.eval(*input_layers)
+
         return self.compute(*input_tensors)
 
     def as_function(self, input_signature=None):
@@ -881,21 +882,16 @@ class VariableLayer(Layer):
         self.layer_state = layer_state
         return layer_state
 
-    def compute(self, *input_layers):
-        if not input_layers:
-            input_layers = self.input_layers
-
-        input_layer = input_layers[-1] if input_layers else None
-        if input_layer is not None:
-            input_value = as_layer(input_layer).tensor()
+    def compute(self, *input_tensors):
+        input_tensor = input_tensors[0] if input_tensors else None
 
         with layer_scope(self):
             def update():
                 self.layer_state.counter.assign_add(1)
-                self.layer_state.variable.assign(input_value)
+                self.layer_state.variable.assign(input_tensor)
                 return self.layer_state.variable.value()
 
-            if input_layer is not None:
+            if input_tensor is not None:
                 if self.update_once:
                     return tf.cond(tf.math.less(self.layer_state.counter, 1),
                                    update,
@@ -3271,14 +3267,14 @@ class MHAttention(Layer):
         return layer_state
 
     def compute(self, *input_tensors):
+        query, key, value = input_tensors
+
         # (n_heads*batch_size, steps, n_units//n_heads)
         def heads(w):
             return tf.concat(tf.split(w, self.n_heads, axis=2), axis=0)
 
         with layer_scope(self):
-            query, key, value = self.input_layers
             dk = self.n_units
-
             wq = self.wq.compute(query)
             wk = self.wq.compute(key)
             wv = self.wv.compute(value)
