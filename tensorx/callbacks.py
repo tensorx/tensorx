@@ -16,13 +16,19 @@ class AT(Enum):
 
 
 class Event:
+    # 
     __slots__ = []
 
     def __eq__(self, other):
-        """
+        """ equals.
 
-        :param other:
-        :return:
+        two Event instances are equal if their attributes are the same objects
+                
+        Args:
+            other (Event): the other event we want to compare to
+        
+        Returns:
+            [type]: [description]
         """
         if type(other) != self.__class__:
             return False

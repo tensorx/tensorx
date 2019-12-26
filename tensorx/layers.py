@@ -21,9 +21,10 @@ class LayerState(AutoTrackable):
         storing Layers can be more convenient.
     """
 
-    def __init__(self, origin_layer):
+    def __init__(self):
+        pass
         # don't repeat tracking on layer
-        self.layer = track.NoDependency(origin_layer)
+        # self.layer = track.NoDependency(origin_layer)
 
     def variables(self):
         """ returns a list of all variables contained in the layer state object
@@ -44,13 +45,13 @@ class LayerState(AutoTrackable):
 
         """
         all_vars = dict()
-        for attr, state in self.__dict__.items():
-            if isinstance(state, Layer) and not state == self.layer:
-                v = state.layer_state.var_dict()
+        for attr, obj in self.__dict__.items():
+            if isinstance(obj, Layer): # and not obj == self.layer:
+                v = obj.layer_state.var_dict()
                 all_vars.update(v)
-            elif isinstance(state, tf.Variable):
-                # TODO Tensors are not hashable but this gets the object id
-                all_vars[state.experimental_ref()] = state
+            elif isinstance(obj, tf.Variable):
+                # Tensors are not hashable but this gets the object id
+                all_vars[obj.experimental_ref()] = obj
         return all_vars
 
     def __str__(self):
@@ -192,7 +193,7 @@ class Layer(AutoTrackable):
         self.input_graph = track.NoDependency(input_graph)
 
     def init_state(self):
-        self.layer_state = LayerState(self)
+        self.layer_state = LayerState() #LayerState(self)
         return self.layer_state
 
     def __setattr__(self, key, value):
