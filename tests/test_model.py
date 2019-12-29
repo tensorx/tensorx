@@ -30,7 +30,7 @@ class MyTestCase(unittest.TestCase):
         # TODO are train inputs exclusively from training ? or do we have to specify all of them?
         m = tx.Model(run_outputs=output, train_inputs=[inputs, target], train_loss=loss)
 
-        lr = tx.Param(value=0.2, name="lr")
+        lr = tx.Param(init_value=0.2, name="lr")
         optimizer1 = m.set_optimizer(tf.optimizers.SGD, lr=lr)
         optimizer2: tf.optimizers.Optimizer = m.optimizers[0]
 

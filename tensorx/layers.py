@@ -46,7 +46,7 @@ class LayerState(AutoTrackable):
         """
         all_vars = dict()
         for attr, obj in self.__dict__.items():
-            if isinstance(obj, Layer): # and not obj == self.layer:
+            if isinstance(obj, Layer):  # and not obj == self.layer:
                 v = obj.layer_state.var_dict()
                 all_vars.update(v)
             elif isinstance(obj, tf.Variable):
@@ -112,18 +112,21 @@ class LayerProto:
     constructor arguments.
     """
 
-    def _validate_args(self, **kwargs):
-        for key in kwargs:
-            if key not in self.arg_spec:
-                raise TypeError("{} prototype got an unexpected argument {}".format(self.layer_cls.__name__, key))
-
     def __init__(self, layer_cls, **kwargs):
         self.layer_cls = layer_cls
         spec = inspect.getfullargspec(layer_cls.__init__)
         self.arg_spec = set(spec.args[1:] + spec.kwonlyargs)
-        self._validate_args(**kwargs)
+        kwargs = self._validate_args(**kwargs)
 
         self.arg_dict = kwargs
+
+    def _validate_args(self, **kwargs):
+        new_kwargs = dict(kwargs)
+        for key in kwargs:
+            if key not in self.arg_spec:
+                del new_kwargs[key]
+                # raise TypeError("{} prototype got an unexpected argument {}".format(self.layer_cls.__name__, key))
+        return new_kwargs
 
     def __call__(self, *args, **kwargs):
         new_args = dict(self.arg_dict)
@@ -165,14 +168,29 @@ class Layer(AutoTrackable):
 
     """
 
-    def __init__(self, input_layers, n_units, dtype=None, name="layer"):
-        self.n_units = n_units
-        self.name = getattr(self, "name", name)
+    def __init__(self, input_layers, n_units, dtype=None, name="layer", **config):
+
+        # TODO: problem type(self) refers to the class calling this, if we subtype another class
+        #   the constructor spec is different, we should use the spec from the class being constructed
+        #   but validating the prototype against the constructor spec poses a problem since args might
+        #   not match and get discarded, this means that if init_state depends on the superclass of an instance
+        #   then it might not have the args that it needs to proceed, this means that I should probably build
+        #   the proto in the constructor and pass it to the super init?
+        #   no, it means that the keys from proto cfg cannot be used to add attributes to the class dynamically?
+        #   because the attrs the subclass needs are not the same, I could validate only on call...
+        #   prob the best option? but then we get a proto with the attributes from both the superclass AND subclass?
+        self.proto = type(self).proto(n_units=n_units,
+                                      name=getattr(self, "name", name),
+                                      dtype=tf.dtypes.as_dtype(dtype) if dtype is not None else None,
+                                      **config)
+
+        for key in self.proto.arg_dict:
+            if not hasattr(self, key):
+                setattr(self, key, self.proto.arg_dict[key])
+
+        print(self.proto.arg_dict)
         self.scoped_name = name
         self._input_layers = [as_layer(input_layer) for input_layer in as_list(input_layers)]
-        self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
-
-        self.attr_names = []
 
         # self.layer_state = None
         # self.init_state()
@@ -193,7 +211,7 @@ class Layer(AutoTrackable):
         self.input_graph = track.NoDependency(input_graph)
 
     def init_state(self):
-        self.layer_state = LayerState() #LayerState(self)
+        self.layer_state = LayerState()  # LayerState(self)
         return self.layer_state
 
     def __setattr__(self, key, value):
@@ -552,7 +570,8 @@ class Input(Layer):
     """ Input Layer receives values that can be interpreted as ``Tensor`` or ``SparseTensor``
     """
 
-    def __init__(self, value=None, n_units=None, constant=False, sparse=False, n_active=None, shape=None, dtype=None,
+    def __init__(self, init_value=None, n_units=None, constant=False, sparse=False, n_active=None, shape=None,
+                 dtype=None,
                  name="input"):
         """
         if n_active is not None:
@@ -574,17 +593,13 @@ class Input(Layer):
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
-        self.n_active = n_active
-        self.shape = shape
-        self.constant = constant
-        self.sparse = sparse
         # self.updated = True
 
-        if value is not None:
+        if init_value is not None:
             if n_active is not None:
-                self._value = as_tensor(value, dtype=tf.int64)
+                self._value = as_tensor(init_value, dtype=tf.int64)
             else:
-                self._value = as_tensor(value, dtype=dtype)
+                self._value = as_tensor(init_value, dtype=dtype)
 
         else:
             self._value = None
@@ -595,7 +610,17 @@ class Input(Layer):
         if self._value is not None:
             dtype = self._value.dtype
 
-        super().__init__(None, n_units=n_units, dtype=dtype, name=name)
+        super().__init__(None,
+                         n_units=n_units,
+                         dtype=dtype,
+                         name=name,
+                         init_value=init_value,
+                         n_active=n_active,
+                         shape=shape,
+                         constant=constant,
+                         sparse=sparse)
+
+        print(self.proto)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -754,12 +779,12 @@ class Param(Input):
         """
 
     def __init__(self,
-                 value,
+                 init_value,
                  n_units=0,
                  shape=None,
                  dtype=None,
                  name="param"):
-        super().__init__(value=value,
+        super().__init__(init_value=init_value,
                          n_units=n_units,
                          constant=False,
                          sparse=None,
@@ -786,12 +811,12 @@ class Tensor(Input):
     """
 
     def __init__(self,
-                 value=None,
+                 init_value=None,
                  n_units=None,
                  shape=None,
                  dtype=None,
                  name="tensor"):
-        super().__init__(value=value,
+        super().__init__(init_value=init_value,
                          n_units=n_units,
                          constant=True,
                          sparse=None,
@@ -3102,24 +3127,32 @@ class Conv1D(Layer):
                  shared_filters=None,
                  shared_bias=None):
 
-        self.same_padding = same_padding
-        self.dilation_rate = dilation_rate
-        self.stride = stride
-        self.filter_size = filter_size
-        self.filter_init = filter_init
-        self.bias_init = bias_init
-        self.shared_bias = shared_bias
-        self.add_bias = add_bias
-
-        self.share_state_with = share_state_with
-        self.shared_filters = shared_filters
+        # TODO should shared bias and shared weights/filters etc be in the proto? I guess pickling this requires
+        #   the storage of the respective weights
+        # self.shared_bias = shared_bias
+        # self.share_state_with = share_state_with
+        # self.shared_filters = shared_filters
         self.padding = "SAME" if same_padding else "VALID"
 
         # input_tensor_shape = input_layer.tensor.get_shape()
         # output_shape = _conv_out_shape(input_tensor_shape, self.filter_shape, self.padding, stride, dilation_rate)
         # self.output_shape = tf.TensorShape(output_shape).as_list()
 
-        super().__init__(input_layers=input_layer, n_units=n_units, dtype=tf.float32, name=name)
+        super().__init__(input_layers=input_layer,
+                         n_units=n_units,
+                         dtype=tf.float32,
+                         name=name,
+                         same_padding=same_padding,
+                         dilation_rate=dilation_rate,
+                         stride=stride,
+                         filter_size=filter_size,
+                         filter_init=filter_init,
+                         bias_init=bias_init,
+                         add_bias=add_bias,
+                         shared_bias=shared_bias,
+                         shared_filters=shared_filters,
+                         share_state_with=share_state_with
+                         )
 
     def init_state(self):
         input_layer = self.input_layers[0]

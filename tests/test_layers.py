@@ -12,6 +12,15 @@ from tensorx.test_utils import TestCase
 
 
 class TestLayers(TestCase):
+    def test_layer_proto(self):
+        inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
+        inputs_proto = inputs.proto
+        l2 = inputs_proto()
+        self.assertArrayEqual(inputs(), l2())
+
+        linear = tx.Linear(inputs,n_units=3)
+        cfg1 = linear.proto
+
     def test_shared_state(self):
         inputs = np.ones([2, 4])
         l1 = tx.Linear(inputs, 8)
@@ -41,7 +50,6 @@ class TestLayers(TestCase):
 
         t1 = linear.tensor()
         t2 = linear.tensor()
-        
 
         self.assertTrue(np.array_equal(t1.numpy(), t2.numpy()))
 
@@ -52,10 +60,7 @@ class TestLayers(TestCase):
         linear = tx.Linear(inputs, 8)
         linear2 = linear.reuse_with(inputs2)
 
-        # print(linear.weights)
-        # print(linear2.weights)
-
-        # Can't use this because they changed the equality operator
+        # Can't use equals this because they changed the equality operator
         # self.assertTrue(linear.weights == linear2.weights)
         self.assertIs(linear.weights, linear2.weights)
         self.assertIs(linear.bias, linear2.bias)
@@ -161,7 +166,7 @@ class TestLayers(TestCase):
         # create an equivalent sparse input
         sp_input = inputs()
         self.assertIsInstance(sp_input, tf.SparseTensor)
-        inputs2 = tx.Input(n_units=4, value=sp_input)
+        inputs2 = tx.Input(n_units=4, init_value=sp_input)
 
         dense_value = tf.sparse.to_dense(inputs())
         dense_value2 = tf.sparse.to_dense(inputs2())
@@ -366,7 +371,7 @@ class TestLayers(TestCase):
         batch_size = 2
         data = np.ones([batch_size, 4])
 
-        inputs = tx.Input(value=data, n_units=n_inputs, dtype=tf.float32)
+        inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
 
         rnn_1 = tx.GRUCell(inputs, n_hidden)
 
@@ -670,7 +675,7 @@ class TestLayers(TestCase):
 
         inputs = tx.Input(n_units=k, sparse=True, dtype=tf.int32, constant=False)
         # print(inputs.value)
-        seq_len = tx.Input(value=2, shape=[], constant=False)
+        seq_len = tx.Input(init_value=2, shape=[], constant=False)
         lookup = tx.Lookup(inputs, seq_size=seq_len, embedding_shape=[k, m])
         # concat = lookup.as_concat()
 

@@ -10,7 +10,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class MyTestCase(unittest.TestCase):
     def test_param_trigger(self):
-        p1 = tx.Param(value=3, name="test")
+        p1 = tx.Param(init_value=3, name="test")
         self.assertEqual(p1.n_units, 0)
         # TODO should guarantee that shape always returns a TensorShape?
         #   using a property would get this done

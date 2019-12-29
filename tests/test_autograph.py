@@ -143,7 +143,7 @@ class TestAutoGraph(unittest.TestCase):
 
     def test_build_graph(self):
         x1 = tx.Input(n_units=1000, constant=False, dtype=tf.float32)
-        x2 = tx.Input(value=tf.ones([1, 3]), dtype=tf.float32, constant=True)
+        x2 = tx.Input(init_value=tf.ones([1, 3]), dtype=tf.float32, constant=True)
 
         y10 = tx.Linear(x1, n_units=3)
         y11 = tx.Activation(y10)
