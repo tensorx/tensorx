@@ -41,6 +41,7 @@ class TestLayers(TestCase):
 
         t1 = linear.tensor()
         t2 = linear.tensor()
+        
 
         self.assertTrue(np.array_equal(t1.numpy(), t2.numpy()))
 

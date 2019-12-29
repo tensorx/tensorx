@@ -14,14 +14,26 @@ from tensorflow.python.ops import data_flow_ops
 
 
 def sparse_multiply_dense(sp_tensor1, tensor2, name="sparse_multiply"):
-    """ Uses an operation from  Tensorflow that seems faster and supports broadcasting
+    """ sparse_multiply_dense
+
+    Uses an operation from  Tensorflow that seems faster and supports broadcasting
     but returns a dense result.
 
     Note:
         also reshapes the result to match the shape of sp_tensor1
 
+    Args:
+      sp_tensor1 (SparseTensor): a sparse tensor
+      tensor2 (Tensor): a dense tensor
+      name (str): op name
+
+    Returns:
+      A dense Tensor with resulting from the multiplication of the sparse by 
+      the dense tensor
+      
+
     """
-    with tf.name_scope(name, "sparse_dot", [sp_tensor1, tensor2]):
+    with tf.name_scope(name):
         mul = sparse_dense_cwise_mul(sp_tensor1.indices,
                                      sp_tensor1.values,
                                      sp_tensor1.dense_shape,
@@ -76,11 +88,20 @@ def embedding_lookup_sparse(params,
                             combiner=None,
                             max_norm=None):
     """Computes embeddings for the given ids and weights.
+
     This op assumes that there is at least one id for each row in the dense tensor
     represented by sp_ids (i.e. there are no rows with empty features), and that
     all the indices of sp_ids are in canonical row-major order.
     It also assumes that all id values lie in the range [0, p0), where p0
     is the sum of the size of params along dimension 0.
+
+    None:
+      The difference between this and tensorflow's implementation is that in the original 
+      implementation the sparse gradients do not propagate through gather. 
+      This was included to reduce the number of ids gathered from remote parameter servers
+      in a distributed setting. But it defeats the purpose of using sparse Tensors for
+      large dense shapes. 
+
     Args:
       params: A single tensor representing the complete embedding tensor, or a
         list of P tensors all of same shape except for the first dimension,
