@@ -105,28 +105,34 @@ class LayerScope:
 layer_scope: Type[LayerScope] = LayerScope
 
 
+# TODO order arguments while accepting kwargs IF the classes in question allow kwargs in the constructors
+#  check if the args order themselves in case I present something that does is not named
 class LayerProto:
     """ Layer Proto
 
-    Creates a Layer prototype. A callable that allows us to delay calling the constructor a Layer object and validates
-    constructor arguments.
+    Creates a Layer prototype. A callable that allows us to delay calling the constructor a Layer
+    object and validates constructor arguments.
+
     """
 
     def __init__(self, layer_cls, **kwargs):
         self.layer_cls = layer_cls
-        spec = inspect.getfullargspec(layer_cls.__init__)
-        self.arg_spec = set(spec.args[1:] + spec.kwonlyargs)
-        kwargs = self._validate_args(**kwargs)
-
+        self.arg_spec = inspect.getfullargspec(layer_cls.__init__)
+        self.arg_names = set(self.arg_spec.args[1:] + self.arg_spec.kwonlyargs)
+        self._validate_args(**kwargs)
         self.arg_dict = kwargs
 
-    def _validate_args(self, **kwargs):
+    def filter_args(self, **kwargs):
         new_kwargs = dict(kwargs)
         for key in kwargs:
-            if key not in self.arg_spec:
+            if key not in self.arg_names and not self.arg_spec.varkw:
                 del new_kwargs[key]
-                # raise TypeError("{} prototype got an unexpected argument {}".format(self.layer_cls.__name__, key))
         return new_kwargs
+
+    def _validate_args(self, **kwargs):
+        for key in kwargs:
+            if key not in self.arg_names and not self.arg_spec.varkw:
+                raise TypeError(f"{self.layer_cls.__name__} prototype got an unexpected argument {key}\n")
 
     def __call__(self, *args, **kwargs):
         new_args = dict(self.arg_dict)
@@ -169,31 +175,21 @@ class Layer(AutoTrackable):
     """
 
     def __init__(self, input_layers, n_units, dtype=None, name="layer", **config):
+        config["n_units"] = n_units
+        config["name"] = getattr(self, "name", name)
+        config["dtype"] = tf.dtypes.as_dtype(dtype) if dtype is not None else None
 
-        # TODO: problem type(self) refers to the class calling this, if we subtype another class
-        #   the constructor spec is different, we should use the spec from the class being constructed
-        #   but validating the prototype against the constructor spec poses a problem since args might
-        #   not match and get discarded, this means that if init_state depends on the superclass of an instance
-        #   then it might not have the args that it needs to proceed, this means that I should probably build
-        #   the proto in the constructor and pass it to the super init?
-        #   no, it means that the keys from proto cfg cannot be used to add attributes to the class dynamically?
-        #   because the attrs the subclass needs are not the same, I could validate only on call...
-        #   prob the best option? but then we get a proto with the attributes from both the superclass AND subclass?
-        self.proto = type(self).proto(n_units=n_units,
-                                      name=getattr(self, "name", name),
-                                      dtype=tf.dtypes.as_dtype(dtype) if dtype is not None else None,
-                                      **config)
+        for key in config:
+            setattr(self, key, config[key])
 
-        for key in self.proto.arg_dict:
-            if not hasattr(self, key):
-                setattr(self, key, self.proto.arg_dict[key])
+        proto = type(self).proto()
+        new_args = proto.filter_args(**config)
+        proto.update(**new_args)
+        self.proto = proto
 
-        print(self.proto.arg_dict)
         self.scoped_name = name
         self._input_layers = [as_layer(input_layer) for input_layer in as_list(input_layers)]
 
-        # self.layer_state = None
-        # self.init_state()
         self.layer_state = self.init_state()
 
         # TODO I think referring to state explicitly should be the preferred way to
@@ -374,14 +370,13 @@ class Lambda(Layer):
         elif not hasattr(fn, "__call__"):
             raise TypeError("fn must be a callable function")
 
-        self.fn = fn
-        self.var_list = as_list(var_list)
-        self.apply_to_layer = apply_to_layer
-
         super().__init__(input_layers=layers,
                          n_units=n_units,
                          dtype=dtype,
-                         name=name)
+                         name=name,
+                         fn=fn,
+                         var_list=as_list(var_list),
+                         apply_to_layer=apply_to_layer)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -417,7 +412,9 @@ class ToSparse(Layer):
     """
 
     def __init__(self, input_layer):
-        super().__init__(input_layers=input_layer, n_units=input_layer.n_units, dtype=input_layer.dtype,
+        super().__init__(input_layers=input_layer,
+                         n_units=input_layer.n_units,
+                         dtype=input_layer.dtype,
                          name=input_layer.name + "_sparse")
 
     def compute(self, input_tensor):
@@ -440,7 +437,9 @@ class ToDense(Layer):
     """
 
     def __init__(self, input_layer):
-        super().__init__(input_layers=input_layer, n_units=input_layer.n_units, dtype=input_layer.dtype,
+        super().__init__(input_layers=input_layer,
+                         n_units=input_layer.n_units,
+                         dtype=input_layer.dtype,
                          name=input_layer.name + "_dense")
 
     def compute(self, input_tensor):
@@ -457,20 +456,14 @@ class ToDense(Layer):
 class Wrap(Layer):
     """ Wraps another layer with tf code
 
-    Utility layer used to wrap arbitrary layers with another tensorflow graph op
-    this might be useful to customize existing layers without creating a new layer from scratch
-
+    Utility layer used to wrap arbitrary layers with another op this might be useful to modify
+    existing layers without implementing a new ``Layer``.
 
     Example::
 
     You can create nested WrapLayers in which case, ``reuse_with`` will replace the inputs
     of the innermost `Layer` (which is not a `WrapLayer`)
 
-    .. aafig::
-        :aspect: 60
-        :scale: 150
-        :proportional:
-        :textual:
 
                  +------------------------------------+
                  | +-------------------------+        |
@@ -495,7 +488,12 @@ class Wrap(Layer):
         name: name for this layer, defaults to wrap_[layer]
     """
 
-    def __init__(self, wrapped_layer, wrap_fn, n_units=None, forward_attributes=None, name="wrap"):
+    def __init__(self,
+                 wrapped_layer,
+                 wrap_fn,
+                 n_units=None,
+                 forward_attributes=None,
+                 name="wrap"):
         self.wrap_fn = wrap_fn
         self.wrapped = wrapped_layer
         self.n_units = n_units
@@ -570,7 +568,13 @@ class Input(Layer):
     """ Input Layer receives values that can be interpreted as ``Tensor`` or ``SparseTensor``
     """
 
-    def __init__(self, init_value=None, n_units=None, constant=False, sparse=False, n_active=None, shape=None,
+    def __init__(self,
+                 init_value=None,
+                 n_units=None,
+                 constant=False,
+                 sparse=False,
+                 n_active=None,
+                 shape=None,
                  dtype=None,
                  name="input"):
         """
@@ -593,8 +597,6 @@ class Input(Layer):
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
-        # self.updated = True
-
         if init_value is not None:
             if n_active is not None:
                 self._value = as_tensor(init_value, dtype=tf.int64)
@@ -603,9 +605,6 @@ class Input(Layer):
 
         else:
             self._value = None
-
-        # if self._value.dtype != dtype
-        #    self._valuye = tf.cast(self._value,)
 
         if self._value is not None:
             dtype = self._value.dtype
@@ -619,8 +618,6 @@ class Input(Layer):
                          shape=shape,
                          constant=constant,
                          sparse=sparse)
-
-        print(self.proto)
 
     def init_state(self):
         layer_state = super().init_state()

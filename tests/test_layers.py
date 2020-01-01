@@ -9,7 +9,7 @@ import numpy as np
 
 import unittest
 from tensorx.test_utils import TestCase
-
+from tensorx.layers import LayerProto
 
 class TestLayers(TestCase):
     def test_layer_proto(self):
@@ -18,8 +18,18 @@ class TestLayers(TestCase):
         l2 = inputs_proto()
         self.assertArrayEqual(inputs(), l2())
 
-        linear = tx.Linear(inputs,n_units=3)
-        cfg1 = linear.proto
+        #linear = tx.Linear(inputs,n_units=3)
+        #cfg1 = linear.proto
+
+        rnncell = tx.RNNCell(input_layer=inputs,n_units=3)
+
+        class KWClass:
+            def __init__(self, param1, **kwargs):
+                self.param1 = param1
+
+        proto = LayerProto(KWClass,param2=1,param1=2)
+        p = proto()
+        self.assertEqual(p.param1,2)
 
     def test_shared_state(self):
         inputs = np.ones([2, 4])
