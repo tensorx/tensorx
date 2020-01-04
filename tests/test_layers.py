@@ -406,7 +406,7 @@ class TestLayers(TestCase):
         x2 = tx.Input([[1, 1]], n_units=2, dtype=tf.float32)
         x1 = tx.Add(x1, x1)
 
-        gate = tx.Gate(layer=x1, gate_input=x2, gate_fn=tf.sigmoid)
+        gate = tx.Gate(input_layer=x1, gate_input=x2, gate_fn=tf.sigmoid)
         gate_module = tx.Module([x1, x2], gate)
 
         x3 = tx.Input([[1, 1, 1, 1]], n_units=4, dtype=tf.float32)
