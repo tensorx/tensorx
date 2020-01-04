@@ -88,7 +88,7 @@ class TestLayers(TestCase):
         linear1 = tx.Linear(x, n_units=2)
         linear2 = tx.Linear(x2,
                             shape=[2, 1],
-                            shared_weights=linear1.weights,
+                            weights=linear1.weights,
                             transpose_weights=True)
 
         # we cant do this because it changes the definition of the layer (n_units etc)

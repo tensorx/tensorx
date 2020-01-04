@@ -206,13 +206,13 @@ class MyTestCase(TestCase):
         self.assertTrue(len(attention2.variables), 3)
 
         attention2.wq = tx.Linear(emb, n_units=None,
-                                  shared_weights=tf.linalg.eye(embed_size, embed_size),
+                                  weights=tf.linalg.eye(embed_size, embed_size),
                                   add_bias=False)
         attention2.wk = tx.Linear(emb, n_units=None,
-                                  shared_weights=tf.linalg.eye(embed_size, embed_size),
+                                  weights=tf.linalg.eye(embed_size, embed_size),
                                   add_bias=False)
         attention2.wv = tx.Linear(emb, n_units=None,
-                                  shared_weights=tf.linalg.eye(embed_size, embed_size),
+                                  weights=tf.linalg.eye(embed_size, embed_size),
                                   add_bias=False)
         # print(attention2.layer_state.wq.weights)
         # print(attention2.wq.weights)
