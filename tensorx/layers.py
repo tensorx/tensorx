@@ -1186,7 +1186,6 @@ class Linear(Layer):
 
     def compute(self, input_tensor):
         weights = self.layer_state.weights
-
         if input_tensor.dtype != weights.dtype:
             raise ValueError("invalid dtype for Linear inputs:\n"
                              "\t expected (weights dtype): {}\n"

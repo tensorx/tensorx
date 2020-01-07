@@ -158,7 +158,7 @@ class TestTrain(TestCase):
         self.assertEqual(len(result2), 3)
         np.testing.assert_array_less(result2[-1], result1[-1])
 
-        result1 = model.run({x: data1})
+        result1 = model.run({x: np.array(data1, dtype=np.float32)})
         result2 = model.run([data1])
         result3 = model.run(np.array(data1, np.float32))
 

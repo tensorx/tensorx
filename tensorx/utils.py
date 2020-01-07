@@ -48,8 +48,6 @@ class Graph:
         self.edges_in = dict()
         self.edges_out = dict()
 
-
-
     def add_node(self, node):
         if node not in self.nodes:
             self.nodes.add(node)
@@ -335,18 +333,20 @@ class Graph:
                                  f"\t{missing_str}")
 
             ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_dict)])
-            input_values = [input_dict[input_layer] for input_layer in ord_inputs]
+            input_values = [as_tensor(input_dict[input_layer]) for input_layer in ord_inputs]
 
         elif len(input_values) > len(self.in_nodes):
             raise ValueError(f"too many inputs:\n"
                              f"\tgraph expects {len(self.in_nodes)} inputs\n"
                              f"\tinputs passed {len(input_values)}")
+        else:
+            input_values = [as_tensor(input_value) for input_value in input_values]
 
         ord_inputs = dict.fromkeys(list(self.in_nodes)[:len(input_values)])
         input_dict = dict(zip(ord_inputs.keys(), input_values))
         other_inputs = set(self.in_nodes).difference(ord_inputs)
 
-        # TODO problem with this, is that nodes that need to be visited by both
+        #   the problem with this, is that nodes that need to be visited by both
         #   output paths will be called twice, we want to avoid this
         #   how?? compute intersections to cache result?
         # def compute(node):
@@ -385,6 +385,7 @@ class Graph:
 
                 args = get_args(node)
                 result_cache[node] = node.compute(*args)
+                # result_cache[node] = node(*args)
 
         return tuple(map(lambda x: result_cache[x], self.out_nodes))
 
