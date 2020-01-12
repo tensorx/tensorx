@@ -13,7 +13,7 @@ from tensorx.test_utils import TestCase
 
 class TestLayers(TestCase):
     def test_dropout(self):
-        n = 10000
+        n = 2000
         b = 10
         x = tf.ones([b, n])
         prob = 0.5
@@ -21,14 +21,12 @@ class TestLayers(TestCase):
         drop_x = tx.dropout(x, probability=prob, scale=True)
 
         actual_avg = tf.reduce_mean(drop_x)
-        expected_avg = tf.reduce_mean(x, axis=-1)
+        expected_avg = tf.reduce_mean(x)
 
-        self.assertAllClose(actual=actual_avg,
-                            desired=expected_avg,
-                            atol=1e-2)
+        self.assertAlmostEqual(actual_avg, expected_avg, delta=1e-2)
 
     def test_dropout_random_tensor(self):
-        n = 10000
+        n = 2000
         b = 4
         x = tf.ones([b, n])
         keep_prob = 0.5
@@ -38,14 +36,12 @@ class TestLayers(TestCase):
         drop_x = tx.dropout(x, probability=keep_prob, random_mask=mask, scale=True)
 
         actual_avg = tf.reduce_mean(drop_x)
-        expected_avg = tf.reduce_mean(x, axis=-1)
+        expected_avg = tf.reduce_mean(x)
 
-        self.assertAllClose(actual=actual_avg,
-                            desired=expected_avg,
-                            atol=1e-2)
+        self.assertAlmostEqual(actual_avg, expected_avg, delta=1e-2)
 
     def test_dropout_unscaled(self):
-        n = 10000
+        n = 2000
         b = 10
         x = tf.ones([b, n])
         keep_prob = 0.5
@@ -53,11 +49,9 @@ class TestLayers(TestCase):
         drop_x = tx.dropout(x, probability=keep_prob, scale=False)
 
         actual_avg = tf.reduce_mean(drop_x)
-        expected_avg = tf.reduce_mean(x, axis=-1) * keep_prob
+        expected_avg = tf.reduce_mean(x) * keep_prob
 
-        self.assertAllClose(actual=actual_avg,
-                            desired=expected_avg,
-                            atol=1e-1)
+        self.assertAlmostEqual(actual_avg, expected_avg, delta=1e-2)
 
     def test_empty_sparse_tensor(self):
         dense_shape = [2, 2]
