@@ -332,14 +332,12 @@ class Model:
                         else:
                             feed_dict = {}
 
-                        # if data is not a dict, we must create one using input layers
-                        if not isinstance(feed_dict, dict):
-                            feed_dict, param_feed = Model.parse_input(feed_dict, self.train_graph)
+                        feed_dict, param_feed = Model.parse_input(feed_dict, self.train_graph)
 
-                            optimizer_props = self.optimizer_params[self.optimizer]
-                            for param_name in param_feed:
-                                if param_name in optimizer_props:
-                                    optimizer_props[param_name].value = param_feed[param_name]
+                        optimizer_props = self.optimizer_params[self.optimizer]
+                        for param_name in param_feed:
+                            if param_name in optimizer_props:
+                                optimizer_props[param_name].value = param_feed[param_name]
 
                         # updated here because we want this property to give us the current step, to know when
                         # a step ends use OnEveryStep(at=AT.END)
@@ -361,7 +359,7 @@ class Model:
                         scheduler.trigger(OnStep(step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
-                        loss = self.train_step(data_feed=feed_dict)
+                        loss = self.train_step(feed_dict)
                         if not np.isscalar(loss):
                             if isinstance(loss, list):
                                 loss = np.mean([np.mean(l) for l in loss])

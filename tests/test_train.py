@@ -173,3 +173,45 @@ class TestTrain(TestCase):
             self.assertArrayEqual(result1[i], result2[i])
             self.assertArrayEqual(result1[i], result3[i])
             self.assertArrayEqual(result1[i], result4[i])
+
+    def test_model_train(self):
+        x = tx.Input(n_units=2, name="x", constant=False)
+        labels = tx.Input(n_units=2, name="labels", constant=False)
+        y = tx.Linear(x, 2, name="y", add_bias=False)
+        out1 = tx.Activation(y, tf.nn.softmax)
+        out2 = tx.Activation(y, tf.nn.softmax)
+
+        @tx.layer(n_units=2, name="loss")
+        def loss(pred, labels):
+            return tf.losses.categorical_crossentropy(labels, pred)
+
+        model = tx.Model(run_inputs=x,
+                         run_outputs=[out1, out2],
+                         train_inputs=[x, labels],
+                         train_outputs=[out2, out1],
+                         train_loss=loss(out1, labels)
+                         )
+
+        lr = tx.Param(0.5)
+        opt = model.set_optimizer(tf.optimizers.SGD,
+                                  learning_rate=lr,
+                                  clipnorm=0.1)
+
+        data1 = [[1., 1.], [1., 1.]]
+        data2 = [[0., 1.], [0., 1.]]
+
+        w1 = y.weights.numpy()
+
+        epochs = 10
+        model.train(train_data=[{x: data1, labels: data2}], epochs=epochs)
+
+        w2 = y.weights.numpy()
+
+        y.weights.assign(w1)
+
+        for _ in range(epochs):
+            model.train_step(input_feed={x: data1, labels: data2})
+
+        w3 = y.weights.numpy()
+
+        self.assertArrayEqual(w2, w3)
