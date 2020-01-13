@@ -183,16 +183,18 @@ class Model:
 
     def run(self, input_feed, compiled_graph=False):
         if input_feed is not None:
-            data_feed, param_feed = self.parse_input(input_feed, self.run_graph, self.optimizer)
+            params = self.optimizer_params[self.optimizer]
+            data_feed, param_feed = Model.parse_input(input_feed, self.run_graph, params)
 
             # feed all params if necessary
             if param_feed:
-                for param in param_feed:
-                    param.value = param_feed[param]
+                for param_name in param_feed:
+                    params[param_name].value = param_feed[param_name]
 
         return self._run(data_feed, self.run_graph, compiled_graph)
 
-    def parse_input(self, input_feed, graph, param_dict=None):
+    @staticmethod
+    def parse_input(input_feed, graph, param_dict=None):
         """ parses input_feed into data_feed ordered by current graph in_node order and param_feed
 
         Args:
@@ -239,7 +241,7 @@ class Model:
     def train_step(self, input_feed):
         if input_feed is not None:
             params = self.optimizer_params[self.optimizer]
-            data_feed, param_feed = self.parse_input(input_feed, self.train_graph, params)
+            data_feed, param_feed = Model.parse_input(input_feed, self.train_graph, params)
 
             # feed all params if necessary
             if param_feed:
@@ -332,7 +334,7 @@ class Model:
 
                         # if data is not a dict, we must create one using input layers
                         if not isinstance(feed_dict, dict):
-                            feed_dict, param_feed = self.parse_input(feed_dict, self.train_graph)
+                            feed_dict, param_feed = Model.parse_input(feed_dict, self.train_graph)
 
                             optimizer_props = self.optimizer_params[self.optimizer]
                             for param_name in param_feed:

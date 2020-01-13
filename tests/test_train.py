@@ -143,10 +143,11 @@ class TestTrain(TestCase):
 
         data1 = [[1., 1.], [1., 1.]]
         data2 = [[0., 1.], [0., 1.]]
-        data_dict, params_dict = model.parse_input({x: data1,
-                                                    "learning_rate": 0.2},
-                                                   model.run_graph,
-                                                   model.optimizer)
+        params = model.optimizer_params[model.optimizer]
+        data_dict, params_dict = tx.Model.parse_input({x: data1,
+                                                       "learning_rate": 0.2},
+                                                      model.run_graph,
+                                                      params)
         self.assertEqual(len(data_dict), 1)
         self.assertEqual(len(params_dict), 1)
         self.assertIs(model.optimizer_params[opt]["learning_rate"], lr)
