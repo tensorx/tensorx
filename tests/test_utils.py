@@ -12,6 +12,54 @@ from tensorx.test_utils import TestCase
 
 
 class TestUtils(TestCase):
+    def test_layer_graph(self):
+        data = [[1., 2.]]
+
+        in1 = tx.Input(n_units=2, name="in1", constant=False)
+        in2 = tx.Input(n_units=2, name="in2", constant=False)
+        linear = tx.Linear(in1, 1, add_bias=False)
+        graph = tx.Graph.build(inputs=in1, outputs=linear)
+
+        try:
+            tx.Graph.build(inputs=[in1, in2], outputs=linear)
+            self.fail("should have raised an exception: some inputs are not connected to anything")
+        except ValueError:
+            pass
+
+        try:
+            tx.Graph.build(inputs=[in2], outputs=linear)
+            self.fail("should have raised an error: inputs specified but dependencies are missing")
+        except ValueError:
+            pass
+
+        w = tf.matmul(data, linear.weights)
+
+        in1.value = data
+        r1 = linear()
+        r2 = graph(data)
+
+        self.assertArrayEqual(r2[0], w)
+        self.assertArrayEqual(r1, w)
+
+    def test_multi_output_graph(self):
+        data1 = [[1., 1.]]
+        data2 = [[2., 1.]]
+
+        in1 = tx.Input(data1, 2, name="in1", constant=False)
+        in2 = tx.Input(data2, 2, name="in2")
+
+        linear1 = tx.Linear(in1, 1)
+        linear2 = tx.Linear(tx.Add(in1, in2), 1)
+
+        graph = tx.Graph.build(inputs=None, outputs=[linear1, linear2])
+
+        result1 = graph()
+        self.assertEqual(len(result1), 2)
+
+        graph2 = tx.Graph.build(inputs=None, outputs=[linear2])
+        result2 = graph2()
+        self.assertEqual(len(result2), 1)
+        self.assertArrayEqual(result2[0], result1[-1])
 
     def test_graph_build(self):
         x = tx.Input([[1]])

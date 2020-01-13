@@ -183,7 +183,8 @@ class Model:
 
     def run(self, input_feed, compiled_graph=False):
         if input_feed is not None:
-            params = self.optimizer_params[self.optimizer]
+            # TODO can models have params to be changed by input feed?
+            params = self.model_props
             data_feed, param_feed = Model.parse_input(input_feed, self.run_graph, params)
 
             # feed all params if necessary
