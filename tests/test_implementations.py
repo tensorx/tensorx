@@ -95,6 +95,64 @@ class MyTestCase(TestCase):
         res0 = lstm0()
         self.assertArrayEqual(res0, res2[0])
 
+    def test_statefull_lstm_rnn(self):
+        n_inputs = 3
+        n_units = 4
+        batch_size = 2
+        seq_size = 3
+        n_features = 8
+        embed_size = 6
+
+        inputs = tx.Input(np.random.random([batch_size, n_features]), n_units=seq_size, dtype=tf.int32)
+        lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        seq = lookup.permute_batch_time()
+
+        # (N, T, M)
+        # print(np.shape(seq()))
+
+        lstm_cell = tx.LSTMCell.proto(n_units=n_units,
+                                      activation=tf.tanh,
+                                      gate_activation=tf.sigmoid,
+                                      forget_bias_init=tf.initializers.ones()
+                                      )
+
+        # state0 = [s() for s in lstm0.previous_state]
+
+        # inputs.value = tf.ones([batch_size, n_features])
+        # res1 = lstm1(inputs, state0)
+        # res1_ = lstm1(inputs, state0)
+
+        lstm_layer = tx.RNN(input_seq=seq, cell_proto=lstm_cell, stateful=True)
+        state0 = [s() for s in lstm_layer.previous_state]
+        res0 = lstm_layer()
+        state1 = [s() for s in lstm_layer.previous_state]
+        self.assertArrayNotEqual(state0, state1)
+
+
+        # print(np.shape(state1[0]))
+        self.assertArrayEqual(np.shape(state1[0]), (batch_size, n_units))
+
+        # create keras lstm and update with the same cell state
+        keras_lstm = tf.keras.layers.LSTM(units=n_units,
+                                          activation=tf.tanh,
+                                          recurrent_activation=tf.sigmoid,
+                                          unit_forget_bias=True,
+                                          implementation=2,
+                                          stateful=False)
+
+        tx_cell = lstm_layer.cell
+        keras_cell = keras_lstm.cell
+        keras_cell.kernel = tf.concat([w.weights.value() for w in tx_cell.w], axis=-1)
+        keras_cell.recurrent_kernel = tf.concat([u.weights for u in tx_cell.u], axis=-1)
+        keras_cell.bias = tf.concat([w.bias for w in tx_cell.w], axis=-1)
+
+        keras_res1 = keras_lstm(seq(),initial_state=tuple(state1))
+
+        print(keras_lstm.state_spec)
+        print(np.shape(state1[0]))
+        res1 = lstm_layer()
+        state2 = [s() for s in lstm_layer.previous_state]
+
     def test_gru_cell(self):
         n_inputs = 3
         n_units = 4

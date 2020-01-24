@@ -131,7 +131,7 @@ class TestTrain(TestCase):
     def test_model_train(self):
         x = tx.Input(n_units=2, name="x", constant=False)
         labels = tx.Input(n_units=2, name="labels", constant=False)
-        y = tx.Linear(x, 2, name="y", add_bias=False)
+        y = tx.Linear(x, 2, name="y1", add_bias=False)
         out1 = tx.Activation(y, tf.nn.softmax)
         out2 = tx.Activation(y, tf.nn.softmax)
 
@@ -156,8 +156,9 @@ class TestTrain(TestCase):
 
         w1 = y.weights.numpy()
 
-        epochs = 10
-        model.train(train_data=[{x: data1, labels: data2}], epochs=epochs)
+        epochs = 5
+        prog = tx.Progress()
+        model.train(train_data=[{x: data1, labels: data2}], epochs=epochs, callbacks=[prog])
 
         w2 = y.weights.numpy()
 

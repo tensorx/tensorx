@@ -733,7 +733,7 @@ class Input(Layer):
         self._value = x
         self.layer_state.slot.assign(x)
 
-    def compute(self, *args):
+    def compute(self):
         with layer_scope(self):
             if self.n_active is not None:
                 return txf.sparse_one_hot(self.value, num_cols=self.n_units, dtype=self.dtype)
@@ -795,7 +795,6 @@ class Tensor(Input):
                  shape=None,
                  dtype=None,
                  name="tensor"):
-
         super().__init__(init_value=init_value,
                          n_units=n_units,
                          constant=True,
@@ -852,8 +851,6 @@ class VariableLayer(Layer):
             self.dtype = input_layer.dtype if self.dtype is None else self.dtype
             self.shape = [1, self.n_units]
 
-            # input_value = input_layer.compute()
-            # self.var_shape = input_value.shape.as_list()
         else:
             if self.n_units is not None:
                 if self.shape is not None:

@@ -435,3 +435,165 @@ class Eval(Callback):
         super().__init__(trigger_dict={trigger: eval_fn},
                          properties=[self.target_property],
                          priority=priority)
+
+
+class EarlyStop(Callback):
+    """ EarlyStop Callback
+
+    Executes each time a given target property changes
+
+    if the callback depends on another callback that computes a given property, make sure EarlyStop
+    is executed after this callback.
+
+    Warning:
+        if this relies on a property doesn't exist, it throws an error and interrupts the train loop.
+
+
+    """
+
+    def __init__(self,
+                 patience=3,
+                 lesser_better=True,
+                 threshold=0.001,
+                 target="validation_loss",
+                 trigger=None, priority=1):
+        self.patience = patience
+        self.threshold = threshold,
+        self.target = target
+        self.last_eval = None
+        self.patience_tick = 0
+
+        def early_stop(model, properties):
+            if self.target not in properties:
+                raise KeyError(
+                    "EarlyStop callback is trying to access a property that doesn't exist: {}".format(self.target))
+            measure = properties[target].value
+            if self.last_eval is None:
+                self.last_eval = measure
+            else:
+                improvement = self.last_eval - measure
+                if not lesser_better:
+                    improvement = -1 * improvement
+
+                if improvement < self.threshold:
+                    self.patience_tick += 1
+                    if self.patience_tick == self.patience:
+                        raise StopTrain("the model didn't improve for the last {} epochs".format(patience))
+                else:
+                    self.patience_tick = 0
+
+                self.last_eval = measure
+
+        if trigger is None:
+            trigger = OnValueChange(self.target)
+
+        super().__init__(trigger_dict={trigger: early_stop}, priority=priority)
+
+
+class StopOnNaN(Callback):
+    """ StopOnNaN Callback
+
+    Interrupts the training loop if the last_loss property returns NaN
+
+    Note:
+        the only event triggered after this is ``OnTrain(AT.END)``
+    """
+
+    def __init__(self):
+        def raise_stop(model, properties):
+            step = properties["epoch_step"].value
+            epoch = properties["epoch"].value
+            loss = properties["last_loss"].value
+            if np.isnan(loss):
+                raise StopTrain("loss returned NaN on epoch {epoch} step {step}".format(epoch=epoch, step=step))
+
+        super().__init__({OnValueChange("last_loss"): raise_stop})
+
+
+class Progress(Callback):
+    """ Progress Callback
+
+    creates a CLI progress bar for the training loop
+    """
+
+    def __init__(self, total_steps=None, monitor="train_loss", priority=1):
+        self.total_steps = total_steps
+        self.progress = None
+        self.monitor = as_list(monitor)
+
+        # optional, only tries to import it when we create a progress callback
+
+        from tqdm.autonotebook import tqdm
+        self.tqdm = tqdm
+
+        def progress_init(model, properties):
+            self.progress = self.tqdm(total=self.total_steps)
+
+        def progress_step(model, properties):
+            postfix = {}
+            for prop_name in self.monitor:
+                if prop_name not in properties:
+                    raise KeyError(
+                        "Progress callback is trying to access a property that doesn't exist: {}".format(self.monitor))
+                prop = properties[prop_name].value
+                postfix[prop_name] = prop
+            self.progress.update(1)
+            if len(postfix) > 0:
+                self.progress.set_postfix(postfix)
+
+        def progress_stop(model, properties):
+            self.progress.close()
+
+        trigger_dict = {OnLoop(AT.START): progress_init,
+                        OnEveryStep(at=AT.END): progress_step,
+                        OnLoop(AT.END): progress_stop}
+
+        def progress_update(model, properties):
+            if self.total_steps is None:
+                self.total_steps = self.progress.n * properties["total_epochs"].value
+                self.progress.total = self.total_steps
+
+        if self.total_steps is None:
+            trigger_dict[OnEveryEpoch(at=AT.END)] = progress_update
+
+        super().__init__(trigger_dict=trigger_dict,
+                         priority=priority)
+
+
+class NewProperty(Callback):
+    """ NewProperty Callback
+
+    Creates a new property by applying a given function to the value of an existing property.
+
+    """
+
+    def __init__(self, target, fn, new_prop, init_val=None, triggers=OnEveryStep(), priority=1):
+        self.property = Property(name=new_prop, value=init_val)
+        self.fn = fn
+        self.triggers = as_list(triggers)
+
+        def update_prop(model, properties):
+            if target not in properties:
+                raise ValueError("Property callback tried to access property that doesn't exist: {}".format(target))
+            prop = properties[target]
+            self.property.value = self.fn(prop.value)
+
+        trigger_dict = {trigger: update_prop for trigger in self.triggers}
+
+        super().__init__(trigger_dict=trigger_dict, priority=priority, properties=self.property)
+
+
+class LambdaCallback(Callback):
+    """ Lambda Callback
+
+    This callback executes a given function on a given trigger
+
+    """
+
+    def __init__(self, fn=None, triggers=OnEveryEpoch(at=AT.END), properties=[], priority=1):
+        self.triggers = as_list(triggers)
+        self.properties = properties
+        self.fn = fn
+        trigger_dict = {trigger: fn for trigger in triggers}
+
+        super().__init__(trigger_dict=trigger_dict, priority=priority, properties=self.properties)

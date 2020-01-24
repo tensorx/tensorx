@@ -11,25 +11,84 @@ import unittest
 from tensorx.test_utils import TestCase
 from tensorx.layers import LayerProto
 
+
 class TestLayers(TestCase):
+
+    def test_input(self):
+        inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
+        self.assertArrayEqual(inputs.value, tf.zeros([1, 4]))
+        try:
+            inputs.tensor()
+        except TypeError:
+            pass
+
+        try:
+            inputs.value = np.ones([2, 3])
+            self.fail("should have thrown exception with invalid shape")
+        except ValueError as e:
+            pass
+        inputs.value = np.ones([2, 4])
+        self.assertIsNotNone(inputs.value)
+        self.assertIsNotNone(inputs())
+        self.assertEqual(inputs().dtype, tf.int32)
+
+        # test sparse input
+        inputs = tx.Input(n_units=4, n_active=2, dtype=tf.int64, constant=False)
+        self.assertArrayEqual(inputs.value, tf.zeros([0, 2]))
+
+        try:
+            inputs.value = [[0, 2, 2]]
+        except ValueError as e:
+            self.assertTrue("Invalid shape" in str(e))
+
+        inputs.value = [[0, 2]]
+        # create an equivalent sparse input
+        sp_input = inputs()
+        self.assertIsInstance(sp_input, tf.SparseTensor)
+        inputs2 = tx.Input(n_units=4, init_value=sp_input)
+
+        dense_value = tf.sparse.to_dense(inputs())
+        dense_value2 = tf.sparse.to_dense(inputs2())
+        expected = np.array([[1, 0, 1, 0]], dtype=np.float32)
+        self.assertTrue(np.array_equal(expected, dense_value))
+        self.assertTrue(np.array_equal(dense_value, dense_value2))
+
+    def test_dynamic_input_graph(self):
+        # tf.autograph.set_verbosity(
+        #    10,
+        #    alsologtostdout=True
+        # )
+        # issue with python 3.8
+        # https://github.com/tensorflow/tensorflow/issues/34433
+
+        x = tx.Input(tf.zeros([2, 2]), n_units=2, constant=False)
+        # p = x.proto
+        g = x.as_function(input_signature=None)
+
+        out1 = g()
+        x.value = tf.ones([2, 2])
+        out2 = g()
+
+        self.assertArrayNotEqual(out1, out2)
+
     def test_layer_proto(self):
         inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
         inputs_proto = inputs.proto
         l2 = inputs_proto()
         self.assertArrayEqual(inputs(), l2())
 
-        #linear = tx.Linear(inputs,n_units=3)
-        #cfg1 = linear.proto
+        # linear = tx.Linear(inputs,n_units=3)
+        # cfg1 = linear.proto
 
-        rnncell = tx.RNNCell(input_layer=inputs,n_units=3)
+        rnncell = tx.RNNCell(input_layer=inputs, n_units=3)
 
         class KWClass:
             def __init__(self, param1, **kwargs):
                 self.param1 = param1
 
-        proto = LayerProto(KWClass,param2=1,param1=2)
+        proto = LayerProto(KWClass, param2=1, param1=2)
         p = proto()
-        self.assertEqual(p.param1,2)
+        self.assertEqual(p.param1, 2)
 
     def test_shared_state(self):
         inputs = np.ones([2, 4])
@@ -104,16 +163,6 @@ class TestLayers(TestCase):
         self.assertTrue(np.array_equal(linear1(), linear_flat()))
         self.assertTrue(np.array_equal(tf.shape(linear2()), [1, 2, 1]))
 
-    def test_dynamic_input_graph(self):
-        x = tx.Input(tf.zeros([2, 2]), n_units=2, constant=False)
-        g = x.as_function()
-
-        out1 = g()
-        x.value = tf.ones([2, 2])
-        out2 = g()
-
-        self.assertArrayNotEqual(out1, out2)
-
     def test_transpose_reshape(self):
         x = tf.reshape(tf.range(9), [3, 3])
         x2 = tx.Reshape(tf.range(9), [3, 3])
@@ -144,45 +193,6 @@ class TestLayers(TestCase):
         self.assertArrayEqual(w.compute(t), tf.transpose(t) * 2)
         self.assertArrayEqual(trans.compute(t), x)
         self.assertArrayEqual(w2.compute(x), w2())
-
-    def test_input(self):
-        inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
-        self.assertArrayEqual(inputs.value, tf.zeros([1, 4]))
-        try:
-            inputs.tensor()
-        except TypeError:
-            pass
-
-        try:
-            inputs.value = np.ones([2, 3])
-            self.fail("should have thrown exception with invalid shape")
-        except ValueError as e:
-            pass
-        inputs.value = np.ones([2, 4])
-        self.assertIsNotNone(inputs.value)
-        self.assertIsNotNone(inputs())
-        self.assertEqual(inputs().dtype, tf.int32)
-
-        # test sparse input
-        inputs = tx.Input(n_units=4, n_active=2, dtype=tf.int64, constant=False)
-        self.assertArrayEqual(inputs.value, tf.zeros([0, 2]))
-
-        try:
-            inputs.value = [[0, 2, 2]]
-        except ValueError as e:
-            self.assertTrue("Invalid shape" in str(e))
-
-        inputs.value = [[0, 2]]
-        # create an equivalent sparse input
-        sp_input = inputs()
-        self.assertIsInstance(sp_input, tf.SparseTensor)
-        inputs2 = tx.Input(n_units=4, init_value=sp_input)
-
-        dense_value = tf.sparse.to_dense(inputs())
-        dense_value2 = tf.sparse.to_dense(inputs2())
-        expected = np.array([[1, 0, 1, 0]], dtype=np.float32)
-        self.assertTrue(np.array_equal(expected, dense_value))
-        self.assertTrue(np.array_equal(dense_value, dense_value2))
 
     def test_variable_layer(self):
         input_layer = tx.Input([[1]], n_units=1, dtype=tf.float32)
