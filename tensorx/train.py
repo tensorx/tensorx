@@ -7,6 +7,8 @@ import logging
 from tensorx.callbacks import *
 import numpy as np
 
+import csv
+
 logger = logging.getLogger('tensorx')
 
 
@@ -586,7 +588,7 @@ class NewProperty(Callback):
 class LambdaCallback(Callback):
     """ Lambda Callback
 
-    This callback executes a given function on a given trigger
+    Executes a given function on a given trigger
 
     """
 
@@ -597,3 +599,192 @@ class LambdaCallback(Callback):
         trigger_dict = {trigger: fn for trigger in triggers}
 
         super().__init__(trigger_dict=trigger_dict, priority=priority, properties=self.properties)
+
+
+class DictLogger(Callback):
+    """ DictLogger Callback
+
+    Logs the values of the given properties to a dictionary accessible through the
+    ``logs` attribute
+
+    Args:
+        props (List[str]): list of strings with names of properties to log
+        trigger (callbacks.Event): even on which this callback is executed
+        priority (int): callback priority (lower values have higher priority)
+
+    Attributes:
+        logs (dict): dictionary mapping property names (str) to lists of values
+    """
+
+    def __init__(self, props, trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.props = as_list(props)
+        self.logs = {name: [] for name in self.props}
+
+        def get_props(model, properties):
+            for prop_name in self.props:
+                if prop_name not in properties:
+                    raise KeyError("DictLogger tried to access a property that doesn't exist: {}".format(prop_name))
+                prop = properties[prop_name]
+                self.logs[prop_name].append(prop.value)
+
+        super().__init__(trigger_dict={trigger: get_props}, priority=priority)
+
+
+class DecayAfter(Callback):
+    """ DecayAfter Callback
+
+    Decays a given property using a given decay rate after a given number of epochs. This callback checks the model
+    "epoch" property set in the main training loop, if epoch is greater or equal than ``decay_after`` then it decays
+    a target property value using decay_rate.
+
+    Args:
+        decay_after (int): epoch after which the decay starts affecting a target property
+        target_property (str): a name for the property to be changed
+        decay_rate (float): the rate by which the property is changed with `value * decay_rate``
+        decay_threshold (float): minimum value the target property will take after which the decay has no effect.
+        priority (int) callback priority (lower values have higher priority)
+
+    """
+
+    def __init__(self,
+                 decay_after=0,
+                 target_property="learning_rate",
+                 decay_rate=1.0,
+                 decay_threshold=1e-6,
+                 priority=1):
+        self.target_property = target_property
+        self.decay_rate = decay_rate
+        self.decay_threshold = decay_threshold
+        self.decay_after = decay_after
+
+        def update_fn(_, properties):
+            if self.target_property not in properties:
+                raise KeyError(
+                    "DecayAfter callback is trying to change a property that doesn't exist: {}".format(
+                        self.target_property))
+            epoch = properties["epoch"].value
+
+            if epoch >= self.decay_after:
+                prop = properties[self.target_property]
+                prop.value = max(self.decay_threshold, prop.value * decay_rate)
+
+        super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
+                         properties=[],
+                         priority=priority)
+
+
+class PlateauDecay(Callback):
+    """ PlateauDecay Callback
+
+    Decays a ``target`` property with a given ``decay_rate`` when a ``monitor`` property value plateaus: doesn't improve
+    from the previously observed value.
+
+    Note: patience param is reset after decay is applied
+
+    Args:
+        monitor (str): the measure on which we want to measure the improvement, by default "validation_loss"
+        target (str): the property to be changed by this callback
+        decay_threshold (float):value representing the difference between evaluations necessary for the update to occur
+        decay_rate (float): rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold: point beyond witch the param value is not reduced `max(value * decay_rate, decay_threshold)`
+        less_is_better: if True, evaluation is considered to improve if it decreases, else it is considered to improve
+        if it increases
+
+    Attributes:
+        eval_history (list): list with the evaluation values passed through the update function
+        improvement_threshold (float): the necessary difference between evaluations for the update to occur
+        decay_rate (float): rate through which the param value is reduced `(value = value * decay_rate)`
+        decay_threshold (float): point beyond witch ``target`` is not reduced `max(value * decay_rate, decay_threshold)`
+    """
+
+    def __init__(self,
+                 monitor,
+                 target,
+                 improvement_threshold=1.0,
+                 less_is_better=True,
+                 patience=1,
+                 decay_rate=1.0,
+                 decay_threshold=1e-6,
+                 priority=1):
+        self.improvement_threshold = improvement_threshold
+        self.decay_rate = decay_rate
+        self.decay_threshold = decay_threshold
+        self.less_is_better = less_is_better
+        self.monitor = monitor
+        self.target = target
+        self.eval_history = []
+        self.patience_tick = 0
+        self.patience = patience
+
+        def update_fn(_, properties):
+            # get properties
+            evaluation = properties[self.monitor]
+            to_change = properties[self.target]
+
+            self.eval_history.append(evaluation.value)
+
+            if len(self.eval_history) > 1:
+                evaluation = 0
+                if len(self.eval_history) > 1:
+                    evaluation = self.eval_history[(-2 - self.patience_tick)] - self.eval_history[-1]
+                    if not self.less_is_better:
+                        evaluation = -1 * evaluation
+
+                if evaluation < self.improvement_threshold:
+                    self.patience_tick += 1
+                    if self.patience_tick == self.patience:
+                        to_change.value = max(to_change.value * self.decay_rate, self.decay_threshold)
+                        self.patience_tick = 0
+                else:
+                    self.patience_tick = 0
+
+        super().__init__(trigger_dict={OnEveryEpoch(at=AT.END): update_fn},
+                         properties=[],
+                         priority=priority)
+
+
+class CSVLogger(Callback):
+    """ CSVLogger Callback
+
+    logs property values to a csv file.
+
+    Args:
+        monitors (List[str]): list of property names to be logged
+        static_logs (dict): a dictionary of values (str to value) to be output along with the target properties
+    """
+
+    def __init__(self, monitors, out_filename, static_logs=None, trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.property_names = as_list(monitors)
+        self.static_logs = static_logs
+        self.out_filename = out_filename
+        self.out_file = None
+        self.n = 0
+        self.writer = None
+
+        def get_props(props):
+            props = {prop_name: props[prop_name] for prop_name in self.property_names}
+            all_props = {p.name: p.value for p in props.values()}
+            # add values from the provided logs
+            all_props.update(self.static_logs)
+            return all_props
+
+        def log_init(model, properties):
+            self.out_file = open(self.out_filename, "w")
+            all_props = get_props(properties)
+            self.writer = csv.DictWriter(f=self.out_file, fieldnames=all_props.keys())
+            self.writer.writeheader()
+
+        def log_clean(model, properties):
+            self.out_file.close()
+
+        def log(model, properties):
+            all_props = get_props(properties)
+            self.writer.writerow(all_props)
+            self.out_file.flush()
+            self.n += 1
+
+        super().__init__(trigger_dict={OnStep(1, at=AT.START): log_init,
+                                       trigger: log,
+                                       OnLoop(at=AT.END): log_clean},
+                         properties=None,
+                         priority=priority)
