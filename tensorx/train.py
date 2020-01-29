@@ -6,6 +6,7 @@ import inspect
 import logging
 from tensorx.callbacks import *
 import numpy as np
+from queue import Empty
 
 import csv
 
@@ -788,3 +789,207 @@ class CSVLogger(Callback):
                                        OnLoop(at=AT.END): log_clean},
                          properties=None,
                          priority=priority)
+
+
+class ResetState(LambdaCallback):
+    """ ResetState Callback
+
+    calls reset state on the model on the given triggers
+    """
+
+    def __init__(self,
+                 triggers=OnEveryEpoch(at=AT.END),
+                 priority=1):
+        triggers = as_list(triggers)
+
+        def reset(model: Model, _):
+            model.reset_state()
+
+        super().__init__(fn=reset, triggers=triggers, priority=priority)
+
+
+class Plot(Callback):
+    """ Callback that plots the given properties in real time
+
+    """
+
+    # noinspection PyBroadException
+    def __init__(self, monitor,
+                 cols=3,
+                 backend='pyqtgraph',
+                 keep_open=False,
+                 save_plot=False,
+                 output_file=None,
+                 trigger=OnEveryEpoch(at=AT.END), priority=1):
+        self.keep_open = keep_open
+        self.monitor = set(as_list(monitor))
+        self.output_file = output_file
+        self.process = None
+        self.queue = None
+        self.stop_event = None
+        self.backend = backend
+
+        def plot_worker_mpl(queue, stop_event):
+            out_file = self.output_file
+
+            step = 1
+            axs = {}
+
+            num_props = len(self.monitor)
+            rows = np.ceil(num_props / 3)
+
+            if backend == "matplotlib":
+                import matplotlib.pyplot as plt
+                # only use the TkAgg backend if in console
+                try:
+                    from IPython import get_ipython
+                    if 'IPKernelApp' not in get_ipython().config:  # pragma: no cover
+                        raise ImportError("console")
+                except Exception:
+                    import matplotlib
+                    matplotlib.use("TkAgg")
+
+                plt.ion()
+                fig = plt.figure()
+                fig.canvas.toolbar.pack_forget()
+
+                for i, prop_name in enumerate(self.monitor):
+                    axs[prop_name] = fig.add_subplot(rows, cols, i + 1)  # i + 1)
+
+            elif backend == "pyqtgraph":
+                from pyqtgraph.Qt import QtGui, QtCore
+                import pyqtgraph as pg
+
+                # pg.setConfigOption('background', 'w')
+                app = QtGui.QApplication([])
+                win = pg.GraphicsWindow(title="Properties")
+                plots = {}
+                text = {}
+                # win.ci.setContentsMargins(20, 0, 0, 0)
+
+                for i, prop_name in enumerate(self.monitor):
+                    plot_item = win.addPlot(title=prop_name, row=i // cols, col=i % cols)
+                    plots[prop_name] = plot_item
+                    axs[prop_name] = plot_item.plot(pen=pg.mkPen('#FF2400', width=1))
+
+                QtGui.QApplication.processEvents()
+            else:
+                raise ValueError("invalid backed, valid backend options: matplotlib, pyqtgraph")
+
+            while True:
+                try:
+                    properties = queue.get_nowait()
+
+                    for prop_name in properties.keys():
+                        prop_value = properties[prop_name]
+                        ax = axs[prop_name]
+
+                        # if prop_value is None:
+                        #    prop_value = 0
+
+                        if self.backend == "matplotlib":
+                            if step == 1:
+                                xs = [step]
+                                ys = [prop_value]
+                            else:
+                                line = ax.lines[0]
+                                xs = np.append(line.get_xdata(), [step])
+                                ys = np.append(line.get_ydata(), [prop_value])
+
+                                line.set_xdata(xs)
+                                line.set_ydata(ys)
+
+                            ax.plot(xs[step - 1:], ys[step - 1:], color="#FF2400", linestyle="solid")
+
+                            if step == 1:
+                                plt.tight_layout()
+                                ax.set_title(prop_name)
+                        elif self.backend == "pyqtgraph":
+                            xs, ys = ax.getData()
+                            if prop_value is not None:
+                                if xs is None:
+                                    xs = []
+                                    ys = []
+                                elif len(xs) == 1:
+                                    # create text label
+                                    curve_point = pg.CurvePoint(ax)
+                                    plots[prop_name].addItem(curve_point)
+                                    label = pg.TextItem("test", color="#FF4200")
+                                    label.setParentItem(curve_point)
+                                    text[prop_name] = (curve_point, label)
+
+                                xs = np.append(xs, [step])
+                                ys = np.append(ys, [prop_value])
+
+                                ax.setData(xs, ys)
+
+                                if len(xs) > 1:
+                                    # update text label
+                                    curve_point, label = text[prop_name]
+                                    curve_point: pg.CurvePoint = curve_point
+                                    # curve point index relative to sample index (last in this case)
+                                    curve_point.setIndex(step - 1)
+                                    # anchor is relative to parent (top left corner)
+                                    label.setAnchor((1.0, 1.0))
+                                    label.setText('%0.3f' % (ys[-1]))
+
+                    if self.backend == "matplotlib":
+                        fig.canvas.draw_idle()
+                        fig.canvas.flush_events()
+                    else:
+                        QtGui.QApplication.processEvents()
+
+                    step += 1
+                except Empty:
+                    if stop_event.is_set():
+                        break
+                    else:
+                        if self.backend == "pyqtgraph":
+                            QtGui.QApplication.processEvents()
+
+            if self.backend == "matplotlib":
+                plt.ioff()
+                if self.keep_open:
+                    plt.show()
+                if save_plot:
+                    out_file = self.output_file if self.output_file is not None else "train_run_{}.pdf".format(
+                        str(os.getpid()))
+
+                    plt.savefig(out_file)
+                plt.close(fig)
+            else:
+
+                if save_plot:
+                    import pyqtgraph.exporters
+                    exporter = pg.exporters.ImageExporter(win.scene())
+                    if out_file is None:
+                        out_file = "train_run_{}.pdf".format(str(os.getpid()))
+                    exporter.export(out_file)
+                if self.keep_open:
+                    QtGui.QApplication.instance().exec_()
+                app.closeAllWindows()
+
+        def plot_init(model, properties):
+            import multiprocessing as mp
+            self.stop_event = mp.Event()
+            self.queue = mp.Queue()
+            self.process = mp.Process(target=plot_worker_mpl, args=(self.queue, self.stop_event,))
+            self.process.start()
+
+        def plot_props(model, properties):
+            data = {}
+            for prop_name in self.monitor:
+                if prop_name not in properties:
+                    raise KeyError("Plot callback tried to access a property that doesn't exist: {}".format(prop_name))
+
+                y = properties[prop_name].value
+                data[prop_name] = y
+            self.queue.put(data)
+
+        def plot_clean(model, properties):
+            self.stop_event.set()
+            self.process.join()
+
+        super().__init__(trigger_dict={OnLoop(at=AT.START): plot_init,
+                                       trigger: plot_props,
+                                       OnLoop(at=AT.END): plot_clean}, priority=priority)
