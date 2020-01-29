@@ -158,8 +158,8 @@ class TestTrain(TestCase):
 
         epochs = 100
         prog = tx.Progress()
-        plot = tx.Plot(monitor=["train_loss","last_loss"], keep_open=True)
-        model.train(train_data=[{x: data1, labels: data2}], epochs=epochs, callbacks=[plot])
+        # plot = tx.Plot(monitor=["train_loss","last_loss"], keep_open=True)
+        model.train(train_data=[{x: data1, labels: data2}], epochs=epochs, callbacks=[prog])
 
         w2 = y.weights.numpy()
 
