@@ -416,6 +416,7 @@ def as_tensor(x, dtype=None):
 
     if dtype is not None:
         if x.dtype != dtype:
+            # logger.warning(f"converting {x.dtype} to {dtype}")
             x = tf.cast(x, dtype)
     return x
 

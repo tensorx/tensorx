@@ -51,8 +51,8 @@ target/
 ## Temporary data
 .ipynb_checkpoints/
 
-# sphinx
-_build/
+#mkdocs
+docs/sources
 
 
 # IDE files
@@ -64,3 +64,5 @@ _build/
 
 # scratch folder
 scratch
+/docs/sources/
+/tests/ckpts/

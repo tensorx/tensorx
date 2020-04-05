@@ -74,7 +74,9 @@ class OnTime(Event):
 
 class OnStep(OnTime):
     def match(self, other):
-        """ Matches OnStep with other.n % self.n == 0
+        """ Matches exact step event
+
+        Matches OnStep with `other.n % self.n == 0`
         """
         if type(other) not in (OnEveryStep, OnStep):
             return False
@@ -90,7 +92,7 @@ class OnStep(OnTime):
 class OnEveryStep(OnStep):
     """ Event for moment on every n global step
 
-    Example::
+    Example:
         n = 3
         for i in range(100)
             if i % n == 3:
@@ -128,7 +130,7 @@ class OnLoop(Event):
 class OnEpoch(OnTime):
     """ Event for specific epoch in the training
 
-    Example::
+    Example:
 
         t = OnEpoch(2)
     """
@@ -150,7 +152,7 @@ class OnEpoch(OnTime):
 class OnEveryEpoch(OnEpoch):
     """ Event for specific epoch in the training
 
-    Example::
+    Example:
 
         t = OnEveryEpoch(2)
     """
@@ -169,7 +171,7 @@ class OnEveryEpoch(OnEpoch):
 class OnEpochStep(OnTime):
     """ Event for one moment of a specific epoch step
 
-    Example::
+    Example:
         t = OnEpochStep(3,AT.START)
     """
 
@@ -205,8 +207,9 @@ class OnEveryEpochStep(OnEpochStep):
 
 class OnValueChange(Event):
     """ Event to be used with property value change events
+
     Attributes:
-        name: name of the property to be monitored
+        name (str): name of the property to be monitored
     """
     __slots__ = ["name"]
 

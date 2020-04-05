@@ -1,10 +1,7 @@
 import unittest
 import tensorx as tx
-import tensorx.callbacks as tc
-from functools import partial
 import os
 import tensorflow as tf
-import numpy as np
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 

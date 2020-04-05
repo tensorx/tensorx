@@ -95,15 +95,18 @@ class MyTestCase(TestCase):
         res0 = lstm0()
         self.assertArrayEqual(res0, res2[0])
 
-    def test_statefull_lstm_rnn(self):
-        n_inputs = 3
+    def test_lstm_rnn_stateful(self):
         n_units = 4
-        batch_size = 2
+        batch_size = 12
         seq_size = 3
-        n_features = 8
+        n_features = 16
         embed_size = 6
 
-        inputs = tx.Input(np.random.random([batch_size, n_features]), n_units=seq_size, dtype=tf.int32)
+        feature_indices = np.random.randint(0, high=n_features, size=[batch_size, seq_size])
+
+        inputs = tx.Input(init_value=feature_indices,
+                          n_units=seq_size,
+                          dtype=tf.int32)
         lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
         seq = lookup.permute_batch_time()
 
@@ -126,32 +129,53 @@ class MyTestCase(TestCase):
         state0 = [s() for s in lstm_layer.previous_state]
         res0 = lstm_layer()
         state1 = [s() for s in lstm_layer.previous_state]
-        self.assertArrayNotEqual(state0, state1)
 
+        self.assertArrayNotEqual(state0, state1)
 
         # print(np.shape(state1[0]))
         self.assertArrayEqual(np.shape(state1[0]), (batch_size, n_units))
 
+        tx_cell = lstm_layer.cell
+        kernel = tf.concat([w.weights.value() for w in tx_cell.w], axis=-1)
+        recurrent_kernel = tf.concat([u.weights.value() for u in tx_cell.u], axis=-1)
+        bias = tf.concat([w.bias.value() for w in tx_cell.w], axis=-1)
+
         # create keras lstm and update with the same cell state
+        # since LSTM initializes the cell state internally this was the only way to initializing that state
+        # from the tensorx cell state
+        class FromOther(tf.keras.initializers.Initializer):
+            def __init__(self, value):
+                self.value = value
+
+            def __call__(self, shape, dtype=None):
+                if not tf.TensorShape(shape).is_compatible_with(tf.shape(self.value)):
+                    raise Exception(f"init called with shape {shape} != value shape {tf.shape(self.value)}")
+                else:
+                    return self.value
+
         keras_lstm = tf.keras.layers.LSTM(units=n_units,
                                           activation=tf.tanh,
+                                          kernel_initializer=FromOther(kernel.numpy()),
+                                          recurrent_initializer=FromOther(recurrent_kernel.numpy()),
+                                          bias_initializer=FromOther(bias.numpy()),
                                           recurrent_activation=tf.sigmoid,
-                                          unit_forget_bias=True,
+                                          unit_forget_bias=False,
                                           implementation=2,
+                                          time_major=False,
+                                          unroll=False,
+                                          return_sequences=True,
                                           stateful=False)
 
-        tx_cell = lstm_layer.cell
-        keras_cell = keras_lstm.cell
-        keras_cell.kernel = tf.concat([w.weights.value() for w in tx_cell.w], axis=-1)
-        keras_cell.recurrent_kernel = tf.concat([u.weights for u in tx_cell.u], axis=-1)
-        keras_cell.bias = tf.concat([w.bias for w in tx_cell.w], axis=-1)
+        # lookup is of form [batch x features x input_dim] instead of [features x batch x input_dim]
+        keras_lstm_output = keras_lstm(lookup(), initial_state=tuple(state1))
 
-        keras_res1 = keras_lstm(seq(),initial_state=tuple(state1))
+        self.assertArrayEqual(keras_lstm.cell.kernel.value(), kernel)
+        self.assertArrayEqual(keras_lstm.cell.recurrent_kernel.value(), recurrent_kernel)
+        self.assertArrayEqual(keras_lstm.cell.bias.value(), bias)
 
-        print(keras_lstm.state_spec)
-        print(np.shape(state1[0]))
-        res1 = lstm_layer()
-        state2 = [s() for s in lstm_layer.previous_state]
+        keras_lstm_output = tf.transpose(keras_lstm_output, [1, 0, 2])
+        tx_lstm_output, _ = lstm_layer()
+        self.assertLess(tf.reduce_sum(tf.abs(keras_lstm_output - tx_lstm_output)), 1e-5)
 
     def test_gru_cell(self):
         n_inputs = 3

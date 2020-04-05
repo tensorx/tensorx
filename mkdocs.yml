@@ -1,0 +1,36 @@
+site_name: TensorX Documentation
+
+docs_dir: "docs/sources"
+
+markdown_extensions:
+  - admonition
+  - codehilite:
+      use_pygments: true
+      noclasses: true
+      pygments_style: tango
+  - pymdownx.arithmatex
+
+
+plugins:
+  - search
+
+
+#extra_css:
+#    - css/highlight_fix.css
+
+# for mathjax
+extra_javascript:
+  - 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML'
+
+theme:
+  name: 'material'
+  custom_dir: 'docs/theme'
+  palette:
+    primary: 'cyan'
+    accent: 'cyan'
+#nav:
+#  - Home: index.md
+#  - API: api.md
+#  - Layers: layers.md
+#logo: 'img/tx4.png'
+

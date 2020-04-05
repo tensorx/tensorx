@@ -6,7 +6,6 @@ os.environ['AUTOGRAPH_VERBOSITY'] = '10'
 import unittest
 import tensorflow as tf
 import tensorx as tx
-from datetime import datetime
 from tensorx.utils import Graph
 
 from tensorflow.python.ops import summary_ops_v2

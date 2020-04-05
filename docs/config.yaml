@@ -1,0 +1,17 @@
+root: "https://tensorx.org/"
+pages:
+- page: "train/model.md"
+  source: "tensorx/train/model.py"
+  methods:
+  - Model:
+    - train
+    - set_optimizer
+- page: "layers/core.md"
+  source: 'tensorx/layers.py'
+  classes:
+    - Linear
+    - Module
+- page: "math.md"
+  source: 'tensorx/math.py'
+  functions:
+    - sparse_multiply_dense

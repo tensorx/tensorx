@@ -1,4 +1,8 @@
 import tensorflow as tf
+from tensorflow.python import PartitionedVariable
+from tensorflow.python.framework import ops
+from tensorflow.python.platform import tf_logging as logging
+
 from tensorx.utils import as_tensor
 from tensorflow.python.framework import tensor_shape, tensor_util
 from tensorx.math import sparse_multiply_dense
@@ -490,6 +494,136 @@ def to_sparse(tensor, name="to_sparse"):
         return sp_tensor
 
 
+def embedding_lookup_sparse(params,
+                            sp_tensor,
+                            partition_strategy="mod",
+                            name=None,
+                            combiner=None,
+                            max_norm=None):
+    """Computes embeddings for the given ids and weights.
+
+    !!! info
+        assumes that there is at least one id for each row in the dense tensor
+        represented by sp_ids (i.e. there are no rows with empty features), and that
+        all the indices of sp_ids are in canonical row-major order.
+        It also assumes that all id values lie in the range [0, p0), where p0
+        is the sum of the size of params along dimension 0.
+
+    !!! note
+        in tensorflow's implementation, sparse gradients do not propagate through gather.
+
+    Args:
+        params: A single tensor representing the complete embedding tensor, or a
+        list of P tensors all of same shape except for the first dimension,
+        representing sharded embedding tensors.  Alternatively, a
+        `PartitionedVariable`, created by partitioning along dimension 0. Each
+        element must be appropriately sized for the given `partition_strategy`.
+
+        sp_ids: N x M `SparseTensor` of int64 ids where N is typically batch size
+        and M is arbitrary.
+
+        sp_weights: either a `SparseTensor` of float / double weights, or `None` to
+        indicate all weights should be taken to be 1. If specified, `sp_weights`
+        must have exactly the same shape and indices as `sp_ids`.
+        partition_strategy: A string specifying the partitioning strategy, relevant
+        if `len(params) > 1`. Currently `"div"` and `"mod"` are supported. Default
+        is `"mod"`. See `tf.nn.embedding_lookup` for more details.
+        name: Optional name for the op.
+
+        combiner: A string specifying the reduction op. Currently "mean", "sqrtn"
+        and "sum" are supported. "sum" computes the weighted sum of the embedding
+        results for each row. "mean" is the weighted sum divided by the total
+        weight. "sqrtn" is the weighted sum divided by the square root of the sum
+        of the squares of the weights.
+
+        max_norm: If not `None`, each embedding is clipped if its l2-norm is larger
+        than this value, before combining.
+
+    Returns:
+        A dense tensor representing the combined embeddings for the
+        sparse ids. For each row in the dense tensor represented by `sp_ids`, the op
+        looks up the embeddings for all ids in that row, multiplies them by the
+        corresponding weight, and combines these embeddings as specified.
+
+
+
+    Raises:
+        TypeError: If `sp_ids` is not a `SparseTensor`, or if `sp_weights` is
+        neither `None` nor `SparseTensor`.
+        ValueError: If `combiner` is not one of {"mean", "sqrtn", "sum"}.
+    """
+    if combiner is None:
+        logging.warn("The default value of combiner will change from \"mean\" "
+                     "to \"sqrtn\" after 2016/11/01.")
+        combiner = "mean"
+    if combiner not in ("mean", "sqrtn", "sum"):
+        raise ValueError("combiner must be one of 'mean', 'sqrtn' or 'sum'")
+    if isinstance(params, PartitionedVariable):
+        params = list(params)  # Iterate to get the underlying Variables.
+    if not isinstance(params, list):
+        params = [params]
+    if not isinstance(sp_tensor, tf.SparseTensor):
+        raise TypeError("sp_ids must be SparseTensor")
+
+    with ops.name_scope(name, "embedding_lookup_sparse",
+                        params + [sp_tensor]) as name:
+        segment_ids = sp_tensor.indices[:, 0]
+        if segment_ids.dtype != tf.int32:
+            segment_ids = tf.cast(segment_ids, tf.int32)
+
+        ids = sp_tensor.indices[:, -1]
+        # ids, idx = tf.unique(ids)
+
+        embeddings = tf.nn.embedding_lookup(
+            params=params,
+            ids=ids,
+            max_norm=max_norm)
+
+        # ***
+        # this second lookup causes problems because sparse gradients don't propagate though gather
+        # embeddings = embedding_lookup(embeddings, idx)
+        # embeddings, _ = gather_dynamic(embeddings, idx)
+        # ***
+
+        weights = sp_tensor.values
+        if weights.dtype != embeddings.dtype:
+            weights = tf.cast(weights, embeddings.dtype)
+
+        # Reshape weights to allow broadcast
+        ones = tf.fill(
+            tf.expand_dims(tf.rank(embeddings) - 1, 0), 1)
+        bcast_weights_shape = tf.concat(
+            [tf.shape(weights), ones], 0)
+
+        orig_weights_shape = weights.get_shape()
+        weights = tf.reshape(weights, bcast_weights_shape)
+
+        # Set the weight shape, since after reshaping to bcast_weights_shape,
+        # the shape becomes None.
+        if embeddings.get_shape().ndims is not None:
+            weights.set_shape(orig_weights_shape.concatenate(
+                [1 for _ in range(embeddings.get_shape().ndims - 1)]))
+
+        embeddings *= weights
+
+        if combiner == "sum":
+            embeddings = tf.math.segment_sum(embeddings, segment_ids, name=name)
+        elif combiner == "mean":
+            embeddings = tf.math.segment_sum(embeddings, segment_ids)
+            weight_sum = tf.math.segment_sum(weights, segment_ids)
+            embeddings = tf.math.divide_no_nan(embeddings, weight_sum, name=name)
+        elif combiner == "sqrtn":
+            embeddings = tf.math.segment_sum(embeddings, segment_ids)
+            weights_squared = tf.math.pow(weights, 2)
+            weight_sum = tf.math.segment_sum(weights_squared, segment_ids)
+            weight_sum_sqrt = tf.math.sqrt(weight_sum)
+            embeddings = tf.math.divide_no_nan(embeddings, weight_sum_sqrt, name=name)
+        else:
+            assert False, "Unrecognized combiner"
+
+        return embeddings
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -500,4 +634,5 @@ __all__ = ["apply_gate",
            "binary_mask",
            "empty_sparse_tensor",
            "SparseVariable",
-           "to_sparse"]
+           "to_sparse",
+           "embedding_lookup_sparse"]

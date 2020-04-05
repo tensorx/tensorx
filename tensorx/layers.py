@@ -2,13 +2,13 @@ from abc import ABC
 
 import tensorflow as tf
 from tensorx.utils import as_tensor, as_list, Graph
-from typing import List, Union, Type, Callable, Optional, Iterable
+from typing import Union, Type, Callable, Optional
 import inspect
 from contextlib import ExitStack
 import tensorx.transform as txf
-from tensorx.callbacks import OnValueChange
+from tensorx.train.callbacks import OnValueChange
 from functools import partial
-from tensorx.math import embedding_lookup_sparse
+from tensorx.transform import embedding_lookup_sparse
 from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
 
@@ -17,9 +17,8 @@ class LayerState(AutoTrackable):
     """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
     that contain ``tf.Variables`` that define the state of a ``Layer``.
 
-    Notes:
-        ideally ``LayerState`` objects would contain only ``Variable`` instances, but
-        storing Layers can be more convenient.
+    !!! note ""
+        ``LayerState`` objects contain both `tf.Variable` and `Layer` objects.
     """
 
     def __init__(self):
@@ -272,7 +271,7 @@ class Layer(AutoTrackable):
 
     def as_function(self, input_signature=None):
         """
-        Notes:
+        !!! Note
             I generally don't use python objects to control how the graph is created (e.g. number of layers)
             but if we use python objects we should convert them to tensors to make sure the graph is not
             retraced each time if the parameters do not affect the resulting graph.
@@ -1026,25 +1025,24 @@ class Reshape(Layer):
 class Linear(Layer):
     """ Linear(input_layer: Layer, n_units, shape=None add_bias=True)
 
-
-    Fully connected layer that implements a linear transformation of the form :math:`f(x) = Wx + b`
+    Fully connected layer that implements a linear transformation of the form $f(x) = Wx + b$
 
     Args:
-            input_layer (Layer): input layer
-            n_units (Optional[int]): number of output units
-            shape (Optional[Iterable[int]]): shape for the layer weights (not the output). Needed if n_units and
-                input_layer.n_units is not known. If add_bias then the bias variable has shape [shape[-1]]
-            weight_init: weights (W) initializer function
-            weights: variable to be used as linear weights
-            bias: variable to be used as a bias
-            transpose_weights: if True, transposes the weights of this layer (must match n_units)
-            sparse_weights: if True indicates we are using a sparse tensor instead of a tf.Variable for weights
-            add_bias: if True, this layers becomes an affine transformation layer xW+b
-            bias_init: bias initializer function
-            weight_norm (bool): if True weights are normalised
-            dtype (``tf.DType``): type for layer variables
-            name (str): layer name
-            share_state_with: Linear layer with which we wish to share the state
+        input_layer (Layer): input layer
+        n_units (Optional[int]): number of output units
+        shape (Optional[Iterable[int]]): shape for the layer weights (not the output). Needed if n_units and
+            input_layer.n_units is not known. If add_bias then the bias variable has shape [shape[-1]]
+        weight_init: weights (W) initializer function
+        weights: variable to be used as linear weights
+        bias: variable to be used as a bias
+        transpose_weights: if True, transposes the weights of this layer (must match n_units)
+        sparse_weights: if True indicates we are using a sparse tensor instead of a tf.Variable for weights
+        add_bias: if True, this layers becomes an affine transformation layer xW+b
+        bias_init: bias initializer function
+        weight_norm (bool): if True weights are normalised
+        dtype (``tf.DType``): type for layer variables
+        name (str): layer name
+        share_state_with: Linear layer with which we wish to share the state
 
     """
 
@@ -1260,8 +1258,8 @@ class Linear(Layer):
             input_layer: a ``Linear` layer
             name: name for the new ``Layer``
 
-        Return:
-            ``Layer``: a new layer with shared variables with the current layer.
+        Returns:
+            layer (Layer): a new layer with shared variables with the current layer.
 
         """
         # if current layer is sharing variables, forward the sharing
@@ -1290,18 +1288,21 @@ class Linear(Layer):
 class Module(Layer):
     """ Module Layer
 
-    Note:
-        The difference between a `Module` and a `Graph` is that a `Module` has a single output just like any other layer
-        a Layer graph can be used to group multiple modules. Also the fundamental difference between this and other layers
-        is that this is used to group and reuse parts of an existing larger graph.
+    Creates a single ``Layer`` object from an existing graph defined between a set of inputs and a single output layer.
+    The resulting object can be reused with other inputs just like any other `Layer`.
 
-    Warnings:
-        if any path from the layers in inputs does not lead to the output, this is an invalid module
-        and an exception is raised when the Module is created
+    !!! note "Note"
+        The difference between a `Module` and a `Graph` is that a `Module` has a single output, and can be used as a
+        `Layer`. A layer graph is a utility to group multiple layers into a single function &mdash;possibly with
+         multiple outputs.
+
+    Raises:
+        ValueError: is raised if an input layer does not connect to the output. A ``Module`` needs to be a
+        self-contained layer graph.
 
     Args:
-        inputs: one or more input layers
-        output: output layer
+        inputs : one or more input layers
+        output : output layer; if no inputs are passed, it follows the graph backwards from the output
     """
 
     def __init__(self, inputs, output=None, name="module"):

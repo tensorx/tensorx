@@ -1,15 +1,14 @@
 # suppressing messages only works if set before tensorflow is imported
 import os
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-import tensorflow as tf
 import tensorx as tx
 import numpy as np
 
 import unittest
 from tensorx.test_utils import TestCase
 from tensorx.layers import LayerProto
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import tensorflow as tf
 
 
 class TestLayers(TestCase):

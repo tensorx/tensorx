@@ -1,10 +1,8 @@
 import tensorflow as tf
 import tensorx as tx
-from tensorx.utils import as_list, Graph
-import itertools
-import inspect
+from tensorx.utils import Graph
 import logging
-from tensorx.callbacks import *
+from tensorx.train.callbacks import *
 import numpy as np
 from queue import Empty
 import os
@@ -14,14 +12,15 @@ logger = logging.getLogger('tensorx')
 
 
 class Model:
-    """
+    """ Base Model
     Args:
+        TODO convert callable to layer
         train_loss: either a callable, layer, or dictionary mapping a callable or
-            layer to the target outputs.
+        layer to the target outputs.
 
         train_inputs: defaults to run inputs, if loss is provided you can either
-            supply the inputs to the train graph that include the loss, or let
-            the Model create inputs for you.
+        supply the inputs to the train graph that include the loss, or let
+        the Model create inputs for you.
     """
 
     def __init__(self,
@@ -44,6 +43,8 @@ class Model:
         self.eval_outputs = as_list(eval_outputs)
 
         self.run_graph: Graph = Graph.build(run_inputs, run_outputs)
+
+        # dict with graph -> compiled graph function
         self.compiled = dict()
 
         if not isinstance(train_loss, tx.Layer):
@@ -52,11 +53,10 @@ class Model:
                             f"\t actual: {type(train_loss)}")
 
         self.train_loss = train_loss
-
         self.train_graph: Graph = Graph.build(self.train_inputs, self.train_outputs + [self.train_loss])
-
         self.eval_graph: Graph = Graph.build(self.eval_inputs, self.eval_outputs)
 
+        # TODO add the possibility of having multiple optimizers that can be switched
         self.optimizer = None
 
         # optimizer: Param:
@@ -95,28 +95,20 @@ class Model:
     #   3. train will call specific optimizer or all of them in sequence? for the same data? this is a problem
     #   I guess I can ignore the later feature for now
     def set_optimizer(self, optimizer, **config):
-        """
-        https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/optimizers/Optimizer
+        """ Set the optimizer for this model
 
-        TODO if we save the optimizer configuration as is, it will convert the ``Param`` callable that returns a
-            tensor to a constant value. I should add a way to save this configuration indicating which parameters
-            are modifiable
+        !!! Note "Optimizer Hyper-Parameters"
+            The arguments passed to the optimizer constructor can be either regular Python values,
+            tensors, or a `callable`. If they are callable, they will called during apply_gradients()
+            to get the value for the hyper parameter.
 
-        TODO in the future optimizer will affect a particular loss if more than one is defined
-         or we should have a way to create a combined loss if multiple losses are defined but we
-         don't supply a way to handle them
-
-        Optimizer Hyper parameters:
-            arguments passed to the optimizer constructor. They can be either regular Python values,
-            tensors, or callables. If they are callable, the callable will be called during
-            apply_gradients() to get the value for the hyper parameter.
         Args:
-            optimizer: optimizer class or instance
-            **config: dictionary with parameters for the optimizer, if you want to modify these parameters during
-            training pass a ``tx.Param`` instead of a value
+            optimizer (Optimizer): optimizer class or instance
+            **config (dict): dictionary with parameters for the optimizer, if you want to modify these parameters during
+            training pass an ``tx.Param`` as the value for the given parameter instead of constant value.
 
         Returns:
-            optimizer (Optimizer): configured optimizer instance.
+            optimizer (Optimizer): the configured optimizer instance.
         """
         if isinstance(optimizer, tf.optimizers.Optimizer):
             # attributes can be set on optimizers
@@ -256,19 +248,20 @@ class Model:
         return optimization_fn(*list(data_feed.values()))
 
     def train(self, train_data, validation_data=None, test_data=None, epochs=1, steps_per_epoch=None, callbacks=[]):
-        """ main training loop
+        """ Main training loop
 
         Args:
             train_data: an iterable of dictionaries from Input Layers to values {Input:data}.
             (calling iter on this object should yield an iterator for an epoch.)
+
             validation_data: an iterable of dictionaries from Input Layers to values {Input:data}.
             test_data: an iterable of dictionaries from Input Layers to values {Input:data}.
+
             epochs (int): number of training epochs.
             steps_per_epoch: number of steps in an epoch, if not None, epochs are incremented each time
             this number of steps pass even if the entire train_data has not been transversed.
-            callbacks: ``Callback`` functions scheduled during the training.
 
-        Returns:
+            callbacks: ``Callback`` functions scheduled during the training.
 
         """
         # train loop properties
@@ -857,7 +850,7 @@ class Plot(Callback):
                     axs[prop_name] = fig.add_subplot(rows, cols, i + 1)  # i + 1)
 
             elif backend == "pyqtgraph":
-                from pyqtgraph.Qt import QtGui, QtCore
+                from pyqtgraph.Qt import QtGui
                 import pyqtgraph as pg
 
                 # pg.setConfigOption('background', 'w')

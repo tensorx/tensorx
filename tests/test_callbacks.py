@@ -1,10 +1,10 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import unittest
 import tensorx as tx
-from tensorx.callbacks import *
+from tensorx.train.callbacks import *
 from functools import partial
-import os
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+from tensorx.layers import Param
 
 
 class MyTestCase(unittest.TestCase):
@@ -92,7 +92,7 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(t2.match(t3))
 
     def test_Param_Property(self):
-        p1 = Param(value=3, name="test")
+        p1 = Param(init_value=3, name="test")
 
         self.assertIsInstance(p1, Param)
         self.assertNotIsInstance(p1, Property)

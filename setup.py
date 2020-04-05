@@ -57,6 +57,11 @@ install_requires = [
 
 ]
 
+tests_requires = [
+    'numpy'
+
+]
+
 extras_require = {
     'graphviz': ['pygraphviz'],
     'tqdm': ['tqdm'],
@@ -67,13 +72,13 @@ extras_require = {
 setup(
     name='tensorx',
     version=about["__version__"],
-    packages=['tensorx', 'tensorx.data'],
+    # packages=['tensorx', 'tensorx.data'],
+    packages=['tensorx'],
     url='https://github.com/davidenunes/tensorx',
     license='Apache 2.0',
     author='Davide Nunes',
     author_email='mail@davidenunes.com',
-    description='TensorX is a minimalistic utility library to '
-                'build neural network models in TensorFlow',
+    description='TensorX is a library to build neural network models in TensorFlow',
     long_description=long_description,
     long_description_content_type="text/markdown",
     package_data={
@@ -86,5 +91,6 @@ setup(
     ],
     python_requires='>=3.6',
     cmdclass={"upload": UploadCommand},
-    install_requires=install_requires
+    install_requires=install_requires,
+    tests_require=tests_requires
 )

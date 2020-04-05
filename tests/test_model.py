@@ -1,7 +1,5 @@
 import unittest
 import tensorx as tx
-import tensorx.callbacks as tc
-from functools import partial
 import os
 import tensorflow as tf
 import numpy as np
@@ -32,7 +30,7 @@ class MyTestCase(unittest.TestCase):
 
         lr = tx.Param(init_value=0.2, name="lr")
         optimizer1 = m.set_optimizer(tf.optimizers.SGD, lr=lr)
-        optimizer2: tf.optimizers.Optimizer = m.optimizers[0]
+        optimizer2: tf.optimizers.Optimizer = m.optimizer
 
         self.assertEqual(optimizer1, optimizer2)
         try:
