@@ -59,7 +59,6 @@ install_requires = [
 
 tests_requires = [
     'numpy'
-
 ]
 
 extras_require = {

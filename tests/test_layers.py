@@ -1,5 +1,8 @@
 # suppressing messages only works if set before tensorflow is imported
+
 import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorx as tx
 import numpy as np
 
@@ -7,7 +10,6 @@ import unittest
 from tensorx.test_utils import TestCase
 from tensorx.layers import LayerProto
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 
 
@@ -676,6 +678,43 @@ class TestLayers(TestCase):
         self.assertEqual(np.shape(c1)[-1], m * 2)
         self.assertEqual(np.shape(c2)[-1], m * 3)
 
+    def test_dynamic_concat(self):
+        seq1 = [[1, 2], [3, 4]]
+        seq2 = [[1, 2, 3], [4, 5, 6]]
+
+        n = 10
+        m = 4
+
+        inputs = tx.Input(seq2, dtype=tf.int32, constant=False)
+
+        lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, m])
+        concat1 = lookup.as_concat()
+
+        seq_size = tx.Lambda(inputs, fn=lambda x: tf.shape(x)[1], n_units=0)
+        concat2 = tx.SeqConcat(lookup, time_major=False)
+
+        c1, c2 = concat1(), concat2()
+        self.assertArrayEqual(c1, c2)
+
+        inputs.value = seq1
+        l1 = lookup()
+        inputs.value = seq2
+        l2 = lookup()
+
+        print(l1)
+        self.assertEqual(np.shape(l1)[-1], m)
+        self.assertEqual(np.shape(l2)[-1], m)
+
+        # inputs.value = seq1
+        # c1 = concat.tensor()
+        # inputs.value = seq2
+        # c2 = concat.tensor()
+        #
+        #
+        #
+        # self.assertEqual(np.shape(c1)[-1], m * 2)
+        # self.assertEqual(np.shape(c2)[-1], m * 3)
+
     def test_lookup_dynamic_sparse_sequence(self):
         k = 8
         m = 3
@@ -854,72 +893,110 @@ class TestLayers(TestCase):
         # self.assertArrayEqual(d1, d3)
         # self.assertArrayNotEqual(d1, d2)
 
-    def test_conv1d(self):
-        num_filters = 2
-        input_dim = 4
-        seq_size = 3
-        batch_size = 2
-        filter_size = 2
+    def test_drop_lookup(self):
+        seq_size = 4
+        vocab_size = 10
+        embed_dim = 4
+        input_data = np.array([[2, 0, 2, 0], [1, 2, 2, 1], [0, 2, 0, 2]])
+        inputs = tx.Input(init_value=input_data, n_units=seq_size, dtype=tf.int32)
+        lookup = tx.Lookup(inputs,
+                           seq_size=seq_size,
+                           embedding_shape=[vocab_size, embed_dim],
+                           add_bias=True)
 
-        filter_shape = [filter_size, input_dim, num_filters]
+        drop = tx.DropLookup(lookup, probability=0.5)
+        # TODO this works but need to finish the tests for it
 
-        x = tf.ones([batch_size, seq_size, input_dim])
-        x_layer = tx.Tensor(x, input_dim)
+    def test_residual(self):
+        x1 = tx.Input([[1., 1., 1., 1.]], 4)
+        x2 = tx.Input([[1., 1., 1., 1.]], 4)
 
-        filters = tf.ones(filter_shape)
-        conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
-        conv = tf.nn.conv1d(input=x,
-                            filters=filters,
-                            stride=1,
-                            padding="SAME",
-                            data_format="NWC")
+        h1 = tx.FC(x1, 4, activation=tf.sigmoid)
+        h2 = tx.FC(x1, 2, activation=tf.sigmoid)
+        h3 = tx.FC(x2, 2, activation=tf.sigmoid)
 
-        output = conv_layer()
-        self.assertArrayEqual(conv, output)
-        self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
-        self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
+        residual = tx.Residual(x1, h1)
+        residual2 = tx.Residual(x1, h2)
 
-    def test_multihead_attention(self):
-        n_features = 3
-        embed_size = 128
-        seq_size = 3
-        batch_size = 2
-        n_heads = 8
+        try:
+            residual3 = tx.Residual(x1, h3)
+        except ValueError:
+            pass
 
-        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
-        emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        self.assertArrayEqual(tf.shape(h1()), tf.shape(residual()))
+        self.assertFalse(hasattr(residual, "projection"))
+        self.assertTrue(hasattr(residual2, "projection"))
+        self.assertEqual(len(residual.trainable_variables), 0)
+        self.assertEqual(len(residual2.trainable_variables), 1)
 
-        attention = tx.MHAttention(query=emb,
-                                   key=emb,
-                                   value=emb,
-                                   n_units=embed_size,
-                                   n_heads=n_heads,
-                                   causality=False,
-                                   attention_dropout=0.1,
-                                   regularized=False)
 
-        self.assertEqual(len(attention.input_layers), 3)
+def test_conv1d(self):
+    num_filters = 2
+    input_dim = 4
+    seq_size = 3
+    batch_size = 2
+    filter_size = 2
 
-        # 3 "kernels" + bias
-        self.assertEqual(len(attention.variables), 3)
+    filter_shape = [filter_size, input_dim, num_filters]
 
-        attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
-        attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
-        attention_causal = attention.reuse_with(emb, emb, emb, causality=True)
+    x = tf.ones([batch_size, seq_size, input_dim])
+    x_layer = tx.Tensor(x, input_dim)
 
-        res = attention_causal()
+    filters = tf.ones(filter_shape)
+    conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
+    conv = tf.nn.conv1d(input=x,
+                        filters=filters,
+                        stride=1,
+                        padding="SAME",
+                        data_format="NWC")
 
-        result = attention()
-        result_reg = attention_reg()
-        result2 = attention_2()
+    output = conv_layer()
+    self.assertArrayEqual(conv, output)
+    self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
+    self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
 
-        self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
-        self.assertArrayEqual(result, result2)
 
-        vars1 = map(lambda v: v.experimental_ref(), attention.variables)
-        vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
+def test_multihead_attention(self):
+    n_features = 3
+    embed_size = 128
+    seq_size = 3
+    batch_size = 2
+    n_heads = 8
 
-        self.assertSetEqual(set(vars1), set(vars2))
+    inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+    emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+
+    attention = tx.MHAttention(query=emb,
+                               key=emb,
+                               value=emb,
+                               n_units=embed_size,
+                               n_heads=n_heads,
+                               causality=False,
+                               attention_dropout=0.1,
+                               regularized=False)
+
+    self.assertEqual(len(attention.input_layers), 3)
+
+    # 3 "kernels" + bias
+    self.assertEqual(len(attention.variables), 3)
+
+    attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
+    attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
+    attention_causal = attention.reuse_with(emb, emb, emb, causality=True)
+
+    res = attention_causal()
+
+    result = attention()
+    result_reg = attention_reg()
+    result2 = attention_2()
+
+    self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
+    self.assertArrayEqual(result, result2)
+
+    vars1 = map(lambda v: v.experimental_ref(), attention.variables)
+    vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
+
+    self.assertSetEqual(set(vars1), set(vars2))
 
 
 if __name__ == '__main__':

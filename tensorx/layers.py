@@ -51,7 +51,7 @@ class LayerState(AutoTrackable):
                 all_vars.update(v)
             elif isinstance(obj, tf.Variable):
                 # Tensors are not hashable but this gets the object id
-                all_vars[obj.experimental_ref()] = obj
+                all_vars[obj.ref()] = obj
         return all_vars
 
     def __str__(self):
@@ -639,10 +639,10 @@ class Input(Layer):
 
         if self.shape is not None:
             self.shape = tf.TensorShape(self.shape)
-            if not self.shape.is_compatible_with(expected):
+            if self.constant and not self.shape.is_compatible_with(expected):
                 raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
                                  " current: {invalid}".format(shape=expected, invalid=self.shape))
-        else:
+        elif self.shape is None and self.constant:
             self.shape = expected
 
         if self._value is None and self.shape[-1] is not None:
@@ -715,13 +715,14 @@ class Input(Layer):
             if x.dtype != tf.int64:
                 x = tf.cast(x, tf.int64)
         else:
-            if len(self.shape) == 0:
-                expected = []
-            else:
-                expected = [None] * len(x.shape[:-1].as_list()) + [self.n_units]
-            if not x.shape.is_compatible_with(expected):
-                raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
-                                 " current: {invalid}".format(shape=expected, invalid=x.shape.as_list()))
+            if self.shape:
+                if len(self.shape) == 0:
+                    expected = []
+                else:
+                    expected = [None] * len(x.shape[:-1].as_list()) + [self.n_units]
+                if not x.shape.is_compatible_with(expected):
+                    raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
+                                     " current: {invalid}".format(shape=expected, invalid=x.shape.as_list()))
             if x.dtype != self.dtype:
                 if self.dtype is not None:
                     x = tf.cast(x, self.dtype)
@@ -1318,7 +1319,7 @@ class Module(Layer):
             if not inputs:
                 inputs = list(self.graph.in_nodes)
         except ValueError as e:
-            raise ValueError(f"Could not build a model with the given "
+            raise ValueError(f"Could not build a module with the given "
                              f"endpoints: \n\t{str(e)}")
 
         super().__init__(input_layers=inputs,
@@ -1638,6 +1639,71 @@ class Dropout(Layer):
                        seed=self.seed,
                        share_state_with=share_state_with,
                        name=name)
+
+
+class DropLookup(Layer):
+    """ Applies Dropout with a given probability to a Lookup layer by unique id
+
+    A lookup represents a sequence in batch-major form
+    For each lookup sample, the dropout is applied per unique id, meaning that if
+    the lookup ids in a sample are [1,2,1] and id 1 is selected for dropout,
+    the first and last vectors will be set to 0 for this sample.
+
+    !!! warning
+        contrary to Dropout, this lookup cannot be shared, meaning that reuse_with will just apply a new random mask to
+        the new Lookup layer, instead of sharing the same mask.
+
+    Args:
+        lookup_layer: a Lookup input layer
+        scale: if scale is True, scales the non-dropped lookups by x / (1 - probability)
+
+
+    """
+
+    def __init__(self, lookup_layer, indices=None, probability=0.5, scale=True, name="drop_lookup"):
+        if not isinstance(lookup_layer, Lookup):
+            raise TypeError("input layer should be a {} layer {} found instead".format(str(Lookup), type(lookup_layer)))
+
+        # DropLookup gets the input layer of the lookup layer to get it's indices
+        # because it's a lookup layer, it must have indices
+        if indices is None:
+            indices = lookup_layer.input_layers[0]
+
+        self.scale = scale
+        self.probability = probability
+        super().__init__(input_layers=[lookup_layer, indices], n_units=lookup_layer.n_units, name=name)
+
+    def compute(self, input_value, indices):
+        if self.probability == 1:
+            return tf.zeros_like(input_value, dtype=tf.float32)
+        elif self.probability > 0:
+            lookup_shape = tf.shape(input_value)
+            batch_size, seq_size = lookup_shape[0], lookup_shape[1]
+
+            if isinstance(indices, tf.SparseTensor):
+                _, ids = tf.split(indices.indices, 2, axis=-1)
+            else:
+                ids = indices
+
+            unique_ids, indices = tf.unique(tf.reshape(ids, [-1]))
+            mask_shape = tf.stack([batch_size, tf.size(unique_ids)])
+            unique_mask = tf.random.uniform(mask_shape, dtype=tf.float32)
+
+            batch_wise = tf.broadcast_to(tf.expand_dims(tf.range(batch_size), axis=-1),
+                                         tf.stack([batch_size, seq_size]))
+            unique_batch_wise = tf.reshape(indices, [batch_size, seq_size])
+
+            # gather mask and convert it to binary mask
+            mask_indices = tf.stack([batch_wise, unique_batch_wise], axis=-1)
+            binary_mask = tf.floor(tf.gather_nd(unique_mask, mask_indices) + (1 - self.probability))
+            if self.scale:
+                binary_mask /= (1 - self.probability)
+
+            dropped_lookup = input_value * tf.expand_dims(binary_mask, axis=-1)
+        else:
+            dropped_lookup = input_value
+
+        return dropped_lookup
 
 
 class BaseRNNCell(Layer, ABC):
@@ -2481,6 +2547,40 @@ class Lookup(Layer):
                       batch_padding=self.batch_padding)
 
 
+class SeqConcat(Layer):
+    """ Concat 3D Layer representing a sequence of vectors
+
+    !!! warning
+        You cannot feed this layer to an non-dynamic layer like Linear without specifying seq_size,
+        the reason being that some layers like Linear, require the input dimensions to initialize their
+        state/weights, working with a dynamic sequence is only fine after this is passed through a lookup
+        layer and `s * embedding_size` never changes throughout the computation
+    """
+
+    def __init__(self, input_seq, seq_size=None, time_major=True, name="seq_concat"):
+        if input_seq.n_units and seq_size:
+            n_units = input_seq.n_units * seq_size
+        else:
+            n_units = None
+        super().__init__(input_layers=input_seq,
+                         n_units=n_units,
+                         name=name,
+                         time_major=time_major,
+                         seq_size=seq_size)
+
+    def compute(self, input_tensor):
+        with layer_scope(self):
+            if self.time_major:
+                input_tensor = tf.transpose(input_tensor, [1, 0, 2])
+                seq_size = tf.shape(input_tensor)[0]
+            else:
+                seq_size = tf.shape(input_tensor)[1]
+
+            n_units = tf.shape(input_tensor)[-1] * seq_size
+
+            return tf.reshape(input_tensor, [-1, n_units])
+
+
 class CoupledGate(Layer):
     """ Creates a Gate Layer that modulates between two layers using a gate:
 
@@ -2996,7 +3096,7 @@ class Merge(Layer):
         super().__init__(input_layers=layers, n_units=n_units, dtype=dtype, name=name)
 
     def compute(self, *input_tensors):
-        outputs = input_tensors
+        outputs = [as_tensor(x) for x in input_tensors]
         if self.weights is not None:
             outputs = [tf.math.scalar_mul(self.weights[i], outputs[i]) for i in
                        range(len(outputs))]
@@ -3066,6 +3166,63 @@ class Add(Merge):
         # merge_add = tf.add_n
 
         super().__init__(*layers, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
+
+
+class Residual(Layer):
+    """ Residual Block
+    """
+
+    def __init__(self,
+                 x_layer,
+                 h_layer,
+                 share_state_with=None,
+                 weight_init=tf.initializers.glorot_uniform(),
+                 name="residual"):
+
+        if share_state_with is not None:
+            if not isinstance(share_state_with, Residual):
+                raise TypeError("can only share vars with a Residual Layer {} found".format(type(share_state_with)))
+
+        # try to create a module from the x_layer -> h_layer
+        # if one is not connected to the other, this fails
+        self.module = Module(x_layer, h_layer)
+
+        super().__init__(input_layers=[x_layer, h_layer],
+                         n_units=h_layer.n_units,
+                         dtype=h_layer.dtype,
+                         name=name,
+                         share_state_with=share_state_with,
+                         weight_init=weight_init)
+
+    def init_state(self):
+        x, h = self.input_layers
+        state = super().init_state()
+        with layer_scope(self):
+            if x.n_units != h.n_units:
+                if self.share_state_with is None:
+                    state.projection = Linear(x, h.n_units, weight_init=self.weight_init, add_bias=False)
+                else:
+                    state.projection = self.share_state_with.projection.reuse_with(x)
+                output = Add(h, state.projection)
+            else:
+                output = Add(h, x)
+
+            self.output = Module(inputs=[x, h], output=output, name="residual_block")
+        return state
+
+    def compute(self, x, h):
+        return self.output.compute(x, h)
+
+    def reuse_with(self, x_layer, h_layer, name=None):
+        if name is None:
+            name = self.name
+
+        share_vars_with = self if self.share_state_with is None else self.share_state_with
+
+        return Residual(x_layer=x_layer,
+                        h_layer=h_layer,
+                        share_state_with=share_vars_with,
+                        name=name)
 
 
 def _conv_output_length(input_length, kernel_size, padding, stride, dilation=1):
@@ -3367,6 +3524,67 @@ class MHAttention(Layer):
                            share_state_with=self)
 
 
+class FC(Layer):
+    def __init__(self,
+                 input_layer,
+                 n_units,
+                 activation=tf.identity,
+                 weight_init=tf.initializers.glorot_uniform(),
+                 weights=None,
+                 transpose_weights=False,
+                 add_bias=True,
+                 bias_init=tf.initializers.zeros(),
+                 bias=None,
+                 weight_norm=False,
+                 dtype=tf.float32,
+                 name="fc",
+                 share_state_with=None):
+        super().__init__(input_layers=input_layer,
+                         n_units=n_units,
+                         dtype=dtype,
+                         name=name,
+                         activation=activation,
+                         weight_init=weight_init,
+                         weights=weights,
+                         transpose_weights=transpose_weights,
+                         add_bias=add_bias,
+                         bias_init=bias_init,
+                         bias=bias,
+                         weight_norm=weight_norm,
+                         share_state_with=share_state_with
+                         )
+
+    def init_state(self):
+        input_layer = self.input_layers[0]
+        state = super().init_state()
+
+        with layer_scope(self, name=self.name):
+            linear = Linear(input_layer=input_layer,
+                            n_units=self.n_units,
+                            weight_init=self.weight_init,
+                            weights=self.weights,
+                            transpose_weights=self.transpose_weights,
+                            add_bias=self.add_bias,
+                            bias_init=self.bias_init,
+                            bias=self.bias,
+                            dtype=self.dtype,
+                            weight_norm=self.weight_norm,
+                            name="{}_linear".format(self.name),
+                            share_state_with=self.share_state_with)
+
+            activation = Activation(linear, fn=self.activation, name="{}_activation".format(self.name))
+            state.linear = linear
+            state.activation = activation
+
+            self.output = Module(inputs=input_layer, output=activation)
+
+        return state
+
+    def compute(self, *input_tensors):
+        input_value = input_tensors[0]
+        return self.output.compute(input_value)
+
+
 def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
     """ Converts a ``Tensor``,``SparseTensor`` or tensor convertible to a ``Layer``
 
@@ -3442,5 +3660,9 @@ __all__ = [
     "ToSparse",
     "Dropout",
     "Conv1D",
-    "MHAttention"
+    "MHAttention",
+    "DropLookup",
+    "Residual",
+    "FC",
+    "SeqConcat"
 ]

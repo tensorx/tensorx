@@ -59,20 +59,21 @@ def repeat(x, n, name="repeat"):
 
 
 def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix_indices"):
-    """ converts a batch of column indices to 2d matrix indices, if the indices are out of order
-    it and sorted is True, returns a batch of sorted matrix indices
+    """ transforms a batch of column indices to a batch of matrix indices, if the indices are out of order and sorted is
+     `True`, it returns, the resulting indices are sorted in canonical row-major order.
 
     Args:
-        index_tensor: a tensor with shape [b,n] with a batch of n column indices
-        dtype: the out dtype for the indices
-        sort_indices: if true sorts the indices on each row
-        name: name for this op
+        index_tensor (Tensor): a tensor with shape `[b,n]` with a batch of `n` column indices.
+        dtype (DType): the output dtype for the indices. Defaults to `int64`.
+        sort_indices (bool): if `True`, output indices are sorted in canonical row-major order.
+        name (str): name for this op.
 
     Returns:
-         ``Tensor``: a tensor with (row,column) for each index in the input tensor.
+         tensor (Tensor): tensor with shape `[b,2]` for each index in the input tensor with the corresponding matrix
+         indices.
 
     """
-    with tf.name_scope(name=name):
+    with tf.name_scope(name):
         index_tensor = as_tensor(index_tensor, dtype)
 
         shape = tf.shape(index_tensor, out_type=dtype)
@@ -497,9 +498,9 @@ def to_sparse(tensor, name="to_sparse"):
 def embedding_lookup_sparse(params,
                             sp_tensor,
                             partition_strategy="mod",
-                            name=None,
                             combiner=None,
-                            max_norm=None):
+                            max_norm=None,
+                            name="embedding_lookup_sparse"):
     """Computes embeddings for the given ids and weights.
 
     !!! info
@@ -565,8 +566,7 @@ def embedding_lookup_sparse(params,
     if not isinstance(sp_tensor, tf.SparseTensor):
         raise TypeError("sp_ids must be SparseTensor")
 
-    with ops.name_scope(name, "embedding_lookup_sparse",
-                        params + [sp_tensor]) as name:
+    with tf.name_scope(name) as name:
         segment_ids = sp_tensor.indices[:, 0]
         if segment_ids.dtype != tf.int32:
             segment_ids = tf.cast(segment_ids, tf.int32)
@@ -624,6 +624,50 @@ def embedding_lookup_sparse(params,
         return embeddings
 
 
+def dense_one_hot(column_indices, num_cols, dtype=tf.float32, name="dense_one_hot"):
+    """transforms a batch of indices into a dense `Tensor` where each row represents a `one-hot` encoding for the
+    indices.
+
+    Examples:
+        ```python
+        indices = [0,1]
+        dense_one_hot(indices,num_cols=2)
+
+        [[1,0],
+         [0,1]]
+        ```
+
+        If a multiple indices are passed for each row, their one-hot encodings are summed.
+
+        ```python
+        indices = [[0,1],
+                   [1,1]]
+        dense_one_hot(indices,num_cols=2)
+
+        [[1,1],
+         [0,2]]
+        ```
+
+    Args:
+        column_indices (Tensor): a dense `Tensor` with the active indices for each row.
+        num_cols (int): total number of columns for the one-hot encoding
+        dtype (Dtype): output tensor dtype
+        name (str): name for this op
+
+    Returns:
+        dense_tensor (Tensor): A dense ``Tensor`` with a [one-hot encoding](https://en.wikipedia.org/wiki/One-hot)
+        for the given indices.
+    """
+    with tf.name_scope(name=name):
+        column_indices = as_tensor(column_indices, tf.int64)
+        one_hot_dense = tf.one_hot(column_indices, depth=num_cols, dtype=dtype)
+
+        if column_indices.get_shape().ndims == 2:
+            one_hot_dense = tf.math.reduce_sum(one_hot_dense, axis=1)
+
+        return one_hot_dense
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -635,4 +679,5 @@ __all__ = ["apply_gate",
            "empty_sparse_tensor",
            "SparseVariable",
            "to_sparse",
-           "embedding_lookup_sparse"]
+           "embedding_lookup_sparse",
+           "dense_one_hot"]

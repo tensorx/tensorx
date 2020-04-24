@@ -2,8 +2,6 @@
 -----------------
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
 [![Docs](https://readthedocs.org/projects/tensorx/badge/?version=latest)](http://tensorx.readthedocs.io/en/latest/?badge=latest)
-[![dev build](https://travis-ci.org/davidenunes/tensorx.svg?branch=dev)](https://travis-ci.org/davidenunes/tensorx)
-
 
 ![](/img/logo_full.svg)
 

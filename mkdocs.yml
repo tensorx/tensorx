@@ -24,13 +24,16 @@ extra_javascript:
 
 theme:
   name: 'material'
+  #theme_dir: 'docs/theme'
   custom_dir: 'docs/theme'
   palette:
     primary: 'cyan'
     accent: 'cyan'
+  logo: '/assets/images/logo.png'
+
 #nav:
 #  - Home: index.md
 #  - API: api.md
 #  - Layers: layers.md
-#logo: 'img/tx4.png'
+#logo: 'assets/tx4.png'
 
