@@ -686,34 +686,31 @@ class TestLayers(TestCase):
         m = 4
 
         inputs = tx.Input(seq2, dtype=tf.int32, constant=False)
+        inputs2 = tx.Input(seq2, dtype=tf.int32, constant=True)
 
         lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, m])
+        lookup2 = tx.Lookup(inputs2, seq_size=3, embedding_shape=[n, m])
         concat1 = lookup.as_concat()
+        concat2 = lookup2.as_concat()
 
-        seq_size = tx.Lambda(inputs, fn=lambda x: tf.shape(x)[1], n_units=0)
-        concat2 = tx.SeqConcat(lookup, time_major=False)
+        self.assertFalse(concat1.n_units)
+        self.assertTrue(concat2.n_units)
 
-        c1, c2 = concat1(), concat2()
+        concat3 = tx.SeqConcat(lookup, time_major=False)
+        concat4 = tx.SeqConcat(lookup, seq_size=3, time_major=False)
+
+        c1, c2 = concat1(), concat3()
         self.assertArrayEqual(c1, c2)
+        self.assertFalse(concat3.n_units)
+        self.assertEqual(concat4.n_units, 3 * lookup.n_units)
 
         inputs.value = seq1
         l1 = lookup()
         inputs.value = seq2
         l2 = lookup()
 
-        print(l1)
         self.assertEqual(np.shape(l1)[-1], m)
         self.assertEqual(np.shape(l2)[-1], m)
-
-        # inputs.value = seq1
-        # c1 = concat.tensor()
-        # inputs.value = seq2
-        # c2 = concat.tensor()
-        #
-        #
-        #
-        # self.assertEqual(np.shape(c1)[-1], m * 2)
-        # self.assertEqual(np.shape(c2)[-1], m * 3)
 
     def test_lookup_dynamic_sparse_sequence(self):
         k = 8

@@ -2493,18 +2493,29 @@ class Lookup(Layer):
         return output
 
     def as_concat(self):
+        """ concatenates the sequence produced by a lookup
+
+        Returns:
+
+        """
+
         def concat_fn(x):
             if self.seq_size is None:
-                seq_size = tf.shape(self.input_layers[-1].tensor())[-1]
+                seq_size = tf.shape(self.input_layers[-1]())[-1]
             else:
                 seq_size = self.seq_size
 
             new_shape = tf.stack([-1, self.n_units * seq_size])
             return tf.reshape(x, new_shape)
 
+        if self.seq_size and self.n_units:
+            n_units = self.seq_size * self.n_units
+        else:
+            n_units = None
+
         # TODO check if wrap layer can infer n_units
         return Wrap(self,
-                    n_units=None,
+                    n_units=n_units,
                     wrap_fn=lambda current_layer: Lambda(current_layer, fn=concat_fn),
                     forward_attributes=["weights", "bias", "seq_size"],
                     name="concat")
@@ -2557,7 +2568,7 @@ class SeqConcat(Layer):
         layer and `s * embedding_size` never changes throughout the computation
     """
 
-    def __init__(self, input_seq, seq_size=None, time_major=True, name="seq_concat"):
+    def __init__(self, input_seq, seq_size=None, time_major=False, name="seq_concat"):
         if input_seq.n_units and seq_size:
             n_units = input_seq.n_units * seq_size
         else:
