@@ -685,7 +685,7 @@ class TestLayers(TestCase):
         n = 10
         m = 4
 
-        inputs = tx.Input(seq2, dtype=tf.int32, constant=False)
+        inputs = tx.Input(seq2, shape=[None, None], dtype=tf.int32, constant=False)
         inputs2 = tx.Input(seq2, dtype=tf.int32, constant=True)
 
         lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, m])

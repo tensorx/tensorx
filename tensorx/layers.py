@@ -13,6 +13,7 @@ from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
 import tensorx as tx
 
+
 class LayerState(AutoTrackable):
     """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
     that contain ``tf.Variables`` that define the state of a ``Layer``.
@@ -133,6 +134,10 @@ class LayerProto:
         for key in kwargs:
             if key not in self.arg_names and not self.arg_spec.varkw:
                 raise TypeError(f"{self.layer_cls.__name__} prototype got an unexpected argument {key}\n")
+
+    def __repr__(self):
+        kw = ', '.join([f'{k}={repr(v)}' for k, v in self.arg_dict.items()])
+        return f"{type(self).__name__}({self.layer_cls.__name__},{kw})"
 
     def __call__(self, *args, **kwargs):
         new_args = dict(self.arg_dict)
@@ -307,18 +312,14 @@ class Layer(AutoTrackable):
         return f"{self.scoped_name}::{class_name}({self.n_units},{self.dtype})({inputs})"
 
     def __repr__(self):
-        """
-            TODO ideally the layer configuration would be stored in an object (e.g. LayerProto)
-                and we can use this to serialize the layers
+        """ returns
+
         Returns:
-            a string representing the layer with all its parameters
+
         """
-        if self.input_layers:
-            input_layers = ",".join(map(lambda x: x.name, self.input_layers))
-            input_layers += ","
-        else:
-            input_layers = ""
-        return f"{type(self).__name__}({input_layers}n_units={self.n_units},name=\"{self.name}\")"
+        proto = self.proto
+        kw = ', '.join([f'{k}={repr(v)}' for k, v in proto.arg_dict.items()])
+        return f"{proto.layer_cls.__name__}({kw})"
 
     def __getitem__(self, item):
         if isinstance(item, tf.Tensor):
@@ -604,7 +605,12 @@ class Input(Layer):
 
         self.init_value = init_value
         self.n_active = n_active
-        self.shape = shape
+
+        # otherwise this is assigned as a ListWrapper
+        # TODO check if there's a way to generalize this to all Layers
+        # which attributes should have a no_dependency
+        self.shape = self._no_dependency(shape)
+
         self.constant = constant
         self.sparse = sparse
 
@@ -621,6 +627,10 @@ class Input(Layer):
                 self.n_units = self._value.shape[-1]
             else:
                 self.n_units = 0
+        else:
+            if self.shape is not None:
+                new_shape = [1 if s is None else s for s in self.shape]
+                self._value = tf.zeros(new_shape)
 
         if self.n_active is not None:
             expected = [None, self.n_active]

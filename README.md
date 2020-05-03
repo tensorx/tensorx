@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
 [![Docs](https://readthedocs.org/projects/tensorx/badge/?version=latest)](http://tensorx.readthedocs.io/en/latest/?badge=latest)
 
-![](/img/logo_full.svg)
+![](/assets/images/logo_full.svg)
 
 **TensorX** is a high-level neural network library written in Python
 that simplifies model specification, training, and execution using 
