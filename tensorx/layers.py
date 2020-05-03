@@ -11,7 +11,7 @@ from functools import partial
 from tensorx.transform import embedding_lookup_sparse
 from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
-
+import tensorx as tx
 
 class LayerState(AutoTrackable):
     """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
@@ -244,7 +244,8 @@ class Layer(AutoTrackable):
         return LayerProto(cls, **kwargs)
 
     def reuse_with(self, *layers, **kwargs):
-        return type(self)(*layers, **kwargs)
+        return self.proto(*layers, **kwargs)
+        # return type(self)(*layers, **kwargs)
 
     @property
     def input_layers(self):
@@ -631,7 +632,7 @@ class Input(Layer):
                 if self.n_units > 0:
                     expected = [None] * len(self._value.shape[:-1]) + [self.n_units]
                 else:
-                    expected = []
+                    expected = [None] * len(self._value.shape)
             else:
                 expected = [None, self.n_units]
 
@@ -642,7 +643,7 @@ class Input(Layer):
             if self.constant and not self.shape.is_compatible_with(expected):
                 raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
                                  " current: {invalid}".format(shape=expected, invalid=self.shape))
-        elif self.shape is None and self.constant:
+        else:
             self.shape = expected
 
         if self._value is None and self.shape[-1] is not None:
@@ -2368,6 +2369,7 @@ class Lookup(Layer):
         except tf.errors.InvalidArgumentError:
             raise ValueError("expected 1D/2D input tensor")
 
+        # TODO this validation fails if input seq_size is zero, it can happen
         if not isinstance(input_tensor, tf.SparseTensor):
             shape = tf.shape(input_tensor)
             if self.seq_size is not None:
@@ -2569,7 +2571,9 @@ class SeqConcat(Layer):
     """
 
     def __init__(self, input_seq, seq_size=None, time_major=False, name="seq_concat"):
-        if input_seq.n_units and seq_size:
+        if input_seq.n_units is not None and seq_size is not None:
+            if seq_size <= 0:
+                raise ValueError(f"expected seq_size >0, got seq_size={seq_size}")
             n_units = input_seq.n_units * seq_size
         else:
             n_units = None

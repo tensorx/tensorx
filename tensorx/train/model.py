@@ -64,7 +64,7 @@ class Model:
         # model properties accessible to callbacks
         self.model_props = set()
 
-        self.update_weights = dict()
+        self.update_weights_fn = dict()
 
     @property
     def trainable_variables(self):
@@ -135,7 +135,7 @@ class Model:
         train_fn = self.compiled[self.train_graph]
 
         @tf.function
-        def update_weights(*data):
+        def update_weights_fn(*data):
             with tf.GradientTape() as tape:
                 *train_out, loss = train_fn(*data)
                 cfg = self.optimizer.get_config()
@@ -153,7 +153,7 @@ class Model:
 
                 return train_out + [loss]
 
-        self.update_weights[optimizer] = update_weights
+        self.update_weights_fn[optimizer] = update_weights_fn
 
         return optimizer
 
@@ -244,8 +244,29 @@ class Model:
                 for param_name in param_feed:
                     params[param_name].value = param_feed[param_name]
 
-        optimization_fn = self.update_weights[self.optimizer]
+        optimization_fn = self.update_weights_fn[self.optimizer]
         return optimization_fn(*list(data_feed.values()))
+
+    def eval_step(self, input_feed):
+        """
+
+        Args:
+            input_feed:
+
+        Returns:
+            *eval_output, eval_score ((eval outputs,eval score)):
+        """
+        if input_feed is not None:
+            data_feed, param_feed = Model.parse_input(input_feed, self.eval_graph)
+
+            eval_graph = self.eval_graph
+            if eval_graph not in self.compiled:
+                self.compiled[eval_graph] = eval_graph.as_function(ord_inputs=eval_graph.in_nodes)
+
+            eval_fn = self.compiled[eval_graph]
+
+            # *eval_out, eval_score = eval_fn(*list(data_feed.values()))
+        return eval_fn(*list(data_feed.values()))
 
     def train(self, train_data, validation_data=None, test_data=None, epochs=1, steps_per_epoch=None, callbacks=[]):
         """ Main training loop
@@ -356,7 +377,8 @@ class Model:
                         scheduler.trigger(OnStep(step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
-                        loss = self.train_step(feed_dict)
+                        # TODO test if the loss is properly retrieved from the graph
+                        *outputs, loss = self.train_step(feed_dict)
                         if not np.isscalar(loss):
                             if isinstance(loss, list):
                                 loss = np.mean([np.mean(l) for l in loss])
@@ -413,10 +435,11 @@ class Eval(Callback):
             for feed_dict in dataset_it:
                 # if feed dict is not a feed dict, it should be a tuple or another iterable
                 if not isinstance(feed_dict, dict):
-                    inputs = model.eval_graph.input_layers
+                    inputs = model.eval_graph.in_nodes
                     feed_dict = dict(zip(inputs, feed_dict))
 
-                mean_eval = model.eval_step(data_feed=feed_dict)
+                # *outputs, score
+                *_, mean_eval = model.eval_step(feed_dict)
                 if not np.isscalar(mean_eval):
                     mean_eval = np.mean(mean_eval)
                 sum_eval += mean_eval
@@ -446,7 +469,6 @@ class EarlyStop(Callback):
 
 
     """
-
     def __init__(self,
                  patience=3,
                  lesser_better=True,

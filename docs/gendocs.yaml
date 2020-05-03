@@ -25,3 +25,17 @@ pages:
     functions:
       - dense_one_hot
       - matrix_indices
+  - page: "init.md"
+    source: 'tensorx/init.py'
+    functions:
+      - zeros
+      - ones
+      - constant
+      - random_uniform
+      - random_normal
+      - glorot_uniform
+      - glorot_normal
+      - orthogonal
+      - identity
+      - he_uniform
+      - he_normal
