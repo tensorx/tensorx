@@ -39,3 +39,12 @@ pages:
       - identity
       - he_uniform
       - he_normal
+  - page: "loss.md"
+    source: 'tensorx/loss.py'
+    functions:
+      - binary_cross_entropy
+      - categorical_cross_entropy
+      - binary_hinge
+      - mse
+      - sparsemax_loss
+      - kld
