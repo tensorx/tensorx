@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorx as tx
 
 
 def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
@@ -123,14 +124,14 @@ def mse(target, predicted):
     return tf.losses.mean_squared_error(target, predicted)
 
 
-def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
+def sparsemax_loss(logits, labels, name="sparsemax_loss"):
     """ Sparsemax Loss
 
     A loss function for the sparsemax activation function. This is similar to `tf.nn.softmax`, but able to output s
     parse probabilities.
 
     !!! info
-        Particularly interesting to multi-label classification problems and attention-based neural networks
+        Applicable to multi-label classification problems and attention-based neural networks
         (e.g. for natural language inference)
 
     !!! cite "References"
@@ -139,8 +140,6 @@ def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
 
     Args:
         logits (`Tensor`): unnormalized log probabilities
-        sparsemax (`Tensor`): resulting from the application of `sparsemax` transformation.
-        labels (`Tensor`): target labels.
         name (str): op name
 
     Returns:
@@ -149,7 +148,7 @@ def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
 
     with tf.name_scope(name):
         logits = tf.convert_to_tensor(logits)
-        sparsemax = tf.convert_to_tensor(sparsemax)
+        sparsemax = tx.sparsemax(logits)
         labels = tf.convert_to_tensor(labels, name="labels")
 
         shifted_logits = logits - tf.math.reduce_mean(logits, axis=1)[:, tf.newaxis]
@@ -182,6 +181,6 @@ def kld(target, predicted):
         predicted (`Tensor`): distribution predicted by the model
 
     Returns:
-        kld (`Tensor`): a tensor with the result of the computation between the target and predicted distributions
+        kld (`Tensor`): LK divergence between the target and predicted distributions
     """
     return tf.losses.kullback_leibler_divergence(target, predicted)
