@@ -44,7 +44,8 @@ pages:
     functions:
       - binary_cross_entropy
       - categorical_cross_entropy
-      - binary_hinge
       - mse
-      - sparsemax_loss
       - kld
+      - sinkhorn_loss
+      - sparsemax_loss
+      - binary_hinge

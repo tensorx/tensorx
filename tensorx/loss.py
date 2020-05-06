@@ -135,7 +135,7 @@ def sparsemax_loss(logits, labels, name="sparsemax_loss"):
         (e.g. for natural language inference)
 
     !!! cite "References"
-        [1] [From Softmax to Sparsemax: A Sparse Model of Attention and Multi-Label Classification](https://arxiv.org/abs/1602.02068)
+        1. [From Softmax to Sparsemax: A Sparse Model of Attention and Multi-Label Classification](https://arxiv.org/abs/1602.02068)
 
 
     Args:
@@ -184,3 +184,100 @@ def kld(target, predicted):
         kld (`Tensor`): LK divergence between the target and predicted distributions
     """
     return tf.losses.kullback_leibler_divergence(target, predicted)
+
+
+def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
+    """ Sinkhorn Loss
+
+    !!! info
+        Optimal Transport (OT) provides a framework from which one can define a more powerful geometry to compare
+        probability distributions. This power comes, however, with a heavy computational price. The cost of computing OT
+        distances scales at least in $O(d^3 log(d))$ when comparing two histograms of dimension $d$. Sinkhorn algorithm
+        alleviate this problem by solving an regularized OT in linear time.
+
+    Given two measures with n points each with locations x and y
+    outputs an approximation of the Optimal Transport (OT) cost with regularization
+    parameter epsilon, niter is the maximum number of steps in sinkhorn loop
+
+    !!! cite "References"
+        1. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
+
+    Args:
+        y_true (`Tensor`): ground_truth, empirical distribution
+        y_pred (`Tensor`): model distribution
+        epsilon (float): regularization term >0
+        n_iter (object): number of sinkhorn iterations
+        cost_fn (Callable): function that returns the cost matrix between y_pred and y_true, defaults to $|x_i-y_j|^p$.
+
+    Returns:
+        cost (`Tensor`): sinkhorn cost of moving from the mass from the model distribution `y_pred` to the empirical
+        distribution `y_true`.
+    """
+
+    def cost_matrix(x, y, p=2):
+        """ cost matrix of $|x_i-y_j|^p$.
+        """
+        xc = tf.expand_dims(x, 1)
+        yr = tf.expand_dims(y, 0)
+        d = tf.math.pow(tf.abs(xc - yr), p)
+        return tf.reduce_sum(d, axis=-1)
+
+    # n x n Wasserstein cost function
+    if cost_fn is None:
+        cost_m = cost_matrix(y_pred, y_true)
+    else:
+        cost_m = cost_fn(y_pred, y_true)
+
+    # both marginals are fixed with equal weights
+    # mu = Variable(1. / n * tf.ones([n], dtype=tf.float32))
+    # nu = Variable(1. / n * tf.ones([n], dtype=tf.float32))
+
+    n = tf.shape(y_pred)[0]
+
+    init_v = tf.cast(n, tf.float32) * tf.ones([n], dtype=tf.float32)
+
+    mu = 1. / init_v
+    nu = 1. / init_v
+
+    # Parameters of the sinkhorn algorithm.
+    rho = 1  # (.5) **2 # unbalanced transport
+    tau = -.8  # nesterov-like acceleration
+    lam = rho / (rho + epsilon)  # Update exponent
+    thresh = 10 ** (-1)  # stopping criterion
+
+    # Elementary operations .....................................................................
+    def ave(u, u1):
+        # Barycenter subroutine, used by kinetic acceleration through extrapolation.
+        return tau * u + (1 - tau) * u1
+
+    def M(u, v):
+        # Modified cost for logarithmic updates $M_{ij} = (-c_{ij} + u_i + v_j) / \epsilon$
+        return (-cost_m + tf.expand_dims(u, 1) + tf.expand_dims(v, 0)) / epsilon
+
+    # def lse(A):
+    # log-sum-exp
+    #    return tf.math.log(tf.reduce_sum(tf.exp(A), 1, keepdims=True) + 1e-6)  # add 10^-6 to prevent NaN
+
+    # Actual Sinkhorn loop ......................................................................
+    init_u, init_v, init_err = 0. * mu, 0. * nu, 0.
+    actual_nits = 0  # to check if algorithm terminates because of threshold or max iterations reached
+
+    def body(i, u, v, _):
+        u0 = u  # to check the error threshold
+        new_u = epsilon * (tf.math.log(mu) - tf.squeeze(tf.reduce_logsumexp(M(u, v), keepdims=True))) + u
+        new_v = epsilon * (
+                    tf.math.log(nu) - tf.squeeze(tf.reduce_logsumexp(tf.transpose(M(new_u, v)), keepdims=True))) + v
+        # accelerated unbalanced iterations
+        # u = ave( u, lam * ( epsilon * ( torch.log(mu) - lse(M(u,v)).squeeze()   ) + u ) )
+        # v = ave( v, lam * ( epsilon * ( torch.log(nu) - lse(M(u,v).t()).squeeze() ) + v ) )
+        err = tf.reduce_sum(tf.abs(new_u - u0))
+
+        return i + 1, new_u, new_v, err
+
+    i, u, v, err = tf.while_loop(cond=lambda i, u, v, err: err < thresh and tf.less(i, n_iter),
+                                 body=body,
+                                 loop_vars=(0, init_u, init_v, init_err))
+
+    pi = tf.exp(M(u, v))  # Transport plan p_i = diag(a)*K*diag(b)
+
+    return tf.reduce_sum(pi * cost_m)
