@@ -5,11 +5,9 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorx as tx
 import numpy as np
-
 import unittest
 from tensorx.test_utils import TestCase
 from tensorx.layers import LayerProto
-
 import tensorflow as tf
 
 
@@ -53,6 +51,29 @@ class TestLayers(TestCase):
         expected = np.array([[1, 0, 1, 0]], dtype=np.float32)
         self.assertTrue(np.array_equal(expected, dense_value))
         self.assertTrue(np.array_equal(dense_value, dense_value2))
+
+    def test_input_3d(self):
+        # we either create a 3d input specifying the shape
+        data = np.ones([2, 2, 2], dtype=np.float32)
+        x = tx.Input(shape=[None, None, 2], dtype=tf.float32, n_units=2)
+        x.value = data
+        x.value = x() * 2
+        self.assertArrayEqual(data * 2, x())
+
+        x2 = tx.Input(data)
+        self.assertEqual(x2.n_units, np.shape(data)[-1])
+        self.assertEqual(x2.shape[-1], np.shape(data)[-1])
+        x2.value = x2() * 2
+        self.assertArrayEqual(data * 2, x2())
+
+        try:
+            x3 = tx.Input(n_units=2)
+            x3.value = data
+        except ValueError:
+            # TODO can we delay Input slots to set value ?
+            #  to do that we would have to create it if we called compute() without setting the value
+            #  otherwise it would be created on value set
+            pass
 
     def test_dynamic_input_graph(self):
         # tf.autograph.set_verbosity(
@@ -197,9 +218,7 @@ class TestLayers(TestCase):
 
     def test_variable_layer(self):
         input_layer = tx.Input([[1]], n_units=1, dtype=tf.float32)
-        # print(input_layer.tensor())
         var_layer = tx.VariableLayer(input_layer, dtype=tf.float32)
-        # print(var_layer.tensor())
 
         init_value = var_layer.variable.numpy()
         after_update = var_layer().numpy()
@@ -400,7 +419,6 @@ class TestLayers(TestCase):
                                  previous_state=rnn_1)
 
         # if we don't wipe the memory it reuses it
-        # print([batch_size, rnn_1.n_units])
         rnn_3 = rnn_1.reuse_with(inputs,
                                  previous_state=tx.GRUCell.zero_state(rnn_1.n_units))
 
@@ -594,7 +612,6 @@ class TestLayers(TestCase):
 
         rnn_proto = tx.RNNCell.proto(n_units=hdim)
 
-        # print("slice", seq.tensor()[0])
         rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True)
         lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hdim), stateful=True)
 
@@ -607,10 +624,8 @@ class TestLayers(TestCase):
         logging.getLogger("tensorx").setLevel(logging.DEBUG)
 
         out1, state1 = rnn1()
-        # print(rnn1())
 
         layers = tx.Graph.build(inputs=None, outputs=lstm1)
-        print()
         out2, state2 = lstm1()
 
         # state after single run
@@ -729,7 +744,6 @@ class TestLayers(TestCase):
         )
 
         inputs = tx.Input(n_units=k, sparse=True, dtype=tf.int32, constant=False)
-        # print(inputs.value)
         seq_len = tx.Input(init_value=2, shape=[], constant=False)
         lookup = tx.Lookup(inputs, seq_size=seq_len, embedding_shape=[k, m])
         # concat = lookup.as_concat()
@@ -746,7 +760,6 @@ class TestLayers(TestCase):
 
         # c1 = concat.tensor, {inputs.placeholder: seq1, seq_len.placeholder: 2})
         # c2 = self.eval(concat.tensor, {inputs.placeholder: seq2, seq_len.placeholder: 3})
-        # print(in1)
 
         # self.assertEqual(np.shape(c1)[-1], m * 2)
         # self.assertEqual(np.shape(c2)[-1], m * 3)
@@ -867,13 +880,8 @@ class TestLayers(TestCase):
 
         graph = tx.Graph.build(inputs=None, outputs=[drop1, drop2])
 
-        # print(list(graph.dependency_iter()))
-        # graph = graph.compile()
-
         out1, out2 = graph()
         self.assertArrayEqual(out1, out2)
-        # print(out1)
-        # print(out2)
 
         drop1 = tx.Dropout(x2, probability=0.5)
         drop2 = drop1.reuse_with(x1)
@@ -883,8 +891,6 @@ class TestLayers(TestCase):
         # d1, d2, d3 = drop1(),drop2(),drop3()
         #
         # self.assertIs(drop1.mask, drop3.mask)
-        # print(drop1.layer_state.mask)
-        # print(drop2.layer_state.mask)
         # self.assertIsNot(drop1.mask, drop2.mask)
         #
         # self.assertArrayEqual(d1, d3)

@@ -588,6 +588,10 @@ class Input(Layer):
             dtype: type of tensor values
             name: name for the tensor
         """
+        # if n_units is not None and shape is not None and shape[-1] is not None and n_units != shape[-1]:
+        #    raise ValueError(f"n_units and shape[-1] don't match:\n"
+        #                     f"\t  n_units: {n_units}\n\tshape[-1]: {shape[-1]}")
+
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
 
@@ -629,6 +633,9 @@ class Input(Layer):
                 self.n_units = 0
         else:
             if self.shape is not None:
+                if self.n_units is not None and self.shape[-1] and self.n_units != self.shape[-1]:
+                    raise ValueError(f"n_units and shape[-1] don't match:\n"
+                                     f"\t  n_units: {self.n_units}\n\tshape[-1]: {self.shape[-1]}")
                 new_shape = [1 if s is None else s for s in self.shape]
                 self._value = tf.zeros(new_shape)
 
@@ -650,7 +657,8 @@ class Input(Layer):
 
         if self.shape is not None:
             self.shape = tf.TensorShape(self.shape)
-            if self.constant and not self.shape.is_compatible_with(expected):
+            # if self.constant and not self.shape.is_compatible_with(expected):
+            if not self.shape.is_compatible_with(expected):
                 raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
                                  " current: {invalid}".format(shape=expected, invalid=self.shape))
         else:

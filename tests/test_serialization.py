@@ -9,17 +9,18 @@ import tensorflow as tf
 from tensorflow.python.util import object_identity
 from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import util
+import shutil
 
-# checkpoint manager expexts trackable
-from tensorflow.python.training.tracking import base as trackable
 
+# checkpoint manager expects trackable
 
 # there are two trackable base classes
-# AutoTrackable which ovewrides setattr to add dependencies between trackable objects
+# AutoTrackable which overrides setattr to add dependencies between trackable objects
 # and Trackable, where dependencies should be added manually
 
+
 class MyTestCase(TestCase):
-    def test_variable_storage(self):
+    def test_variable_checkpoint(self):
         x = tf.ones([2, 4])
         l1 = tx.Linear(x, 3, add_bias=True, name="l1")
         l2 = tx.Linear(x, 3, add_bias=False, name="l1")
@@ -43,11 +44,12 @@ class MyTestCase(TestCase):
         l1.weights.assign(l2.weights.value())
 
         status = ckpt.restore(manager.latest_checkpoint)
+        status.assert_existing_objects_matched()
 
-        # print(status.assert_existing_objects_matched())
+        # print()
         print(tf.train.list_variables(manager.latest_checkpoint))
 
-        # d = dict({w1: 0, w2: 1})
+        shutil.rmtree('./ckpts')
 
 
 if __name__ == '__main__':

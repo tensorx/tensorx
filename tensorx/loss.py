@@ -200,7 +200,8 @@ def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
     parameter epsilon, niter is the maximum number of steps in sinkhorn loop
 
     !!! cite "References"
-        1. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
+        1. [Concerning nonnegative matrices and doubly stochastic matrices](https://msp.org/pjm/1967/21-2/p14.xhtml)
+        2. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
 
     Args:
         y_true (`Tensor`): ground_truth, empirical distribution
