@@ -15,6 +15,7 @@ pages:
     source: 'tensorx/layers.py'
     classes:
       - Linear
+      - Input
       - Module
   - page: "math.md"
     source: 'tensorx/math.py'

@@ -559,7 +559,60 @@ class Wrap(Layer):
 
 
 class Input(Layer):
-    """ Input Layer receives values that can be interpreted as ``Tensor`` or ``SparseTensor``
+    """ Input Layer
+
+    Receives input values to a neural network and outputs either ``Tensor`` or ``SparseTensor`` values.
+
+    Input is stateful, which means it will always output the same value until a new value is set:
+
+        ```python
+        import tensorx as tx
+        # assumes a shape [None,2]
+        x = tx.Input(n_units=2, constant=False)
+        v1 = x()
+
+        [[0,0]]
+
+        x.value = tf.ones([2,2])
+        v2 = x()
+
+        [[1,1],
+         [1,1]]
+
+        x.value = tf.ones([2,3])
+        # throws an exception because it expects a shape [None,2]
+
+        x2 = tx.Input(n_units=2, constant=True)
+        x2()
+
+        [[0,0]]
+
+        x2.value = tf.ones([2,2])
+        # throws ValueError: Cannot set the value of a constant Input Layer
+        ```
+
+    !!! info
+        * when `n_active` is provided, and this layer is connected to an `Linear` layer, this is interpreted as a
+        binary sparse (one-hot) input layer and expects it's values to be of type `tf.int64`.
+
+        * `SparseTensor` value can be passed as an initial value
+
+    Args:
+        init_value (`Tensor`/`np.ndarray`): initial value for `Input` layer, if given, it determines `n_units`
+        n_units (int): number of output units for this layer. Should match last dimension of `init_value` shape and
+            `shape` if either is provided.
+        n_active (int): number of active units <= n_units. If given, `Input` expects a `Tensor` with indices and
+            outputs a sparse array.
+        sparse (bool): if true, expects the input value to be a `SparseTensor`.
+        shape (List[int]): expected input shape
+        dtype (`tf.Dtype`): type for input values.
+        constant: if true, input value cannot be changed after `Input` is initialized.
+        name (str): layer name
+
+    Attributes:
+        value (`Tensor`/`SparseTensor`): if `constant=False` this attribute can be set to store a new value in `Input`,
+        else, setting `value` will throw an exception.
+
     """
 
     def __init__(self,
@@ -571,26 +624,6 @@ class Input(Layer):
                  shape=None,
                  dtype=None,
                  name="input"):
-        """
-        if n_active is not None:
-            when connected to a Linear layer, this is interpreted
-            as a binary sparse input layer and the linear layer is constructed using the
-            Embedding Lookup operator.
-
-            expects: int64 as inputs
-
-        Note:
-            if you want to feed a batch of sparse binary features with weights, use SparseInput instead
-
-        Args:
-            n_units: number of units in the tensor of this layer
-            n_active: number of active units <= n_units
-            dtype: type of tensor values
-            name: name for the tensor
-        """
-        # if n_units is not None and shape is not None and shape[-1] is not None and n_units != shape[-1]:
-        #    raise ValueError(f"n_units and shape[-1] don't match:\n"
-        #                     f"\t  n_units: {n_units}\n\tshape[-1]: {shape[-1]}")
 
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
@@ -701,6 +734,14 @@ class Input(Layer):
 
     @property
     def value(self):
+        """ value
+
+        returns current input value
+
+        Returns:
+            value (`Tensor`/`SparseTensor`): input value
+
+        """
         if self.constant:
             return self._value
         else:
