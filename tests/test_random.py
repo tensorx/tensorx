@@ -26,7 +26,7 @@ class MyTestCase(unittest.TestCase):
         self.assertFalse(np.array_equal(actual, desired))
 
     def test_gumbel_sample(self):
-        sample = tx.gumbel_sample(10, 2, batch_size=4)
+        sample = tx.gumbel_top(10, 2, batch_size=4)
         all_unique = tf.map_fn(lambda x: tf.equal(tf.unique(x)[0].shape[-1], 2), sample, dtype=tf.bool)
         all_unique = tf.reduce_all(all_unique, axis=0)
         self.assertTrue(all_unique)
