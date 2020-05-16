@@ -3659,6 +3659,106 @@ class FC(Layer):
         return self.output.compute(input_value)
 
 
+class SeqMap(Layer):
+    """ Applies a given layer prototype to each element in the first dimension of the input layer
+
+    """
+
+    def __init__(self,
+                 input_seq,
+                 layer_proto: Callable[[Union[Layer, tf.Tensor]], Layer],
+                 parallel_iterations=10,
+                 n_units=None,
+                 share_state_with: Optional['SeqMap'] = None,
+                 name="seq_map"):
+
+        expected_n = layer_proto.arg_dict.get('n_units', None)
+        if expected_n is not None and n_units is not None and n_units != expected_n:
+            raise ValueError(f"n_units of layer instance does not match expected n_units:\n"
+                             f"\t expected: {expected_n}\n"
+                             f"\t got: {n_units}")
+
+        # n_units and shape are set after the first cell is created
+        super().__init__(input_layers=input_seq,
+                         n_units=layer_proto.arg_dict.get('n_units', n_units),
+                         dtype=tf.float32,
+                         name=name,
+                         layer_proto=layer_proto,
+                         parallel_iterations=parallel_iterations,
+                         share_state_with=share_state_with)
+
+    def init_state(self):
+        state = super().init_state()
+        input_seq = self.input_layers[-1]
+        x0 = input_seq[0]
+
+        # TODO we could pass the layer directly but since right now we only allow to build layers from
+        # a given input layer, we can just past the layer proto, the specification of the layer to be applied
+        # an alternative is to allow layers to be created based on an input shape
+        # I can generalize this to all layers and nothing changes besides that, every layer would have an input shape
+        # and if provided it would be used to initialize its state
+        #
+        # There would be two ways of specifying layers, using a layer proto object and a layer object with
+        # an input_shape, layer proto would be a way to delay the initialization of the layer state, layer with input shape
+        # would allow me to build the state immediately
+        if self.share_state_with is not None:
+            layer_instance = self.share_shate_with.layer_instance
+            state.layer_instance = layer_instance.reuse_with(x0)
+        else:
+            state.layer_instance = self.layer_proto(x0)
+
+        n_units = state.layer_instance.n_units
+        if n_units is not None and self.n_units is None:
+            self.n_units = state.layer_instance.n_units
+        elif n_units is not None and self.n_units != n_units:
+            raise ValueError(f"n_units of layer instance does not match expected n_units:\n"
+                             f"\t expected: {self.n_units}\n"
+                             f"\t got: {n_units}")
+
+        return state
+
+    def compute(self, input_seq):
+        layer_instance = self.layer_instance
+        with layer_scope(self):
+            seq_len = tf.shape(input_seq)[0]
+            input_ta = tf.TensorArray(dtype=input_seq.dtype, size=seq_len, tensor_array_name="inputs",
+                                      clear_after_read=False)
+            input_ta = input_ta.unstack(input_seq)
+            output_ta = tf.TensorArray(dtype=self.dtype, size=seq_len, tensor_array_name="outputs")
+
+            i0 = 0
+            ii = i0 + 1
+            fi = seq_len
+
+            x0 = input_ta.read(i0)
+
+            output_ta = output_ta.write(i0, layer_instance.compute(x0))
+
+            def compute_step(t, y):
+                xt = input_ta.read(t)
+                c = layer_instance.compute(xt)
+                y = y.write(t, c)
+                t = t + 1
+                return t, y
+
+            i, out = tf.while_loop(cond=lambda t, *_: tf.math.not_equal(t, fi),
+                                   body=compute_step,
+                                   loop_vars=(ii, output_ta),
+                                   name="map_seq",
+                                   parallel_iterations=self.parallel_iterations)
+
+            return out.stack()
+
+    def reuse_with(self, input_seq, name=None):
+        name = self.name if name is None else name
+
+        return SeqMap(input_seq=input_seq,
+                      layer_proto=self.layer_proto,
+                      parallel_iterations=self.parallel_iterations,
+                      share_state_with=self,
+                      name=name)
+
+
 def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
     """ Converts a ``Tensor``,``SparseTensor`` or tensor convertible to a ``Layer``
 
@@ -3738,5 +3838,6 @@ __all__ = [
     "DropLookup",
     "Residual",
     "FC",
-    "SeqConcat"
+    "SeqConcat",
+    "SeqMap"
 ]

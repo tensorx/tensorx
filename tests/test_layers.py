@@ -932,74 +932,90 @@ class TestLayers(TestCase):
         self.assertEqual(len(residual.trainable_variables), 0)
         self.assertEqual(len(residual2.trainable_variables), 1)
 
+    def test_conv1d(self):
+        num_filters = 2
+        input_dim = 4
+        seq_size = 3
+        batch_size = 2
+        filter_size = 2
 
-def test_conv1d(self):
-    num_filters = 2
-    input_dim = 4
-    seq_size = 3
-    batch_size = 2
-    filter_size = 2
+        filter_shape = [filter_size, input_dim, num_filters]
 
-    filter_shape = [filter_size, input_dim, num_filters]
+        x = tf.ones([batch_size, seq_size, input_dim])
+        x_layer = tx.Tensor(x, input_dim)
 
-    x = tf.ones([batch_size, seq_size, input_dim])
-    x_layer = tx.Tensor(x, input_dim)
+        filters = tf.ones(filter_shape)
+        conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
+        conv = tf.nn.conv1d(input=x,
+                            filters=filters,
+                            stride=1,
+                            padding="SAME",
+                            data_format="NWC")
 
-    filters = tf.ones(filter_shape)
-    conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
-    conv = tf.nn.conv1d(input=x,
-                        filters=filters,
-                        stride=1,
-                        padding="SAME",
-                        data_format="NWC")
+        output = conv_layer()
+        self.assertArrayEqual(conv, output)
+        self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
+        self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
 
-    output = conv_layer()
-    self.assertArrayEqual(conv, output)
-    self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
-    self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
+    def test_map_seq(self):
+        n_features = 5
+        embed_size = 4
+        hdim = 3
+        seq_size = 3
+        batch_size = 2
 
+        inputs = tx.Input(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        seq = lookup.permute_batch_time()
 
-def test_multihead_attention(self):
-    n_features = 3
-    embed_size = 128
-    seq_size = 3
-    batch_size = 2
-    n_heads = 8
+        n_units = 2
+        linear_fn = tx.Linear.proto(n_units=n_units)
+        self.assertArrayEqual(tf.shape(seq()), [seq_size, batch_size, embed_size])
 
-    inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
-    emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        seq_map = tx.SeqMap(seq, n_units=2, layer_proto=linear_fn)
+        self.assertArrayEqual(tf.shape(seq_map), [seq_size, batch_size, n_units])
 
-    attention = tx.MHAttention(query=emb,
-                               key=emb,
-                               value=emb,
-                               n_units=embed_size,
-                               n_heads=n_heads,
-                               causality=False,
-                               attention_dropout=0.1,
-                               regularized=False)
+    def test_multihead_attention(self):
+        n_features = 3
+        embed_size = 128
+        seq_size = 3
+        batch_size = 2
+        n_heads = 8
 
-    self.assertEqual(len(attention.input_layers), 3)
+        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
 
-    # 3 "kernels" + bias
-    self.assertEqual(len(attention.variables), 3)
+        attention = tx.MHAttention(query=emb,
+                                   key=emb,
+                                   value=emb,
+                                   n_units=embed_size,
+                                   n_heads=n_heads,
+                                   causality=False,
+                                   attention_dropout=0.1,
+                                   regularized=False)
 
-    attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
-    attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
-    attention_causal = attention.reuse_with(emb, emb, emb, causality=True)
+        self.assertEqual(len(attention.input_layers), 3)
 
-    res = attention_causal()
+        # 3 "kernels" + bias
+        self.assertEqual(len(attention.variables), 3)
 
-    result = attention()
-    result_reg = attention_reg()
-    result2 = attention_2()
+        attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
+        attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
+        attention_causal = attention.reuse_with(emb, emb, emb, causality=True)
 
-    self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
-    self.assertArrayEqual(result, result2)
+        res = attention_causal()
 
-    vars1 = map(lambda v: v.experimental_ref(), attention.variables)
-    vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
+        result = attention()
+        result_reg = attention_reg()
+        result2 = attention_2()
 
-    self.assertSetEqual(set(vars1), set(vars2))
+        self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
+        self.assertArrayEqual(result, result2)
+
+        vars1 = map(lambda v: v.experimental_ref(), attention.variables)
+        vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
+
+        self.assertSetEqual(set(vars1), set(vars2))
 
 
 if __name__ == '__main__':
