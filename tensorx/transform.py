@@ -717,6 +717,35 @@ def sparsemax(logits, name=None):
             tf.cast(0, logits.dtype), z - tau_z[:, tf.newaxis])
 
 
+def gelu(x, approximate: bool = True) -> tf.Tensor:
+    """Gaussian Error Linear Unit.
+
+    Computes gaussian error linear:
+        `0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))` or
+        `x * P(X <= x) = 0.5 * x * (1 + erf(x / sqrt(2)))`, where P(X) ~ N(0, 1),
+        depending on whether approximation is enabled.
+
+    !!! cite "References"
+        1. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415)
+        2. [BERT](https://arxiv.org/abs/1810.04805).
+    Args:
+        x (`Tensor`):  Must be one of the following types:
+            `float16`, `float32`, `float64`.
+        approximate (bool): whether to enable approximation.
+
+    Returns:
+        tensor (`Tensor`): with the same type as `x`
+    """
+    x = tf.convert_to_tensor(x)
+    x = tf.convert_to_tensor(x)
+    if approximate:
+        pi = tf.cast(tf.math.pi, x.dtype)
+        coefficient = tf.cast(0.044715, x.dtype)
+        return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / pi) * (x + coefficient * tf.pow(x, 3))))
+    else:
+        return 0.5 * x * (1.0 + tf.math.erf(x / tf.cast(tf.sqrt(2.0), x.dtype)))
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -730,4 +759,5 @@ __all__ = ["apply_gate",
            "to_sparse",
            "embedding_lookup_sparse",
            "dense_one_hot",
-           "sparsemax"]
+           "sparsemax",
+           "gelu"]

@@ -1,5 +1,5 @@
 from abc import ABC
-
+import sys
 import tensorflow as tf
 from tensorx.utils import as_tensor, as_list, Graph
 from typing import Union, Type, Callable, Optional
@@ -249,8 +249,8 @@ class Layer(AutoTrackable):
         return LayerProto(cls, **kwargs)
 
     def reuse_with(self, *layers, **kwargs):
+        kwargs["share_state_with"] = self
         return self.proto(*layers, **kwargs)
-        # return type(self)(*layers, **kwargs)
 
     @property
     def input_layers(self):
@@ -296,7 +296,6 @@ class Layer(AutoTrackable):
         Returns:
             a function with the entire graph traced from the current layer as the output
         """
-        # @tf.function(input_signature=(tf.TensorSpec(shape=[None], dtype=tf.int32),))
         return tf.function(self.__call__, input_signature)
 
     def __str__(self):
@@ -2642,17 +2641,28 @@ class SeqConcat(Layer):
                          time_major=time_major,
                          seq_size=seq_size)
 
+    # def init_state(self):
+    #     state = super().init_state()
+    #     input_layer = self.input_layers[-1]
+    #
+    #     if self.time_major:
+    #         g1 = Transpose(input_layer,[1,0,2])
+    #         g2 = Reshape(g1,[])
+    #     else:
+    # return state
+
     def compute(self, input_tensor):
         with layer_scope(self):
+            shape = tf.shape(input_tensor)
+            n = shape[-1]
+
             if self.time_major:
                 input_tensor = tf.transpose(input_tensor, [1, 0, 2])
-                seq_size = tf.shape(input_tensor)[0]
+                seq_size = shape[0]
             else:
-                seq_size = tf.shape(input_tensor)[1]
+                seq_size = shape[1]
 
-            n_units = tf.shape(input_tensor)[-1] * seq_size
-
-            return tf.reshape(input_tensor, [-1, n_units])
+            return tf.reshape(input_tensor, [-1, n * seq_size])
 
 
 class CoupledGate(Layer):
@@ -3291,11 +3301,11 @@ class Residual(Layer):
         if name is None:
             name = self.name
 
-        share_vars_with = self if self.share_state_with is None else self.share_state_with
+        share_state_with = self if self.share_state_with is None else self.share_state_with
 
         return Residual(x_layer=x_layer,
                         h_layer=h_layer,
-                        share_state_with=share_vars_with,
+                        share_state_with=share_state_with,
                         name=name)
 
 
@@ -3633,18 +3643,21 @@ class FC(Layer):
         state = super().init_state()
 
         with layer_scope(self, name=self.name):
-            linear = Linear(input_layer=input_layer,
-                            n_units=self.n_units,
-                            weight_init=self.weight_init,
-                            weights=self.weights,
-                            transpose_weights=self.transpose_weights,
-                            add_bias=self.add_bias,
-                            bias_init=self.bias_init,
-                            bias=self.bias,
-                            dtype=self.dtype,
-                            weight_norm=self.weight_norm,
-                            name="{}_linear".format(self.name),
-                            share_state_with=self.share_state_with)
+            if self.share_state_with is None:
+                linear = Linear(input_layer=input_layer,
+                                n_units=self.n_units,
+                                weight_init=self.weight_init,
+                                weights=self.weights,
+                                transpose_weights=self.transpose_weights,
+                                add_bias=self.add_bias,
+                                bias_init=self.bias_init,
+                                bias=self.bias,
+                                dtype=self.dtype,
+                                weight_norm=self.weight_norm,
+                                name="{}_linear".format(self.name),
+                                share_state_with=self.share_state_with)
+            else:
+                linear = self.share_state_with.linear.reuse_with(input_layer)
 
             activation = Activation(linear, fn=self.activation, name="{}_activation".format(self.name))
             state.linear = linear
@@ -3654,9 +3667,12 @@ class FC(Layer):
 
         return state
 
-    def compute(self, *input_tensors):
-        input_value = input_tensors[0]
-        return self.output.compute(input_value)
+    def compute(self, input_tensor):
+        return self.output.compute(input_tensor)
+
+# TODO careful with reuse_with was not useing share_state_with=self
+#    def reuse_with(self, input_layer):
+#        return self.proto(input_layer, share_state_with=self)
 
 
 class SeqMap(Layer):

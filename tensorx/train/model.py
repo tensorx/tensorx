@@ -31,6 +31,7 @@ class Model:
                  train_loss=None,
                  eval_inputs=None,
                  eval_outputs=None,
+                 eval_score=None,
                  name='Model',
                  ):
         self.name = name
@@ -41,10 +42,9 @@ class Model:
         self.train_outputs = as_list(train_outputs)
         self.eval_inputs = as_list(eval_inputs)
         self.eval_outputs = as_list(eval_outputs)
+        self.eval_score = as_list(eval_score)
 
-        self.run_graph: Graph = Graph.build(run_inputs, run_outputs)
-
-        # dict with graph -> compiled graph function
+        # layer graph -> function
         self.compiled = dict()
 
         if not isinstance(train_loss, tx.Layer):
@@ -53,8 +53,10 @@ class Model:
                             f"\t actual: {type(train_loss)}")
 
         self.train_loss = train_loss
+
+        self.run_graph: Graph = Graph.build(run_inputs, run_outputs)
         self.train_graph: Graph = Graph.build(self.train_inputs, self.train_outputs + [self.train_loss])
-        self.eval_graph: Graph = Graph.build(self.eval_inputs, self.eval_outputs)
+        self.eval_graph: Graph = Graph.build(self.eval_inputs, self.eval_outputs + self.eval_score)
 
         # TODO add the possibility of having multiple optimizers that can be switched
         self.optimizer = None
@@ -133,6 +135,8 @@ class Model:
             self.compiled[self.train_graph] = self.train_graph.as_function(ord_inputs=self.train_graph.in_nodes)
 
         train_fn = self.compiled[self.train_graph]
+
+        # train_fn = self.train_graph.compute
 
         @tf.function
         def update_weights_fn(*data):
@@ -245,7 +249,8 @@ class Model:
                     params[param_name].value = param_feed[param_name]
 
         optimization_fn = self.update_weights_fn[self.optimizer]
-        return optimization_fn(*list(data_feed.values()))
+        feed_values = list(data_feed.values())
+        return optimization_fn(*feed_values)
 
     def eval_step(self, input_feed):
         """
@@ -263,10 +268,12 @@ class Model:
             if eval_graph not in self.compiled:
                 self.compiled[eval_graph] = eval_graph.as_function(ord_inputs=eval_graph.in_nodes)
 
-            eval_fn = self.compiled[eval_graph]
-
+            static_eval_graph = self.compiled[eval_graph]
             # *eval_out, eval_score = eval_fn(*list(data_feed.values()))
-        return eval_fn(*list(data_feed.values()))
+            feed_values = list(data_feed.values())
+            return static_eval_graph(*feed_values)
+        else:
+            return None
 
     def train(self, train_data, validation_data=None, test_data=None, epochs=1, steps_per_epoch=None, callbacks=[]):
         """ Main training loop
@@ -439,7 +446,8 @@ class Eval(Callback):
                     feed_dict = dict(zip(inputs, feed_dict))
 
                 # *outputs, score
-                *_, mean_eval = model.eval_step(feed_dict)
+                outputs = model.eval_step(feed_dict)
+                *_, mean_eval = outputs
                 if not np.isscalar(mean_eval):
                     mean_eval = np.mean(mean_eval)
                 sum_eval += mean_eval
@@ -469,6 +477,7 @@ class EarlyStop(Callback):
 
 
     """
+
     def __init__(self,
                  patience=3,
                  lesser_better=True,
