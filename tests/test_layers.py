@@ -932,6 +932,45 @@ class TestLayers(TestCase):
         self.assertEqual(len(residual.trainable_variables), 0)
         self.assertEqual(len(residual2.trainable_variables), 1)
 
+    def test_fully_connected(self):
+        x1 = tx.Input(init_value=[[1., 1., 1., 1.]], n_units=4, dtype=tf.float32, constant=True)
+        x2 = tx.Input(init_value=np.random.uniform(size=[2, 4]), dtype=tf.float32, n_units=4, constant=True)
+
+        y1 = tx.FC(x1, 4, add_bias=True, activation=tf.sigmoid)
+
+        y2 = tx.Linear(x1, 4, add_bias=True, weights=y1.linear.weights, bias=y1.linear.bias)
+        a2 = tx.Activation(y2, fn=tf.sigmoid)
+
+        w = y2.weights
+        b = y2.bias
+
+        self.assertIs(y1.linear.weights, w)
+        self.assertIs(y1.linear.bias, b)
+
+        x = x1()
+        y = tf.matmul(x, w) + b
+        a = tf.sigmoid(y)
+
+        self.assertArrayEqual(y2(), y)
+        self.assertArrayEqual(y1(), a)
+        self.assertArrayEqual(y1(), a2())
+        self.assertArrayEqual(a2(), a)
+
+        y1 = y1.reuse_with(x2)
+        y2 = y2.reuse_with(x2)
+        a2 = a2.reuse_with(y2)
+
+        self.assertIs(y2.weights, w)
+        self.assertIs(y2.bias, b)
+
+
+        self.assertIs(y1.linear.weights, w)
+        self.assertIs(y1.linear.bias, b)
+
+        # print(y1())
+
+        # self.assertArrayEqual(y1(), a2())
+
     def test_conv1d(self):
         num_filters = 2
         input_dim = 4
@@ -1012,8 +1051,8 @@ class TestLayers(TestCase):
         self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
         self.assertArrayEqual(result, result2)
 
-        vars1 = map(lambda v: v.experimental_ref(), attention.variables)
-        vars2 = map(lambda v: v.experimental_ref(), attention_2.variables)
+        vars1 = map(lambda v: v.ref(), attention.variables)
+        vars2 = map(lambda v: v.ref(), attention_2.variables)
 
         self.assertSetEqual(set(vars1), set(vars2))
 
