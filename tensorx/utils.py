@@ -215,7 +215,7 @@ class Graph:
 
         return graph
 
-    def as_function(self, ord_inputs=None, ord_outputs=None):
+    def as_function(self, ord_inputs=None, ord_outputs=None, fn_name="compiled_graph"):
         """ compiles the graph into a tensorflow callable compiled graph
 
         the idea is to use exec to create a function and then call tf.function
@@ -229,19 +229,23 @@ class Graph:
         write down a function as a series of compute calls with inputs from the previous
         layer outputs
 
+        !!! note
+            Another way to feed inputs to a graph is to use input layers
+            ```python
+            input_layer.value = in0
+            input_Layer.value = in1
+            outputs = graph()
+            ```
+            this adds a bit of a overhead since we have to write to the variable
+
         Args:
             ord_inputs: list of input that determines the order of resulting function arguments
             ord_outputs: list of outputs used to determine the return order
 
         Returns:
-            an optimized TensorFlow static graph as a callable function
+            function (`function`): an optimized TensorFlow static graph as a callable function
 
         """
-        # NOTE another way to feed inputs is to use input layers normally like
-        #   input_layer.value = in0
-        #   input_Layer.value = in1
-        #   that way the input slots are up to date
-        #   this adds a bit of a overhead since we have to write to the variable
 
         graph = self
 
@@ -271,7 +275,7 @@ class Graph:
         feedable_inputs = list(inputs)
         node_map = {in_layer: f"{in_layer.name.replace('/', '__')}_{node_index.pop(0)}" for in_layer in feedable_inputs}
         args_str = ", ".join(node_map.values())
-        def_str = f"def compiled_graph({args_str}):\n"
+        def_str = f"def {fn_name}({args_str}):\n"
         other_str = []
 
         # all other inputs that are not feedable
