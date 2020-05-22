@@ -6,4 +6,4 @@ from tensorx.transform import *
 from tensorx.math import *
 from tensorx.train import *
 from tensorx import init
-
+from tensorx.activation import *

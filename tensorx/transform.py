@@ -1,6 +1,5 @@
 import tensorflow as tf
 from tensorflow.python import PartitionedVariable
-from tensorflow.python.framework import ops
 from tensorflow.python.platform import tf_logging as logging
 
 from tensorx.utils import as_tensor
@@ -668,84 +667,6 @@ def dense_one_hot(column_indices, num_cols, dtype=tf.float32, name="dense_one_ho
         return one_hot_dense
 
 
-def sparsemax(logits, name=None):
-    """Computes the sparsemax activation function [1]
-
-    TODO needs tests
-
-    For each batch `i` and class `j` we have
-      sparsemax[i, j] = max(logits[i, j] - tau(logits[i, :]), 0)
-
-    References:
-        [1]: https://arxiv.org/abs/1602.02068
-
-    Args:
-      logits: A `Tensor`. Must be one of the following types: `half`, `float32`,
-        `float64`.
-      name: A name for the operation (optional).
-
-    Returns:
-      A `Tensor`. Has the same type as `logits`.
-    """
-
-    with ops.name_scope(name, "sparsemax", [logits]) as name:
-        logits = ops.convert_to_tensor(logits, name="logits")
-        obs = tf.shape(logits)[0]
-        dims = tf.shape(logits)[1]
-
-        z = logits - tf.reduce_mean(logits, axis=1)[:, tf.newaxis]
-
-        # sort z
-        z_sorted, _ = tf.nn.top_k(z, k=dims)
-
-        # calculate k(z)
-        z_cumsum = tf.cumsum(z_sorted, axis=1)
-        k = tf.range(
-            1, tf.cast(dims, logits.dtype) + 1, dtype=logits.dtype)
-        z_check = 1 + k * z_sorted > z_cumsum
-        # because the z_check vector is always [1,1,...1,0,0,...0] finding the
-        # (index + 1) of the last `1` is the same as just summing the number of 1.
-        k_z = tf.reduce_sum(tf.cast(z_check, tf.int32), axis=1)
-
-        # calculate tau(z)
-        indices = tf.stack([tf.range(0, obs), k_z - 1], axis=1)
-        tau_sum = tf.gather_nd(z_cumsum, indices)
-        tau_z = (tau_sum - 1) / tf.cast(k_z, logits.dtype)
-
-        # calculate p
-        return tf.maximum(
-            tf.cast(0, logits.dtype), z - tau_z[:, tf.newaxis])
-
-
-def gelu(x, approximate: bool = True) -> tf.Tensor:
-    """Gaussian Error Linear Unit.
-
-    Computes gaussian error linear:
-        `0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))` or
-        `x * P(X <= x) = 0.5 * x * (1 + erf(x / sqrt(2)))`, where P(X) ~ N(0, 1),
-        depending on whether approximation is enabled.
-
-    !!! cite "References"
-        1. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415)
-        2. [BERT](https://arxiv.org/abs/1810.04805).
-    Args:
-        x (`Tensor`):  Must be one of the following types:
-            `float16`, `float32`, `float64`.
-        approximate (bool): whether to enable approximation.
-
-    Returns:
-        tensor (`Tensor`): with the same type as `x`
-    """
-    x = tf.convert_to_tensor(x)
-    x = tf.convert_to_tensor(x)
-    if approximate:
-        pi = tf.cast(tf.math.pi, x.dtype)
-        coefficient = tf.cast(0.044715, x.dtype)
-        return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / pi) * (x + coefficient * tf.pow(x, 3))))
-    else:
-        return 0.5 * x * (1.0 + tf.math.erf(x / tf.cast(tf.sqrt(2.0), x.dtype)))
-
-
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -758,6 +679,4 @@ __all__ = ["apply_gate",
            "SparseVariable",
            "to_sparse",
            "embedding_lookup_sparse",
-           "dense_one_hot",
-           "sparsemax",
-           "gelu"]
+           "dense_one_hot"]

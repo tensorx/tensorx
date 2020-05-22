@@ -2635,21 +2635,12 @@ class SeqConcat(Layer):
             n_units = input_seq.n_units * seq_size
         else:
             n_units = None
+
         super().__init__(input_layers=input_seq,
                          n_units=n_units,
                          name=name,
                          time_major=time_major,
                          seq_size=seq_size)
-
-    # def init_state(self):
-    #     state = super().init_state()
-    #     input_layer = self.input_layers[-1]
-    #
-    #     if self.time_major:
-    #         g1 = Transpose(input_layer,[1,0,2])
-    #         g2 = Reshape(g1,[])
-    #     else:
-    # return state
 
     def compute(self, input_tensor):
         with layer_scope(self):

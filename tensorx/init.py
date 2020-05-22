@@ -11,7 +11,7 @@ import tensorflow as tf
 from typing import Callable
 
 
-def zeros():
+def zeros_init():
     """ Zeroes Initializer
 
     Initializer that generates tensors initialized to 0.
@@ -23,7 +23,7 @@ def zeros():
     return tf.zeros_initializer()
 
 
-def ones():
+def ones_init():
     """ Ones Initializer
 
     Initializer that generates tensors initialized to 1.
@@ -35,7 +35,7 @@ def ones():
     return tf.ones_initializer()
 
 
-def constant(value=0):
+def constant_init(value=0):
     """ Constant Initializer
 
     The resulting tensor is populated with values of type dtype, as specified by arguments value
@@ -57,7 +57,7 @@ def constant(value=0):
     return tf.constant_initializer(value)
 
 
-def random_uniform(minval: float = -0.05, maxval: float = 0.05, seed=None):
+def uniform_init(minval: float = -0.05, maxval: float = 0.05, seed=None):
     """ Random Uniform Initializer
 
     Initializer that generates tensors with a uniform distribution.
@@ -74,7 +74,7 @@ def random_uniform(minval: float = -0.05, maxval: float = 0.05, seed=None):
     return tf.random_uniform_initializer(minval=minval, maxval=maxval, seed=seed)
 
 
-def random_normal(mean: float = 0.0, stddev=0.05, seed=None):
+def normal_init(mean: float = 0.0, stddev=0.05, seed=None):
     """ Random Normal Initializer
 
     Initializer that generates tensors with a normal distribution.
@@ -91,7 +91,7 @@ def random_normal(mean: float = 0.0, stddev=0.05, seed=None):
     return tf.random_normal_initializer(mean=mean, stddev=stddev, seed=seed)
 
 
-def glorot_uniform(seed: None) -> Callable:
+def glorot_uniform_init(seed: None) -> Callable:
     """ Glorot Uniform Initializer
 
     This initialisation keeps the scale of the gradients roughly the same in all layers to
@@ -110,20 +110,7 @@ def glorot_uniform(seed: None) -> Callable:
     return tf.initializers.glorot_uniform(seed)
 
 
-def glorot_normal(seed: None) -> Callable:
-    """ Glorot Normal Initializer
-
-    Args:
-        seed (int32/int64): seed for random number generator
-
-    Returns:
-        initializer (Callable): callable that creates an initial value from a given shape
-
-    """
-    return tf.initializers.glorot_normal(seed=seed)
-
-
-def orthogonal(gain: float = 1.0, seed=None) -> Callable:
+def orthogonal_init(gain: float = 1.0, seed=None) -> Callable:
     """ Orthogonal initializer
 
     If the shape of the tensor to initialize is two-dimensional, it is initialized
@@ -152,7 +139,7 @@ def orthogonal(gain: float = 1.0, seed=None) -> Callable:
     return tf.initializers.orthogonal(gain=gain, seed=seed)
 
 
-def identity(gain: float = 1.0):
+def identity_init(gain: float = 1.0):
     """ Identity Initializer
 
     creates an identity matrix for a 2D shape
@@ -166,7 +153,7 @@ def identity(gain: float = 1.0):
     return tf.initializers.identity(gain=gain)
 
 
-def he_uniform(seed=None):
+def he_uniform_init(seed=None):
     """ He Uniform Initializer
 
     It draws samples from a uniform distribution within $[-l, l]$ where $l = \\sqrt{\\frac{6}{fan_{in}}}$ where
@@ -183,21 +170,3 @@ def he_uniform(seed=None):
 
     """
     return tf.initializers.he_uniform(seed=seed)
-
-
-def he_normal(seed=None):
-    """ He Normal Initializer
-
-    Draws samples from a truncated normal distribution centered on $0$ with $stddev = \\sqrt\\frac{2}{fan_{in}}$
-    where fan_in is the number of input units (see [1])
-
-    !!! Cite "References"
-        1. [Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification](https://arxiv.org/abs/1502.01852)
-
-    Args:
-        seed (int32/int64): seed for random number generator
-
-    Returns:
-        initializer (Callable): callable that returns a tensor value from a given shape
-    """
-    return tf.initializers.he_normal(seed=seed)

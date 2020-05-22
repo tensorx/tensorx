@@ -29,17 +29,26 @@ pages:
   - page: "init.md"
     source: 'tensorx/init.py'
     functions:
-      - zeros
-      - ones
-      - constant
-      - random_uniform
-      - random_normal
-      - glorot_uniform
-      - glorot_normal
-      - orthogonal
+      - zeros_init
+      - ones_init
+      - constant_init
+      - uniform_init
+      - normal_init
+      - glorot_uniform_init
+      - orthogonal_init
+      - identity_init
+      - he_uniform_init
+  - page: "activation.md"
+    source: 'tensorx/activation.py'
+    functions:
       - identity
-      - he_uniform
-      - he_normal
+      - sigmoid
+      - tanh
+      - relu
+      - elu
+      - gelu
+      - softmax
+      - sparsemax
   - page: "loss.md"
     source: 'tensorx/loss.py'
     functions:
