@@ -557,7 +557,7 @@ class TestLayers(TestCase):
 
         rnn_proto = tx.RNNCell.proto(n_units=hdim)
 
-        rnn1 = tx.RNN(seq, cell_proto=rnn_proto, previous_state=ones_state)
+        rnn1 = tx.RNN(seq, cell_proto=rnn_proto, previous_state=ones_state, return_state=True)
         rnn2 = rnn1.reuse_with(seq)
 
         # TODO problem with RNN layer is that it uses modules that require
@@ -599,6 +599,52 @@ class TestLayers(TestCase):
         self.assertArrayEqual(out1, out5)
         self.assertArrayEqual(last1, last5)
 
+    def test_biRNN(self):
+        # bidirectional RNN
+        n_features = 5
+        embed_size = 4
+        hdim = 3
+        seq_size = 6
+        batch_size = 2
+
+        inputs = tx.Input(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        seq = lookup.permute_batch_time()
+
+        rnn_proto = tx.RNNCell.proto(n_units=hdim)
+        rnn0 = tx.RNN(seq, cell_proto=rnn_proto, stateful=False, return_state=True)
+
+        # because a stateful rnn0 has a variable layer as input as well
+        rnn_m0 = tx.Module(inputs=rnn0.input_layers, output=rnn0)
+
+        rnn1 = rnn0.reuse_with(seq, reverse=True, stateful=False, return_state=True)
+        # TODO this solves rnn output multiple tensors
+
+        r01 = rnn_m0.compute(seq(), rnn0.previous_state[0]())
+        rnn0.reset()
+        r02 = rnn0()
+
+        self.assertArrayEqual(r01[0], r02[0])
+
+        rnn0_ = rnn0[0]
+        rnn1_ = rnn1[0]
+        rnn0 = tx.Wrap(rnn0, wrap_fn=lambda y: y[0], n_units=rnn0.n_units)
+        rnn1 = tx.Wrap(rnn1, wrap_fn=lambda y: y[0], n_units=rnn1.n_units)
+
+        self.assertArrayEqual(tf.shape(rnn0()), tf.shape(rnn1()))
+        self.assertArrayEqual(tf.shape(rnn0()), tf.shape(rnn0_()))
+        self.assertArrayEqual(tf.shape(rnn1()), tf.shape(rnn1_()))
+
+        print(tf.shape(rnn0()))
+        r0 = rnn0()
+        r1 = rnn1()
+        c = tx.Concat(rnn0, rnn1, axis=-1)
+        print(tf.shape(c()))
+
+        # concat = tx.Con
+        # print(tf.shape())
+        # self.assertArrayEqual()
+
     def test_stateful_rnn_layer(self):
         n_features = 5
         embed_size = 4
@@ -612,8 +658,8 @@ class TestLayers(TestCase):
 
         rnn_proto = tx.RNNCell.proto(n_units=hdim)
 
-        rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True)
-        lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hdim), stateful=True)
+        rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True, return_state=True)
+        lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hdim), stateful=True, return_state=True)
 
         zero_state0 = [layer() for layer in rnn1.previous_state]
 
@@ -962,7 +1008,6 @@ class TestLayers(TestCase):
 
         self.assertIs(y2.weights, w)
         self.assertIs(y2.bias, b)
-
 
         self.assertIs(y1.linear.weights, w)
         self.assertIs(y1.linear.bias, b)

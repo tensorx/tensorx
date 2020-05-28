@@ -327,7 +327,7 @@ class Layer(AutoTrackable):
             item_name = str(item)
         return Wrap(wrapped_layer=self,
                     n_units=self.n_units,
-                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=lambda tensor: tensor[item]),
+                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=lambda result: result[item]),
                     name="{}_item_{}".format(self.name, item_name))
 
     # TODO REMOVE
@@ -382,6 +382,8 @@ class Lambda(Layer):
     def compute(self, *input_tensors):
         with layer_scope(self):
             output = self.fn(*input_tensors)
+
+            # TODO layers are supposed to output only one tensor or sparse tensor
             if self.dtype is not None and output.dtype != self.dtype and not isinstance(output, tf.Operation):
                 output = tf.cast(output, self.dtype)
 
@@ -1406,14 +1408,14 @@ class Module(Layer):
         if nl > nm:
             raise ValueError(f"Module has {nm} input layers, {nl} provided")
 
-        input_layers = [as_layer(x) for x in input_layers]
+        input_layers = [as_layer(lr) for lr in input_layers]
         matching_inputs = self.input_layers[:nl]
         mismatch_dtype = list(map(lambda x: x[0].dtype != x[1].dtype, zip(input_layers, matching_inputs)))
         input_layers = input_layers + self.input_layers[nl:]
         if any(mismatch_dtype):
             raise ValueError(f"dtype mismatch in reuse_with:\n"
-                             f"\t     expected types: {[x.dtype for x in self.input_layers]}\n"
-                             f"\t calling reuse with: {[x.dtype for x in input_layers]}")
+                             f"\t     expected types: {[lr.dtype for lr in self.input_layers]}\n"
+                             f"\t calling reuse with: {[lr.dtype for lr in input_layers]}")
 
         # maps old inputs to new inputs
         layer_map = dict(zip(self.input_layers, input_layers))
@@ -1421,7 +1423,7 @@ class Module(Layer):
         dep_iter = self.graph.dependency_iter()
         for node in dep_iter:
             if node not in self.graph.in_nodes:
-                new_inputs = [layer_map[x] for x in node.input_layers]
+                new_inputs = [layer_map[lr] for lr in node.input_layers]
                 layer_map[node] = node.reuse_with(*new_inputs)
 
         new_output = layer_map[self.output]
@@ -1981,6 +1983,7 @@ class RNN(Layer):
                  reverse=False,
                  regularized=False,
                  stateful=False,
+                 return_state=False,
                  name="rnn_layer",
                  share_state_with: Optional['RNN'] = None
                  ):
@@ -1991,19 +1994,27 @@ class RNN(Layer):
             if not cell_proto:
                 cell_proto = RNNCell.proto(n_units=n_units)
 
-        self.cell_proto = cell_proto
+        # self.cell_proto = cell_proto
         self.cell = None
-        self.regularized = regularized
-        self.reverse = reverse
-        self.previous_state = previous_state
-        self.stateful = stateful
-        self.share_state_with = share_state_with
+        # self.regularized = regularized
+        # self.reverse = reverse
+        # self.previous_state = previous_state
+        # self.stateful = stateful
+        # self.return_state = return_state
+        # self.share_state_with = share_state_with
 
         # n_units and shape are set after the first cell is created
         super().__init__(input_layers=[input_seq] + as_list(previous_state),
                          n_units=cell_proto.arg_dict["n_units"],
                          dtype=tf.float32,
-                         name=name)
+                         name=name,
+                         cell_proto=cell_proto,
+                         regularized=regularized,
+                         reverse=reverse,
+                         previous_state=previous_state,
+                         stateful=stateful,
+                         return_state=return_state,
+                         share_state_with=share_state_with)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -2078,27 +2089,28 @@ class RNN(Layer):
                                                name="rnn_unroll",
                                                parallel_iterations=1)
 
-            # getting the results stores them in the previous state
+            # getting the results and store them in the previous state
             if self.stateful:
-                # TODO fix this zero state assign
-                # this is no longer necessary because we can assign directly
-                # with zero_state.variable.assign(last_state)
                 for zero_state, last_state in zip(self.cell.previous_state, last_state):
                     zero_state.variable.assign(last_state)
-
                 out = out.stack()
             else:
                 out = out.stack()
 
-            # since the loop outputs a state which is a list
-            return out, last_state
+            # TODO another solution would be to have a separate var for the last state and another for previous state
+            if self.return_state:
+                return out, last_state
+            else:
+                return out
 
-    def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, stateful=None, name=None):
+    def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, stateful=None,
+                   return_state=None, name=None):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         reverse = self.reverse if reverse is None else reverse
         share_state_with = self.share_state_with if self.share_state_with is not None else self
         previous_state = self.previous_state if previous_state is None else previous_state
+        return_state = self.return_state if return_state is None else return_state
         stateful = self.stateful if stateful is None else stateful
 
         return RNN(input_seq=input_seq,
@@ -2107,6 +2119,7 @@ class RNN(Layer):
                    regularized=regularized,
                    stateful=stateful,
                    reverse=reverse,
+                   return_state=return_state,
                    share_state_with=share_state_with,
                    name=name)
 
@@ -3136,7 +3149,7 @@ class Merge(Layer):
     and applies a merging function.
 
     Args:
-            layers: a list of layers with the same number of units to be merged
+            input_layers: a list of layers with the same number of units to be merged
             weights: a list of weights
             merge_fn: must operate on a list of tensors
             name: name for layer which creates a named-scope
@@ -3152,26 +3165,27 @@ class Merge(Layer):
     """
 
     def __init__(self,
-                 *layers,
+                 *input_layers,
                  n_units=None,
                  dtype=None,
                  weights=None,
                  merge_fn=tf.math.add_n,
-                 name="merge"):
+                 name="merge",
+                 **kwargs):
 
-        if len(layers) < 1:
+        if len(input_layers) < 1:
             raise Exception("You must provide at least one layer")
 
-        if weights is not None and len(weights) != len(layers):
+        if weights is not None and len(weights) != len(input_layers):
             raise Exception("len(weights) must be equals to len(layers)")
 
         self.weights = weights
         self.merge_fn = merge_fn
 
-        super().__init__(input_layers=layers, n_units=n_units, dtype=dtype, name=name)
+        super().__init__(input_layers=input_layers, n_units=n_units, dtype=dtype, name=name, **kwargs)
 
     def compute(self, *input_tensors):
-        outputs = [as_tensor(x) for x in input_tensors]
+        outputs = [as_tensor(ts) for ts in input_tensors]
         if self.weights is not None:
             outputs = [tf.math.scalar_mul(self.weights[i], outputs[i]) for i in
                        range(len(outputs))]
@@ -3179,7 +3193,7 @@ class Merge(Layer):
         with layer_scope(self):
             output = self.merge_fn(outputs)
 
-            shape = tf.shape(output)
+            # shape = tf.shape(output)
 
             # if self.n_units is None:
             #     if len(shape) > 0:
@@ -3208,28 +3222,28 @@ class Add(Merge):
     """ Adds the outputs of multiple layers with the same shape
 
     Args:
-            layers: a list of layers with the same number of units to be merged
+            input_layers: a list of layers with the same number of units to be merged
             weights: a list of weights
             name: name for layer scope
     """
 
-    def __init__(self, *layers, weights=None, name="add"):
-        layers = list(map(lambda l: as_layer(l), layers))
+    def __init__(self, *input_layers, weights=None, name="add"):
+        input_layers = list(map(lambda l: as_layer(l), input_layers))
 
-        n_units = layers[0].n_units
-        dtype = layers[0].dtype
-        for x in layers[1:]:
-            if x.n_units is not None:
-                if x.n_units != n_units:
+        n_units = input_layers[0].n_units
+        dtype = input_layers[0].dtype
+        for lr in input_layers[1:]:
+            if lr.n_units is not None:
+                if lr.n_units != n_units:
                     raise ValueError("Found layers with different sizes of n_units {}!={} in an Add Layer".format(
                         n_units,
-                        x.n_units
+                        lr.n_units
                     ))
-            if x.dtype is not None:
-                if x.dtype != dtype:
+            if lr.dtype is not None:
+                if lr.dtype != dtype:
                     raise ValueError("Found layers with different dtypes {}!={} in an Add Layer".format(
                         dtype,
-                        x.dtype
+                        lr.dtype
                     ))
 
         def merge_add(tensors):
@@ -3240,7 +3254,32 @@ class Add(Merge):
 
         # merge_add = tf.add_n
 
-        super().__init__(*layers, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
+        super().__init__(*input_layers, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
+
+
+class Concat(Merge):
+    """ Concat Layer
+
+    Concatenates input layers on the last dimension
+
+    Args:
+        input_layers: a :obj:`list` of :class:`Layer`
+        name: name for the layer scope
+    """
+
+    def __init__(self, *input_layers, axis=-1, name="concat"):
+        input_layers = list(map(lambda lr: as_layer(lr) if not isinstance(lr, Layer) else lr, input_layers))
+        first, *rest = input_layers
+        if not all(lr.dtype == first.dtype for lr in rest):
+            raise ValueError("Layers must have the same type to be concatenated")
+
+        n_units = sum([lr.n_units for lr in input_layers])
+        super().__init__(*input_layers,
+                         n_units=n_units,
+                         merge_fn=partial(tf.concat, axis=axis),
+                         dtype=first.dtype,
+                         name=name,
+                         axis=axis)
 
 
 class Residual(Layer):
@@ -3661,6 +3700,7 @@ class FC(Layer):
     def compute(self, input_tensor):
         return self.output.compute(input_tensor)
 
+
 # TODO careful with reuse_with was not useing share_state_with=self
 #    def reuse_with(self, input_layer):
 #        return self.proto(input_layer, share_state_with=self)
@@ -3829,6 +3869,7 @@ __all__ = [
     "Transpose",
     "Reshape",
     "Add",
+    "Concat",
     "Module",
     "Gate",
     "CoupledGate",

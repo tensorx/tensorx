@@ -125,7 +125,7 @@ class MyTestCase(TestCase):
         # res1 = lstm1(inputs, state0)
         # res1_ = lstm1(inputs, state0)
 
-        lstm_layer = tx.RNN(input_seq=seq, cell_proto=lstm_cell, stateful=True)
+        lstm_layer = tx.RNN(input_seq=seq, cell_proto=lstm_cell, stateful=True, return_state=True)
         state0 = [s() for s in lstm_layer.previous_state]
         res0 = lstm_layer()
         state1 = [s() for s in lstm_layer.previous_state]
