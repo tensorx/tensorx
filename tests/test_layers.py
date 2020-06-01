@@ -1,8 +1,10 @@
 # suppressing messages only works if set before tensorflow is imported
 
 import os
+import logging
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logger = logging.getLogger('tensorflow')
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorx as tx
 import numpy as np
 import unittest
@@ -22,11 +24,11 @@ class TestLayers(TestCase):
             pass
 
         try:
-            inputs.value = np.ones([2, 3])
+            inputs.value = np.ones([2, 3], dtype=np.int32)
             self.fail("should have thrown exception with invalid shape")
         except ValueError as e:
             pass
-        inputs.value = np.ones([2, 4])
+        inputs.value = np.ones([2, 4], dtype=np.int32)
         self.assertIsNotNone(inputs.value)
         self.assertIsNotNone(inputs())
         self.assertEqual(inputs().dtype, tf.int32)
@@ -360,6 +362,27 @@ class TestLayers(TestCase):
         self.assertEqual((batch_size, n_hidden), np.shape(res1))
         self.assertTrue(np.array_equal(res1, res3))
         self.assertFalse(np.array_equal(res1, res2))
+
+    def test_rnn_cell_graph(self):
+        n_inputs = 4
+        n_hidden = 2
+        batch_size = 2
+
+        data1 = tf.ones([batch_size, n_inputs])
+        inputs = tx.Input(data1)
+        rnn1 = tx.RNNCell(inputs, n_hidden)
+        # if I use missing_inputs=True, it will just add the input to the graph without
+        try:
+            g = tx.Graph.build(inputs=inputs, outputs=rnn1, missing_inputs=False)
+            self.fail("should have raised Value Error for missing inputs")
+        except ValueError:
+            pass
+        try:
+            g = tx.Graph.build(inputs=inputs, outputs=rnn1, missing_inputs=True)
+            f = g.as_function(ord_inputs=inputs)
+            f(data1)
+        except Exception as e:
+            self.fail(str(e))
 
     def test_rnn_cell_drop(self):
 

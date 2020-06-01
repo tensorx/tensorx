@@ -1,4 +1,6 @@
 import tensorflow as tf
+import math
+from tensorx.utils import as_tensor
 
 
 def identity(x, name: str = None) -> tf.Tensor:
@@ -32,6 +34,37 @@ def sigmoid(x):
         A tensor (`Tensor`): with the result of applying the sigmoid function to the input tensor.
     """
     return tf.nn.sigmoid(x)
+
+
+def hard_sigmoid(x, name="hard_sigmoid"):
+    """ Hard Sigmoid
+
+    Segment-wise linear approximation of sigmoid. (Faster than sigmoid)
+
+    !!! note
+        Approximates the sigmoid function in 3 parts: 0, scaled linear, 1.
+
+        returns `0.` if `x < -2.5`, `1.` if `x > 2.5`.
+        In `-2.5 <= x <= 2.5`, returns `0.2 * x + 0.5`.
+
+    Args:
+        x (`Tensor`): input tensor
+        name (`str`): name for this op
+
+    Returns:
+        tensor (`Tensor): the result of applying an approximated element-wise sigmoid to the input tensor
+
+    """
+    x = as_tensor(x)
+    with tf.name_scope(name):
+        slope = as_tensor(0.2, x.dtype)
+        shift = as_tensor(0.5, x.dtype)
+        x = (slope * x) + shift
+        zero = as_tensor(0., x.dtype)
+        one = as_tensor(1., x.dtype)
+        x = tf.clip_by_value(x, zero, one)
+
+    return x
 
 
 def tanh(x):
@@ -134,9 +167,8 @@ def gelu(x, approximate: bool = True) -> tf.Tensor:
         tensor (`Tensor`): with the same type as `x`
     """
     x = tf.convert_to_tensor(x)
-    x = tf.convert_to_tensor(x)
     if approximate:
-        pi = tf.cast(tf.math.pi, x.dtype)
+        pi = tf.cast(tf.constant(math.pi), x.dtype)
         coefficient = tf.cast(0.044715, x.dtype)
         return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / pi) * (x + coefficient * tf.pow(x, 3))))
     else:
@@ -214,6 +246,7 @@ def sparsemax(logits, name: str = None) -> tf.Tensor:
 __all__ = [
     "identity",
     "sigmoid",
+    "hard_sigmoid",
     "tanh",
     "relu",
     "elu",

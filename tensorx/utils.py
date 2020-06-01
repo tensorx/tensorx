@@ -1,7 +1,11 @@
 import tensorflow as tf
 import logging
 
+logging.captureWarnings(True)  # captures into py.warnings
 logger = logging.getLogger('tensorx')
+logger = logging.getLogger('py.warnings')
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.CRITICAL)
 
 
 class Graph:
@@ -20,6 +24,51 @@ class Graph:
         in_nodes(dict): key-only dictionary (ordered set) with input nodes (nodes without input edges).
         out_nodes(dict): key-only dictionary (ordered set) with output nodes of the graph (nodes without output edges)
     """
+
+    @staticmethod
+    def draw(graph, path="layer_graph.pdf"):
+        try:
+            from pygraphviz import AGraph
+            dg = AGraph(directed=True)
+
+            for node in graph.nodes:
+                # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
+                dtype = node.dtype.name if node.dtype is not None else None
+
+                dg.add_node(node.name, shape="none", margin=0, label=f"<<TABLE BORDER=\"0px\""
+                                                                     f"        CELLPADDING=\"2px\""
+                                                                     f"        CELLSPACING=\"0\">"
+                                                                     f"<TR><TD BGCOLOR=\"BLACK\""
+                                                                     f"        BORDER=\"1px\""
+                                                                     f"        COLOR=\"BLACK\""
+                                                                     f"        VALIGN=\"BOTTOM\">"
+                                                                     f"<FONT COLOR=\"WHITE\"><B>{type(node).__name__}</B></FONT>"
+                                                                     f"</TD><TD BORDER=\"1\">{node.name}</TD></TR>"
+                                                                     f"<TR>"
+                                                                     f"<TD BORDER=\"1px\""
+                                                                     f"    BGCOLOR=\"#aec4c7\""
+                                                                     f"    COLOR=\"BLACK\""
+                                                                     f"    ALIGN=\"RIGHT\">"
+                                                                     f"units"
+                                                                     f"</TD><TD BORDER=\"1px\""
+                                                                     f"         COLOR=\"BLACK\""
+                                                                     f"         ALIGN=\"LEFT\">"
+                                                                     f"{node.n_units}</TD></TR>"
+                                                                     f"<TR>"
+                                                                     f"<TD BORDER=\"1\" "
+                                                                     f"    BGCOLOR=\"#aec4c7\""
+                                                                     f"    ALIGN=\"RIGHT\">dtype</TD>"
+                                                                     f"<TD BORDER=\"1\""
+                                                                     f"    ALIGN=\"LEFT\">{dtype}</TD></TR>"
+                                                                     f"</TABLE>>")
+            for node in graph.nodes:
+                for other_node in graph.edges_out[node]:
+                    dg.add_edge(node.name, other_node.name)
+
+            dg.layout(prog="dot")
+            dg.draw(path=path)
+        except ImportError:
+            raise ImportError("Could't find required pygraphviz module")
 
     @staticmethod
     def merge(graph1, graph2):

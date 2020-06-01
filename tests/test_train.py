@@ -1,12 +1,10 @@
 import os
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorx as tx
 from tensorx.test_utils import TestCase
 import numpy as np
-import logging
 
 
 class TestTrain(TestCase):
@@ -127,6 +125,48 @@ class TestTrain(TestCase):
             self.assertArrayEqual(result1[i], result2[i])
             self.assertArrayEqual(result1[i], result3[i])
             self.assertArrayEqual(result1[i], result4[i])
+
+    def test_model_var_inputs(self):
+        # wanted to test when our train graph has more inputs that do not need to be fed (e.g. variable state)
+        n_features = 5
+        embed_size = 4
+        hdim = 3
+        seq_size = 3
+        out_size = 2
+        batch_size = 2
+
+        x = tx.Input(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        y = tx.Input(np.random.random([batch_size, out_size]), n_units=seq_size, dtype=tf.float32)
+        lookup = tx.Lookup(x, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+        # seq = lookup.permute_batch_time()
+        seq = tx.Transpose(lookup, [1, 0, 2])
+
+        # zero_state = tf.zeros([batch_size, hdim])
+        rnn1 = tx.RNN(seq, cell_proto=tx.RNNCell.proto(n_units=hdim))
+        y_ = tx.Linear(rnn1[seq_size - 1], n_units=out_size)
+
+        # y_ = tx.Linear(tx.SeqConcat(lookup, seq_size=seq_size), n_units=out_size)
+
+        @tx.layer(n_units=2, dtype=tf.float32, name="loss")
+        def loss(pred, labels):
+            return tx.mse(pred, labels)
+
+        model = tx.Model(run_inputs=x,
+                         run_outputs=y_,
+                         train_inputs=[x, y],
+                         train_outputs=y_,
+                         train_loss=loss(y_, y)
+                         )
+
+        tx.Graph.draw(model.train_graph, "test.png")
+
+        model.set_optimizer(tf.optimizers.SGD, lr=0.5)
+
+        data1 = [[0, 1, 2], [2, 1, 0]]
+        data2 = [[0., 1.], [1., 0.]]
+
+        out = model.train_step(input_feed={x: data1, y: data2})
+        print(out)
 
     def test_model_train(self):
         x = tx.Input(n_units=2, name="x", constant=False)

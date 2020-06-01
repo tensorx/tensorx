@@ -1,5 +1,4 @@
 from abc import ABC
-import sys
 import tensorflow as tf
 from tensorx.utils import as_tensor, as_list, Graph
 from typing import Union, Type, Callable, Optional
@@ -325,10 +324,11 @@ class Layer(AutoTrackable):
             item_name = item.op.name
         else:
             item_name = str(item)
-        return Wrap(wrapped_layer=self,
-                    n_units=self.n_units,
-                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=lambda result: result[item]),
-                    name="{}_item_{}".format(self.name, item_name))
+        return Lambda(self,
+                      fn=lambda output_tensor: output_tensor[item],
+                      n_units=self.n_units,
+                      dtype=self.dtype,
+                      name=f"get_item_{item_name.replace('-', 'minus')}")
 
     # TODO REMOVE
     def tensor(self):
@@ -609,6 +609,7 @@ class Input(Layer):
         dtype (`tf.Dtype`): type for input values.
         constant: if true, input value cannot be changed after `Input` is initialized.
         name (str): layer name
+        cast (bool): if True tries to cast the input to the given dtype on value set
 
     Attributes:
         value (`Tensor`/`SparseTensor`): if `constant=False` this attribute can be set to store a new value in `Input`,
@@ -624,6 +625,7 @@ class Input(Layer):
                  n_active=None,
                  shape=None,
                  dtype=None,
+                 cast=True,
                  name="input"):
 
         if n_active is not None and n_active >= n_units:
@@ -655,7 +657,8 @@ class Input(Layer):
         super().__init__(None,
                          n_units=n_units,
                          dtype=dtype,
-                         name=name)
+                         name=name,
+                         cast=cast)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -752,7 +755,11 @@ class Input(Layer):
     def value(self, x):
         if self.constant:
             raise ValueError("Cannot set the value of a constant Input Layer")
-        x = as_tensor(x)
+        dtype = None if not self.cast else self.dtype
+        x = as_tensor(x, dtype)
+        if not self.cast and self.dtype is not None and self.dtype != x.dtype:
+            raise TypeError(f"Input \"{self.name}\" has dtype {self.dtype}, value received {x.dtype}")
+
         if not x.shape.is_compatible_with(self.shape):
             raise ValueError(f"Invalid shape:\n"
                              f"\texpected: {self.shape}\n"
@@ -901,7 +908,7 @@ class VariableLayer(Layer):
                          name=name)
 
     def init_state(self):
-        layer_state = super().init_state()
+        state = super().init_state()
 
         input_layer = self.input_layers[-1] if len(self.input_layers) > 0 else None
 
@@ -942,13 +949,12 @@ class VariableLayer(Layer):
                                       trainable=False,
                                       name="counter")
 
-                layer_state.variable = variable
-                layer_state.counter = counter
+                state.variable = variable
+                state.counter = counter
             else:
-                layer_state = self.share_state_with.layer_state
+                state = self.share_state_with.layer_state
 
-        self.layer_state = layer_state
-        return layer_state
+        return state
 
     def compute(self, *input_tensors):
         input_tensor = input_tensors[0] if input_tensors else None
@@ -1007,11 +1013,14 @@ class Transpose(Layer):
     """
 
     def __init__(self, input_layer, perm=None, n_units=None, name="transpose"):
-        self.perm = perm
+
+        n_units = n_units if perm[-1] != len(perm) - 1 else input_layer.n_units
+
         super().__init__(input_layers=input_layer,
                          n_units=n_units,
                          dtype=input_layer.dtype,
-                         name=name)
+                         name=name,
+                         perm=perm)
 
     def compute(self, *input_tensors):
         input_tensor = input_tensors[0]
@@ -1466,6 +1475,62 @@ class ViewLayer(Layer):
         return layer_state
 
 
+# class Mode(Layer):
+#     DEFAULT = "__BASE__"
+#
+#     def __init__(self, default_layer: Layer, mode_layer: Layer, mode):
+#         input_layers = default_layer.input_layers
+#         try:
+#             mode_layer = Module(inputs=input_layers, output=mode_layer)
+#         except ValueError:
+#             raise ValueError("Invalid mode_layer: mode_layer must connect to the inputs of bypass_layer")
+#
+#         if default_layer.n_units != mode_layer.n_units:
+#             raise ValueError("bypass and mode layers must have the same n_units")
+#         if default_layer.dtype != mode_layer.dtype:
+#             raise ValueError("bypass and mode layers must have the same dtype")
+#
+#         if type(default_layer, Mode):
+#             other_modes = default_layer.modes
+#
+#         self.modes = {Mode.DEFAULT: default_layer, mode: mode_layer}
+#         self.mode = Mode.DEFAULT
+#
+#         super().__init__(input_layers=input_layers,
+#                          n_units=default_layer.n_units,
+#                          dtype=default_layer.dtype,
+#                          name=f"modal_{default_layer.name}")
+#
+#     def init_state(self):
+#         state = super().init_state()
+#
+#         return state
+#
+#     def mode(self, mode):
+#         """ selects a mode from the given modal layer and returns the corresponding layer
+#
+#         Args:
+#             mode (`str`): a mode name
+#
+#         Raises:
+#             error (`KeyError`): if mode not in modes
+#
+#         Returns:
+#             layer (`Layer`): a layer if mode in modes
+#         """
+#         return self.modes[mode]
+#
+#     def reuse_with(self, *layers, **kwargs):
+#         for mode in self.modes:
+#             lr = self.modes[mode]
+#             lr = lr.reuse_with(*layers, **kwargs)
+#             self.modes[mode] = lr
+#
+#
+#     def compute(self, *args):
+#         self.modes[]
+
+
 class DropConnect(ViewLayer):
     """ DropConnect
 
@@ -1535,6 +1600,8 @@ class DropConnect(ViewLayer):
                                 bias=drop_bias,
                                 add_bias=add_bias)
             # forward weights and bias
+            # TODO problem with this is that it creates a conditional compute function that alters the state of its
+            #  container
             self.weights = new_linear.weights
             self.bias = new_linear.bias
 
@@ -1552,6 +1619,52 @@ class DropConnect(ViewLayer):
                            locked=locked,
                            share_state_with=share_state_with,
                            name=name)
+
+
+class LayerNorm(Layer):
+    """ Layer Normalization
+
+    !!! cite "Reference"
+        Lei Ba J., Kiros, J., Hinton, G. [Layer Normalization](https://arxiv.org/abs/1607.06450), 2016
+
+    Args:
+        input_layer (`Layer`): the layer to be normalized
+    """
+
+    def __init__(self, input_layer, share_state_with=None):
+        super().__init__(input_layers=input_layer,
+                         n_units=input_layer.n_units,
+                         dtype=tf.float32,
+                         name="layer_normalization",
+                         share_state_with=share_state_with
+                         )
+
+    def init_state(self):
+        if self.share_state_with is None:
+            state = super().init_state()
+            # center
+            state.bias = tf.Variable(tx.zeros_init()([self.n_units]), trainable=True, name="beta")
+            # scale
+            state.scale = tf.Variable(tx.ones_init()([self.n_units]), trainable=True, name="gamma")
+        else:
+            state = self.share_state_with.layer_state
+
+        return state
+
+    def compute(self, *input_tensors):
+        input_tensor = input_tensors[0]
+
+        with layer_scope(self):
+            mean, variance = tf.nn.moments(input_tensor, -1, keepdims=True)
+            variance_epsilon = 1e-12
+
+            return tf.nn.batch_normalization(
+                input_tensor,
+                mean,
+                variance,
+                offset=self.bias,
+                scale=self.scale,
+                variance_epsilon=variance_epsilon)
 
 
 class Dropout(Layer):
@@ -2429,11 +2542,8 @@ class Lookup(Layer):
             raise ValueError("cannot use unknown seq_size with sparse inputs")
 
         if not isinstance(input_tensor, tf.SparseTensor) and input_tensor.dtype not in (tf.int32, tf.int64):
-            raise TypeError("invalid input layer dtype {}: should be {} or {}".format(
-                input_tensor.dtype,
-                tf.int32,
-                tf.int64
-            ))
+            # TODO each layers should prefix its errors with it's name?
+            raise TypeError(f"invalid input layer dtype {input_tensor.dtype}: Lookup requires {tf.int32} or {tf.int64}")
 
         try:
             tf.assert_less(tf.rank(input_tensor), 3)
@@ -3806,30 +3916,30 @@ class SeqMap(Layer):
                       name=name)
 
 
-def as_layer(layer_or_tensor: Union[tf.Tensor, Layer], dtype=None):
+def as_layer(layer_like: Union[tf.Tensor, Layer], dtype=None):
     """ Converts a ``Tensor``,``SparseTensor`` or tensor convertible to a ``Layer``
 
     Args:
         dtype: if not None and different from the input dtype, tries to cast the output layer to the given dtype
-        layer_or_tensor: a layer, tensor, or convertible to tensor
+        layer_like: a layer, tensor, or convertible to tensor
 
     Returns:
         the input ``Layer`` or, a ``Layer`` with the given value
     """
-    if isinstance(layer_or_tensor, Layer):
-        if dtype is not None and layer_or_tensor.dtype != dtype:
-            layer_or_tensor = Lambda(layer_or_tensor, lambda x: tf.cast(x, dtype=dtype), apply_to_layer=False)
-        return layer_or_tensor
+    if isinstance(layer_like, Layer):
+        if dtype is not None and layer_like.dtype != dtype:
+            layer_like = Lambda(layer_like, lambda x: tf.cast(x, dtype=dtype), apply_to_layer=False)
+        return layer_like
     else:
-        tensor = as_tensor(layer_or_tensor, dtype)
+        tensor = as_tensor(layer_like, dtype)
         return Tensor(tensor, dtype=dtype)
 
 
 # register Layer to tensor conversion
-def layer_to_tensor(layer, dtype=None, name=None, as_ref=False):
-    name = name if name is not None else layer.name
+def layer_to_tensor(input_layer, dtype=None, name=None, as_ref=False):
+    name = name if name is not None else input_layer.name
     with tf.name_scope(name):
-        return as_tensor(layer(), dtype=dtype)
+        return as_tensor(input_layer(), dtype=dtype)
 
 
 tf.register_tensor_conversion_function(
@@ -3839,19 +3949,19 @@ tf.register_tensor_conversion_function(
 )
 
 
-def layer(n_units=None, name="layer", var_list=None):
+def layer(n_units=None, name="layer", dtype=None, var_list=None):
     """ Decorator for functions that returns a layer prototype
 
     Returns:
-        ``LayerProto`` instance that can be called on layers to create a new layer instance
+        proto (`LayerProto`): instance that can be called on layers to create a new layer instance
     """
 
-    def fn_to_proto(fn):
+    def function_to_proto(fn):
         if isinstance(fn, LayerProto):
             return fn
-        return Lambda.proto(fn=fn, n_units=n_units, var_list=var_list, name=name)
+        return Lambda.proto(fn=fn, n_units=n_units, dtype=dtype, var_list=var_list, name=name)
 
-    return fn_to_proto
+    return function_to_proto
 
 
 __all__ = [
@@ -3887,5 +3997,6 @@ __all__ = [
     "Residual",
     "FC",
     "SeqConcat",
-    "SeqMap"
+    "SeqMap",
+    "LayerNorm"
 ]

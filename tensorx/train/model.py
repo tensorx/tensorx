@@ -44,9 +44,6 @@ class Model:
         self.eval_outputs = as_list(eval_outputs)
         self.eval_score = as_list(eval_score)
 
-        # layer graph -> function
-        self.compiled = dict()
-
         if not isinstance(train_loss, tx.Layer):
             raise TypeError(f"Invalid train_loss type\n"
                             f"\t expected: Layer"
@@ -54,9 +51,24 @@ class Model:
 
         self.train_loss = train_loss
 
-        self.run_graph: Graph = Graph.build(run_inputs, run_outputs)
-        self.train_graph: Graph = Graph.build(self.train_inputs, self.train_outputs + [self.train_loss])
-        self.eval_graph: Graph = Graph.build(self.eval_inputs, self.eval_outputs + self.eval_score)
+        # layer graph -> function
+        self.compiled = dict()
+
+        # TODO problem with missing inputs in recurrent neural networks, solved by allowing missing inputs
+        #  and supplying the inputs when doing as_function
+        self.run_graph: Graph = Graph.build(inputs=run_inputs,
+                                            outputs=run_outputs,
+                                            missing_inputs=True)
+        self.train_graph: Graph = Graph.build(inputs=self.train_inputs,
+                                              outputs=self.train_outputs + [self.train_loss],
+                                              missing_inputs=True)
+        self.eval_graph: Graph = Graph.build(inputs=self.eval_inputs,
+                                             outputs=self.eval_outputs + self.eval_score,
+                                             missing_inputs=True)
+
+        self.graph_inputs = {self.run_graph: self.run_inputs,
+                             self.train_graph: self.train_inputs,
+                             self.eval_graph: self.eval_inputs}
 
         # TODO add the possibility of having multiple optimizers that can be switched
         self.optimizer = None
@@ -64,9 +76,11 @@ class Model:
         # optimizer: Param:
         self.optimizer_params = dict()
         # model properties accessible to callbacks
+        self.optimization_step = dict()
+
         self.model_props = set()
 
-        self.update_weights_fn = dict()
+
 
     @property
     def trainable_variables(self):
@@ -132,14 +146,11 @@ class Model:
                 self.optimizer_params[optimizer][param_name] = param
 
         if self.train_graph not in self.compiled:
-            self.compiled[self.train_graph] = self.train_graph.as_function(ord_inputs=self.train_graph.in_nodes)
-
+            self.compiled[self.train_graph] = self.train_graph.as_function(ord_inputs=self.train_inputs)
         train_fn = self.compiled[self.train_graph]
 
-        # train_fn = self.train_graph.compute
-
         @tf.function
-        def update_weights_fn(*data):
+        def optimization_step(*data):
             with tf.GradientTape() as tape:
                 *train_out, loss = train_fn(*data)
                 cfg = self.optimizer.get_config()
@@ -157,44 +168,34 @@ class Model:
 
                 return train_out + [loss]
 
-        self.update_weights_fn[optimizer] = update_weights_fn
+        self.optimization_step[optimizer] = optimization_step
 
         return optimizer
-
-    def _run(self, data_feed, graph: Graph, compiled_graph=False):
-        """
-            Args:
-                data_feed: a dict with {``Layer``:value} or a list of values to be fed to each input
-
-            Returns:
-                list of value with results of computation for each output in the model
-
-        """
-        if not compiled_graph:
-            # run eager mode
-            # print(data_feed)
-            return graph(data_feed)
-        else:
-            if graph not in self.compiled:
-                self.compiled[graph] = graph.as_function(ord_inputs=graph.in_nodes)
-                params = list(data_feed.values())
-                return self.compiled[graph](*params)
 
     def run(self, input_feed, compiled_graph=False):
         if input_feed is not None:
             # TODO can models have params to be changed by input feed?
             params = self.model_props
-            data_feed, param_feed = Model.parse_input(input_feed, self.run_graph, params)
+            data_feed, param_feed = Model.parse_input(input_feed, self.run_inputs, params)
 
             # feed all params if necessary
             if param_feed:
                 for param_name in param_feed:
                     params[param_name].value = param_feed[param_name]
 
-        return self._run(data_feed, self.run_graph, compiled_graph)
+        if not compiled_graph:
+            return self.run_graph(data_feed)
+        else:
+            if self.run_graph not in self.compiled:
+                self.compiled[self.run_graph] = self.run_graph.as_function(ord_inputs=self.run_inputs)
+
+        params = list(data_feed.values())
+        return self.compiled[self.run_graph](*params)
 
     @staticmethod
-    def parse_input(input_feed, graph, param_dict=None):
+    def parse_input(input_feed, ord_inputs, param_dict=None):
+        # TODO this has to be model dependent? or receive the input nodes for the current model instead of graph
+        #  because the only thing we take from graph is in_nodes
         """ parses input_feed into data_feed ordered by current graph in_node order and param_feed
 
         Args:
@@ -202,8 +203,8 @@ class Model:
                 input in a given graph by the same order these are defined. ``Input`` layer keys map to graph inputs,
                 ``str`` keys map to either optimizer parameters or model properties
 
-            graph: the graph used to order the inputs
-            param_dict: dict of string to Properties/Params, with params we're trying to match
+            ord_inputs: the ordered inputs to be matched with input_feed dict or list order
+            param_dict: dict of string to Properties/Params, with params we're matching with input_feed keys
 
         Returns:
             data_feed, param_feed, dictionaries the first from ``Input`` layers to values to be fed to these inputs, the
@@ -211,14 +212,14 @@ class Model:
         """
         if not isinstance(input_feed, dict):
             input_feed = as_list(input_feed)
-            inputs = [x for x in graph.in_nodes if isinstance(x, tx.Input) and not x.constant]
+            inputs = [x for x in ord_inputs if isinstance(x, tx.Input) and not x.constant]
             input_feed = dict(zip(inputs, input_feed))
 
         data_feed = dict()
         param_feed = dict()
 
         for in_node in input_feed:
-            if in_node in graph.in_nodes:
+            if in_node in ord_inputs:
                 data_feed[in_node] = input_feed[in_node]
             elif isinstance(in_node, str):
                 if (param_dict is not None and in_node in param_dict) or param_dict is None:
@@ -230,27 +231,32 @@ class Model:
                 else:
                     raise ValueError(f"{str(in_node)} not found neither in graph nor params")
 
-        if len(data_feed) != len(graph.in_nodes):
-            raise ValueError(f"model required {len(graph.in_nodes)} inputs, {len(data_feed)} found")
+        if len(data_feed) != len(ord_inputs):
+            raise ValueError(f"model required {len(ord_inputs)} inputs, {len(data_feed)} found")
 
         # order data_feed
-        data_feed = {in_node: data_feed[in_node] for in_node in graph.in_nodes}
+        data_feed = {in_node: data_feed[in_node] for in_node in ord_inputs}
 
         return data_feed, param_feed
 
     def train_step(self, input_feed):
         if input_feed is not None:
             params = self.optimizer_params[self.optimizer]
-            data_feed, param_feed = Model.parse_input(input_feed, self.train_graph, params)
+            data_feed, param_feed = Model.parse_input(input_feed, self.train_inputs, params)
 
             # feed all params if necessary
             if param_feed:
                 for param_name in param_feed:
                     params[param_name].value = param_feed[param_name]
 
-        optimization_fn = self.update_weights_fn[self.optimizer]
+            if data_feed:
+                for lr in data_feed:
+                    if isinstance(lr, tx.Input) and not lr.constant:
+                        lr.value = data_feed[lr]
+
+        optimization_step = self.optimization_step[self.optimizer]
         feed_values = list(data_feed.values())
-        return optimization_fn(*feed_values)
+        return optimization_step(*feed_values)
 
     def eval_step(self, input_feed):
         """
@@ -262,11 +268,11 @@ class Model:
             *eval_output, eval_score ((eval outputs,eval score)):
         """
         if input_feed is not None:
-            data_feed, param_feed = Model.parse_input(input_feed, self.eval_graph)
+            data_feed, param_feed = Model.parse_input(input_feed, self.eval_inputs)
 
             eval_graph = self.eval_graph
             if eval_graph not in self.compiled:
-                self.compiled[eval_graph] = eval_graph.as_function(ord_inputs=eval_graph.in_nodes)
+                self.compiled[eval_graph] = eval_graph.as_function(ord_inputs=self.eval_inputs)
 
             static_eval_graph = self.compiled[eval_graph]
             # *eval_out, eval_score = eval_fn(*list(data_feed.values()))
@@ -357,7 +363,7 @@ class Model:
                         else:
                             feed_dict = {}
 
-                        feed_dict, param_feed = Model.parse_input(feed_dict, self.train_graph)
+                        feed_dict, param_feed = Model.parse_input(feed_dict, self.train_inputs)
 
                         optimizer_props = self.optimizer_params[self.optimizer]
                         for param_name in param_feed:
