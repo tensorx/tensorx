@@ -8,6 +8,38 @@ logger.addHandler(logging.StreamHandler())
 logger.setLevel(logging.CRITICAL)
 
 
+def vizstyle(layer):
+    dtype = layer.dtype.name if layer.dtype is not None else None
+
+    label = f"<<TABLE BORDER=\"0\"" \
+            f"        CELLPADDING=\"2\"" \
+            f"        CELLSPACING=\"0\">" \
+            f"<TR><TD BGCOLOR=\"BLACK\"" \
+            f"        BORDER=\"1\"" \
+            f"        COLOR=\"BLACK\"" \
+            f"        VALIGN=\"BOTTOM\">" \
+            f"<FONT COLOR=\"WHITE\"><B>{type(layer).__name__}</B></FONT>" \
+            f"</TD><TD BORDER=\"1\">{layer.name}</TD></TR>" \
+            f"<TR>" \
+            f"<TD BORDER=\"1\"" \
+            f"    BGCOLOR=\"#aec4c7\"" \
+            f"    COLOR=\"BLACK\"" \
+            f"    ALIGN=\"RIGHT\">" \
+            f"units" \
+            f"</TD><TD BORDER=\"1\"" \
+            f"         COLOR=\"BLACK\"" \
+            f"         ALIGN=\"LEFT\">" \
+            f"{layer.n_units}</TD></TR>" \
+            f"<TR>" \
+            f"<TD BORDER=\"1\" " \
+            f"    BGCOLOR=\"#aec4c7\"" \
+            f"    ALIGN=\"RIGHT\">dtype</TD>" \
+            f"<TD BORDER=\"1\"" \
+            f"    ALIGN=\"LEFT\">{dtype}</TD></TR>" \
+            f"</TABLE>>"
+    return label
+
+
 class Graph:
     """ Graph
 
@@ -25,48 +57,18 @@ class Graph:
         out_nodes(dict): key-only dictionary (ordered set) with output nodes of the graph (nodes without output edges)
     """
 
-    @staticmethod
-    def draw(graph, path="layer_graph.pdf"):
+    def graphviz(self):
         try:
             from pygraphviz import AGraph
             dg = AGraph(directed=True)
 
-            for node in graph.nodes:
+            for node in self.nodes:
                 # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
-                dtype = node.dtype.name if node.dtype is not None else None
-
-                dg.add_node(node.name, shape="none", margin=0, label=f"<<TABLE BORDER=\"0px\""
-                                                                     f"        CELLPADDING=\"2px\""
-                                                                     f"        CELLSPACING=\"0\">"
-                                                                     f"<TR><TD BGCOLOR=\"BLACK\""
-                                                                     f"        BORDER=\"1px\""
-                                                                     f"        COLOR=\"BLACK\""
-                                                                     f"        VALIGN=\"BOTTOM\">"
-                                                                     f"<FONT COLOR=\"WHITE\"><B>{type(node).__name__}</B></FONT>"
-                                                                     f"</TD><TD BORDER=\"1\">{node.name}</TD></TR>"
-                                                                     f"<TR>"
-                                                                     f"<TD BORDER=\"1px\""
-                                                                     f"    BGCOLOR=\"#aec4c7\""
-                                                                     f"    COLOR=\"BLACK\""
-                                                                     f"    ALIGN=\"RIGHT\">"
-                                                                     f"units"
-                                                                     f"</TD><TD BORDER=\"1px\""
-                                                                     f"         COLOR=\"BLACK\""
-                                                                     f"         ALIGN=\"LEFT\">"
-                                                                     f"{node.n_units}</TD></TR>"
-                                                                     f"<TR>"
-                                                                     f"<TD BORDER=\"1\" "
-                                                                     f"    BGCOLOR=\"#aec4c7\""
-                                                                     f"    ALIGN=\"RIGHT\">dtype</TD>"
-                                                                     f"<TD BORDER=\"1\""
-                                                                     f"    ALIGN=\"LEFT\">{dtype}</TD></TR>"
-                                                                     f"</TABLE>>")
-            for node in graph.nodes:
-                for other_node in graph.edges_out[node]:
+                dg.add_node(node.name, shape="none", margin=0, label=vizstyle(node))
+            for node in self.nodes:
+                for other_node in self.edges_out[node]:
                     dg.add_edge(node.name, other_node.name)
-
-            dg.layout(prog="dot")
-            dg.draw(path=path)
+            return dg
         except ImportError:
             raise ImportError("Could't find required pygraphviz module")
 
@@ -252,8 +254,10 @@ class Graph:
             missing_from_graph = list(filter(lambda x: x not in graph.in_nodes, inputs))
 
             if missing_from_graph:
-                raise ValueError("no path between the output layers and input layers: \n\t"
-                                 "{}".format("\n\t ".join(map(str, missing_from_graph))))
+                input_str = "\n\t ".join(map(str, missing_from_graph))
+                output_str = "\n\t ".join(map(str, outputs))
+                raise ValueError(f"no path between the output layers:\n\t {output_str} \n and input layers: \n\t"
+                                 f"{input_str}")
 
         # re-order inputs and outputs according to the specification
         inputs.update(graph.in_nodes)
@@ -322,7 +326,8 @@ class Graph:
         node_index = list(range(len(graph.nodes)))
 
         feedable_inputs = list(inputs)
-        node_map = {in_layer: f"{in_layer.name.replace('/', '__')}_{node_index.pop(0)}" for in_layer in feedable_inputs}
+        node_map = {in_layer: f"{in_layer.name.replace('/', '__')}_{node_index.pop(0)}" for in_layer in
+                    feedable_inputs}
         args_str = ", ".join(node_map.values())
         def_str = f"def {fn_name}({args_str}):\n"
         other_str = []

@@ -46,6 +46,9 @@ class LayerState(AutoTrackable):
         """
         all_vars = dict()
         for attr, obj in self.__dict__.items():
+            # TODO added this to test layer states that have a None
+            # if obj is None:
+            #    raise ValueError(f"object for {attr} has None value")
             if isinstance(obj, Layer):  # and not obj == self.layer:
                 v = obj.layer_state.var_dict()
                 all_vars.update(v)
@@ -204,6 +207,7 @@ class Layer(AutoTrackable):
             self.__dict__.update(self.layer_state.__dict__)
 
         # save this for __call__
+        # TODO this should be built lazily for __call__ instead of storing a subgraph on each node
         input_graph = Graph.build(inputs=None,
                                   outputs=self.input_layers)
 
@@ -269,6 +273,9 @@ class Layer(AutoTrackable):
 
             input_tensors = tuple([results[ord_inputs[out]] for out in self.input_layers])
         else:
+            # TODO I think this graph eval could be replaced by something simple, simply converting the
+            #  inputs to tensors, if we provide layers, the conversion would call () on it's own
+            #  2. there's a problem with Tensor Layer for constants where n_units can become None
             input_layers = [as_layer(input_layer) for input_layer in input_layers]
             input_tensors = Graph.eval(*input_layers)
 
@@ -630,80 +637,82 @@ class Input(Layer):
 
         if n_active is not None and n_active >= n_units:
             raise ValueError("n_active must be < n_units")
-
         if init_value is not None:
             if n_active is not None:
                 self._value = as_tensor(init_value, dtype=tf.int64)
             else:
                 self._value = as_tensor(init_value, dtype=dtype)
-
         else:
             self._value = None
-
         if self._value is not None:
             dtype = self._value.dtype
-
         self.init_value = init_value
         self.n_active = n_active
-
         # otherwise this is assigned as a ListWrapper
-        # TODO check if there's a way to generalize this to all Layers
-        # which attributes should have a no_dependency
+        if shape is not None:
+            shape = tf.TensorShape(shape)
         self.shape = self._no_dependency(shape)
-
         self.constant = constant
         self.sparse = sparse
+        self.dtype = dtype if dtype is not None else tf.float32
+        self.n_units = n_units
+        # Check params =================================================================================================
+
+        if self.n_units is None and self._value is not None:  # and self.constant:
+            # if not constant assume the n_units of the first input it gets
+            input_shape = self._value.shape
+            self.n_units = input_shape[-1] if len(input_shape) > 0 else 0
+
+        # n_units is None and self._value is not None and not self.constant:
+        # in this case we know nothing about the input shape
+
+        if self._value is None:
+            if self.shape is None:
+                # shape is none and value is None, we have no way to determine the shape of the tensor so we assume 2D
+                expected_shape = [None, self.n_units]
+            else:
+                if self.n_units is not None and self.shape[-1] and self.n_units != self.shape[-1]:
+                    raise ValueError(f"n_units and shape[-1] don't match:\n"
+                                     f"\t  n_units: {self.n_units}\n\tshape[-1]: {self.shape[-1]}")
+                expected_shape = self.shape
+        else:  # VALUE NOT NONE
+            if self.shape is None:
+                if self.n_units > 0:
+                    expected_shape = [None] * len(self._value.shape[:-1]) + [self.n_units]
+                else:
+                    expected_shape = [None] * len(self._value.shape)
+            else:
+                expected_shape = self.shape
+
+        # n_active overwrites expected shape
+        if self.n_active is not None:
+            # expecting a sparse 2D Tensor using a dense 2D tensor with indices
+            expected_shape = [None, self.n_active]
+
+        expected_shape = tf.TensorShape(expected_shape)
+
+        # verify shape
+        if self.shape is not None:
+            if not self.shape.is_compatible_with(expected_shape):
+                raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
+                                 " current: {invalid}".format(shape=expected_shape, invalid=self.shape))
+        else:
+            self.shape = expected_shape
+
+        # ==============================================================================================================
 
         super().__init__(None,
-                         n_units=n_units,
-                         dtype=dtype,
+                         n_units=self.n_units,
+                         dtype=self.dtype,
                          name=name,
-                         cast=cast)
+                         cast=cast,
+                         shape=self.shape)
 
     def init_state(self):
         layer_state = super().init_state()
 
-        if self._value is not None:
-            if len(self._value.shape) > 0:
-                self.n_units = self._value.shape[-1]
-            else:
-                self.n_units = 0
-        else:
-            if self.shape is not None:
-                if self.n_units is not None and self.shape[-1] and self.n_units != self.shape[-1]:
-                    raise ValueError(f"n_units and shape[-1] don't match:\n"
-                                     f"\t  n_units: {self.n_units}\n\tshape[-1]: {self.shape[-1]}")
-                new_shape = [1 if s is None else s for s in self.shape]
-                self._value = tf.zeros(new_shape)
-
-        if self.n_active is not None:
-            expected = [None, self.n_active]
-        else:
-            if self.shape is not None:
-                expected = self.shape
-                # expected = [None] * len(self.shape[:-1]) + [self.n_units]
-            elif self._value is not None:
-                if self.n_units > 0:
-                    expected = [None] * len(self._value.shape[:-1]) + [self.n_units]
-                else:
-                    expected = [None] * len(self._value.shape)
-            else:
-                expected = [None, self.n_units]
-
-        expected = tf.TensorShape(expected)
-
-        if self.shape is not None:
-            self.shape = tf.TensorShape(self.shape)
-            # if self.constant and not self.shape.is_compatible_with(expected):
-            if not self.shape.is_compatible_with(expected):
-                raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
-                                 " current: {invalid}".format(shape=expected, invalid=self.shape))
-        else:
-            self.shape = expected
-
         if self._value is None and self.shape[-1] is not None:
-            if self.dtype is None:
-                self.dtype = tf.float32
+            # set the value based on shape
             if self.n_active is None:
                 if self.sparse:
                     dense_shape = [1] * len(self.shape[:-1]) + [self.shape[-1]]
@@ -853,7 +862,7 @@ class Param(Input):
         self.observers.append(observer)
 
 
-class Tensor(Input):
+class Constant(Input):
     """ Tensor(value) is an alias for Input(value,constant=True)
     """
 
@@ -1014,7 +1023,7 @@ class Transpose(Layer):
 
     def __init__(self, input_layer, perm=None, n_units=None, name="transpose"):
 
-        n_units = n_units if perm[-1] != len(perm) - 1 else input_layer.n_units
+        n_units = n_units if perm is None or perm[-1] != len(perm) - 1 else input_layer.n_units
 
         super().__init__(input_layers=input_layer,
                          n_units=n_units,
@@ -1374,14 +1383,16 @@ class Module(Layer):
     Args:
         inputs : one or more input layers
         output : output layer; if no inputs are passed, it follows the graph backwards from the output
+        missing_inputs: if True adds missing inputs to the graph but only tries to feed it the given inputs
     """
 
-    def __init__(self, inputs, output=None, name="module"):
+    def __init__(self, inputs, output=None, missing_inputs=False, name="module"):
         self.inputs = as_list(inputs)
         self.output = output
+        self.missing_inputs = missing_inputs
 
         try:
-            self.graph = Graph.build(inputs, output)
+            self.graph = Graph.build(inputs, output, missing_inputs=missing_inputs)
 
             # to that we don't need to call reuse on compute with params
             self.graph_compute = self.graph.as_function(ord_inputs=inputs,
@@ -1392,10 +1403,11 @@ class Module(Layer):
             raise ValueError(f"Could not build a module with the given "
                              f"endpoints: \n\t{str(e)}")
 
-        super().__init__(input_layers=inputs,
+        super().__init__(input_layers=self.graph.in_nodes,
                          n_units=output.n_units,
                          dtype=output.dtype,
-                         name=name)
+                         name=name,
+                         ignore_missing=missing_inputs)
 
     def init_state(self):
         state = super().init_state()
@@ -1419,8 +1431,9 @@ class Module(Layer):
 
         input_layers = [as_layer(lr) for lr in input_layers]
         matching_inputs = self.input_layers[:nl]
+        other_inputs = self.input_layers[nl:]
         mismatch_dtype = list(map(lambda x: x[0].dtype != x[1].dtype, zip(input_layers, matching_inputs)))
-        input_layers = input_layers + self.input_layers[nl:]
+        input_layers = input_layers + other_inputs
         if any(mismatch_dtype):
             raise ValueError(f"dtype mismatch in reuse_with:\n"
                              f"\t     expected types: {[lr.dtype for lr in self.input_layers]}\n"
@@ -1430,16 +1443,21 @@ class Module(Layer):
         layer_map = dict(zip(self.input_layers, input_layers))
 
         dep_iter = self.graph.dependency_iter()
+        # print("inputs")
+        # list(map(print, input_layers))
         for node in dep_iter:
             if node not in self.graph.in_nodes:
-                new_inputs = [layer_map[lr] for lr in node.input_layers]
+                new_inputs = [layer_map[lr] for lr in node.input_layers if lr not in other_inputs]
                 layer_map[node] = node.reuse_with(*new_inputs)
 
         new_output = layer_map[self.output]
 
         # the constructor of Module will trace and compile the new graph
-
-        return Module(inputs=input_layers, output=new_output, name=name)
+        # TODO the problem with this is that RNN layers depend on a previous state which is optional
+        #  and when we get the new inputs reuse doesn't map correctly ? but we can fix this by ignoring inputs that are
+        #  not specified (using the same inputs because they haven't been specified anyway
+        # TODO in the future perhaps I should check if the non-declared inputs are terminals or not?
+        return Module(inputs=input_layers, output=new_output, missing_inputs=self.missing_inputs, name=name)
 
 
 class ViewLayer(Layer):
@@ -2111,7 +2129,7 @@ class RNN(Layer):
         self.cell = None
         # self.regularized = regularized
         # self.reverse = reverse
-        # self.previous_state = previous_state
+        self.previous_state = previous_state
         # self.stateful = stateful
         # self.return_state = return_state
         # self.share_state_with = share_state_with
@@ -2135,7 +2153,8 @@ class RNN(Layer):
 
         with layer_scope(self):
             # TODO add input_dim to RNNCells for syntax sugar
-            # create dummy input which is used to init the cell init state
+            #  create dummy input which is used to init the cell init state without running the entire graph
+            #  I guess computing output shape would be useful here
             x0 = tf.ones_like(input_seq[0])
 
             if self.share_state_with is not None:
@@ -3185,19 +3204,19 @@ class LSTMCell(BaseRNNCell):
         self.state = (h, memory_state)
         return layer_state
 
-    def compute(self, input_layer, *previous_state):
+    def compute(self, input_tensor, *previous_state):
         """ compute layer value based on input `Tensor` values
 
         Args:
-            input_layer: a `Tensor` or `Layer` input to the current cell
+            input_tensor: a `Tensor` or `Layer` input to the current cell
             *previous_state: (previous_h, previous_memory)
 
         Returns:
-            `Tensor`: a tensor with the cell's output
+            `Constant`: a tensor with the cell's output
 
         """
         previous_h, previous_memory = previous_state
-        output = self.output.compute(input_layer, previous_h, previous_memory)
+        output = self.output.compute(input_tensor, previous_h, previous_memory)
         return output
 
     def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
@@ -3932,7 +3951,7 @@ def as_layer(layer_like: Union[tf.Tensor, Layer], dtype=None):
         return layer_like
     else:
         tensor = as_tensor(layer_like, dtype)
-        return Tensor(tensor, dtype=dtype)
+        return Constant(tensor, dtype=dtype)
 
 
 # register Layer to tensor conversion
@@ -3972,7 +3991,7 @@ __all__ = [
     "layer",
     "Linear",
     "Input",
-    "Tensor",
+    "Constant",
     "Param",
     "Wrap",
     "VariableLayer",

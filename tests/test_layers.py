@@ -1,10 +1,10 @@
 # suppressing messages only works if set before tensorflow is imported
 
 import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import logging
 
-logger = logging.getLogger('tensorflow')
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorx as tx
 import numpy as np
 import unittest
@@ -302,9 +302,9 @@ class TestLayers(TestCase):
 
         m = tx.Module(inputs=[x1, x2, x3], output=y)
 
-        x1_ = tx.Tensor([[2.]], name="x1b")
-        x2_ = tx.Tensor([[2.]], name="x2b")
-        x3_ = tx.Tensor([[1.]], name="x2b")
+        x1_ = tx.Constant([[2.]], name="x1b")
+        x2_ = tx.Constant([[2.]], name="x2b")
+        x3_ = tx.Constant([[1.]], name="x2b")
 
         m2 = m.reuse_with(x1_, x2_)
 
@@ -841,8 +841,8 @@ class TestLayers(TestCase):
 
         sparse_input = tf.SparseTensor([[0, 2], [1, 0], [2, 1]], [1, 1, 1], [3, input_dim])
         sparse_input_1d = tf.SparseTensor([[2], [0], [1]], [1, 1, 1], [input_dim])
-        tensor_input = tx.Tensor(sparse_input, input_dim)
-        tensor_input_1d = tx.Tensor(sparse_input_1d, input_dim)
+        tensor_input = tx.Constant(sparse_input, input_dim)
+        tensor_input_1d = tx.Constant(sparse_input_1d, input_dim)
 
         lookup = tx.Lookup(tensor_input, seq_size,
                            embedding_shape=[input_dim, embed_dim],
@@ -873,7 +873,7 @@ class TestLayers(TestCase):
         seq_size = 1
 
         sparse_input = tf.SparseTensor([[0, 1], [0, 3], [1, 0]], [1, 1, 1], [2, input_dim])
-        sparse_input = tx.Tensor(sparse_input, input_dim)
+        sparse_input = tx.Constant(sparse_input, input_dim)
 
         lookup = tx.Lookup(sparse_input,
                            seq_size=seq_size,
@@ -928,7 +928,7 @@ class TestLayers(TestCase):
         self.assertTrue(np.array_equal(v1[:, 0], v3[0]))
 
     def test_reuse_dropout(self):
-        x1 = tx.Tensor(np.ones(shape=[2, 4]), dtype=tf.float32)
+        x1 = tx.Constant(np.ones(shape=[2, 4]), dtype=tf.float32)
         x2 = tx.Activation(x1)
 
         drop1 = tx.Dropout(x2, probability=0.5, locked=True)
@@ -1049,7 +1049,7 @@ class TestLayers(TestCase):
         filter_shape = [filter_size, input_dim, num_filters]
 
         x = tf.ones([batch_size, seq_size, input_dim])
-        x_layer = tx.Tensor(x, input_dim)
+        x_layer = tx.Constant(x, input_dim)
 
         filters = tf.ones(filter_shape)
         conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
@@ -1089,7 +1089,7 @@ class TestLayers(TestCase):
         batch_size = 2
         n_heads = 8
 
-        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        inputs = tx.Constant(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
 
         attention = tx.MHAttention(query=emb,

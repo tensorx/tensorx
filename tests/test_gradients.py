@@ -48,7 +48,7 @@ class MyTestCase(unittest.TestCase):
 
     def test_to_sparse_gradient(self):
         target = tf.constant([[1., 0.], [1., 0.]])
-        x = tx.Tensor(tf.ones([1, 4], dtype=tf.float32), n_units=4)
+        x = tx.Constant(tf.ones([1, 4], dtype=tf.float32), n_units=4)
         h = tx.Linear(x, n_units=2)
         y = tx.ToSparse(h)
         y = tx.ToDense(y)

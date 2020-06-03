@@ -158,7 +158,8 @@ class TestTrain(TestCase):
                          train_loss=loss(y_, y)
                          )
 
-        tx.Graph.draw(model.train_graph, "test.png")
+        model.draw("test.pdf")
+
 
         model.set_optimizer(tf.optimizers.SGD, lr=0.5)
 
@@ -166,7 +167,6 @@ class TestTrain(TestCase):
         data2 = [[0., 1.], [1., 0.]]
 
         out = model.train_step(input_feed={x: data1, y: data2})
-        print(out)
 
     def test_model_train(self):
         x = tx.Input(n_units=2, name="x", constant=False)

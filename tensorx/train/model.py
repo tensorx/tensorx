@@ -7,6 +7,7 @@ import numpy as np
 from queue import Empty
 import os
 import csv
+import re
 
 logger = logging.getLogger('tensorx')
 
@@ -80,7 +81,38 @@ class Model:
 
         self.model_props = set()
 
+    def draw(self, path="graph.pdf"):
+        # TODO add edges for shared state
+        try:
+            from pygraphviz import AGraph
 
+            def add_graph(g: AGraph, layer_graph: tx.Graph, cluster):
+                for node in layer_graph.nodes:
+                    # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
+                    g.add_node(f"{cluster}_{node.name}", shape="none", margin=0, label=tx.utils.vizstyle(node))
+                for node in layer_graph.nodes:
+                    for other_node in layer_graph.edges_out[node]:
+                        g.add_edge(f"{cluster}_{node.name}", f"{cluster}_{other_node.name}")
+
+            dg = AGraph(directed=True)
+            if self.run_graph and self.run_graph.nodes:
+                dg.add_subgraph(name="cluster_run", label="run")
+                g = dg.subgraphs()[-1]
+                add_graph(g, self.run_graph, cluster="run")
+            if self.train_graph and self.train_graph.nodes:
+                dg.add_subgraph(name="cluster_train", label="train")
+                g = dg.subgraphs()[-1]
+                add_graph(g, self.train_graph, "train")
+            if self.eval_graph and self.eval_graph.nodes:
+                dg.add_subgraph(name="cluster_eval", label="eval")
+                g = dg.subgraphs()[-1]
+                add_graph(g, self.eval_graph, cluster="eval")
+
+            dg.layout(prog="dot")
+            dg.draw(path=path)
+
+        except ImportError:
+            raise ImportError("Could't find required pygraphviz module")
 
     @property
     def trainable_variables(self):
@@ -149,7 +181,7 @@ class Model:
             self.compiled[self.train_graph] = self.train_graph.as_function(ord_inputs=self.train_inputs)
         train_fn = self.compiled[self.train_graph]
 
-        @tf.function
+        #@tf.function
         def optimization_step(*data):
             with tf.GradientTape() as tape:
                 *train_out, loss = train_fn(*data)

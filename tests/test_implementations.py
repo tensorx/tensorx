@@ -241,7 +241,7 @@ class MyTestCase(TestCase):
         seq_size = 3
         batch_size = 2
 
-        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        inputs = tx.Constant(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
         seq = emb()
 
@@ -273,7 +273,7 @@ class MyTestCase(TestCase):
         seq_size = 3
         batch_size = 2
 
-        inputs = tx.Tensor(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
+        inputs = tx.Constant(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
         emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
         seq = emb()
 
