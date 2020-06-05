@@ -181,13 +181,19 @@ class Model:
             self.compiled[self.train_graph] = self.train_graph.as_function(ord_inputs=self.train_inputs)
         train_fn = self.compiled[self.train_graph]
 
-        #@tf.function
+        @tf.function
         def optimization_step(*data):
             with tf.GradientTape() as tape:
                 *train_out, loss = train_fn(*data)
                 cfg = self.optimizer.get_config()
 
                 grads = tape.gradient(loss, self.trainable_variables)
+
+                # TODO add debugging when gradient is None
+                #  most likely this happens when a variable is not dependent on the given function
+                # for g, var in zip(grads, self.trainable_variables):
+                #    if g is None:
+                #        print(var.name)
 
                 if "clipnorm" in cfg:
                     clipnorm = cfg["clipnorm"]

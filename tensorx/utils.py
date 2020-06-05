@@ -1,14 +1,15 @@
 import tensorflow as tf
 import logging
+from collections import Counter
 
 logging.captureWarnings(True)  # captures into py.warnings
 logger = logging.getLogger('tensorx')
-logger = logging.getLogger('py.warnings')
-logger.addHandler(logging.StreamHandler())
-logger.setLevel(logging.CRITICAL)
+logger.setLevel(logging.DEBUG)
 
 
 def vizstyle(layer):
+    # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
+
     dtype = layer.dtype.name if layer.dtype is not None else None
 
     label = f"<<TABLE BORDER=\"0\"" \
@@ -276,7 +277,8 @@ class Graph:
         run through the Graph instance and call compute.
 
         function parameters:
-            converts all the non-constant Input Layer nodes into graph arguments
+            converts all the non-constant Input Layer nodes into graph arguments which means that only Input
+            layers are converted to params
 
         run through each layer and queue up nodes starting on the input
         write down a function as a series of compute calls with inputs from the previous
@@ -351,7 +353,11 @@ class Graph:
             name = current_node.name.replace('/', '__')
             node_map[current_node] = f"{name}_{node_index.pop(0)}"
             name = node_map[current_node]
-            next_nodes = dict.fromkeys(graph.edges_in[current_node])
+            # when layers have the same layer repeated as input, this causes problems
+            # it's better to use the same input_layers as declared in the graph
+            # dict from keys creates an ordered set which is not what we want
+            # next_nodes = dict.fromkeys(graph.edges_in[current_node])
+            next_nodes = graph.edges_in[current_node]
             in_args = ", ".join([node_map[node] for node in next_nodes])
             compute_str.append(f"\t{name} = layers[\"{name}\"]({in_args})")
 
@@ -366,12 +372,40 @@ class Graph:
         # we feed the locals so that layers gets available in the above function
         layers = {v: k for k, v in node_map.items()}
         exec(full_fn_str, locals())
-        fn = eval("compiled_graph")
+        fn = eval(fn_name)
         out = tf.function(fn)
 
         return out
 
-    def __call__(self, *input_values):
+    def draw(self, path):
+        try:
+            from pygraphviz import AGraph
+            names = Counter()
+            named_nodes = dict()  # nodes to names
+            g = AGraph(directed=True)
+            for node in self.nodes:
+                name = node.name
+                if name not in names:
+                    names[name] += 1
+                    named_nodes[node] = name
+                else:
+                    if node not in named_nodes:
+                        new_name = f"{node.name}_{names[name]}"
+                        named_nodes[node] = new_name
+
+                g.add_node(named_nodes[node], shape="none", margin=0, label=vizstyle(node))
+
+            for node in self.nodes:
+                for other_node in self.edges_out[node]:
+                    g.add_edge(named_nodes[node], named_nodes[other_node])
+
+            g.layout(prog="dot")
+            g.draw(path=path)
+
+        except ImportError:
+            raise ImportError("Could't find required pygraphviz module")
+
+    def compute(self, *input_values):
         """ computes the graph output values based on the given input values
 
         Args:
@@ -404,18 +438,6 @@ class Graph:
         input_dict = dict(zip(ord_inputs.keys(), input_values))
         other_inputs = set(self.in_nodes).difference(ord_inputs)
 
-        #   the problem with this, is that nodes that need to be visited by both
-        #   output paths will be called twice, we want to avoid this
-        #   how?? compute intersections to cache result?
-        # def compute(node):
-        #     if node in other_inputs:
-        #         out = node.compute()
-        #         return out
-        #     else:
-        #         ins = self.edges_in[node]
-        #         ins = map(lambda x: input_dict[x] if x in input_dict else compute(x), ins)
-        #         out = node.compute(*ins)
-        #         return out
         node_iter = self.dependency_iter()
 
         result_cache = dict()
@@ -429,6 +451,7 @@ class Graph:
             else:
                 visited.add(node)
 
+                # get input_node result, clean cache when no more dependencies on the same input
                 def get_args(node):
                     args = []
                     ins = self.edges_in[node]
@@ -447,8 +470,8 @@ class Graph:
 
         return tuple(map(lambda x: result_cache[x], self.out_nodes))
 
-    def compute(self, *input_values):
-        return self.__call__(*input_values)
+    def __call__(self, *input_values):
+        return self.compute(*input_values)
 
     @classmethod
     def eval(cls, *layers):

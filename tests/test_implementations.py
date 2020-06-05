@@ -1,14 +1,13 @@
-# suppressing messages only works if set before tensorflow is imported
+import unittest
+from tensorx.test_utils import TestCase
+import tensorx as tx
+import numpy as np
 import os
+import time
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
-import tensorx as tx
-import numpy as np
-
-import unittest
-from tensorx.test_utils import TestCase
 from tensorflow.keras.layers import SimpleRNNCell, LSTMCell, GRUCell, Attention, Conv1D
 
 
@@ -280,7 +279,9 @@ class MyTestCase(TestCase):
         # keras attention doesn't have multiple heads
         attention = Attention(use_scale=False)
 
+        t0 = time.time()
         res = attention([seq, seq, seq])
+        time_keras = time.time() - t0
         # print(np.shape(res))
         # print(attention.variables)
 
@@ -300,9 +301,23 @@ class MyTestCase(TestCase):
         # print(attention2.wq.weights)
         self.assertArrayEqual(attention2.wq(seq), seq)
 
+        t0 = time.time()
         res2 = attention2()
+        time_tx = time.time() - t0
+
+        g = tx.Graph.build(inputs=emb, outputs=attention2)
+        g = g.as_function(ord_inputs=emb, ord_outputs=attention2)
+
+        t0 = time.time()
+        res3 = g(seq)
+        time_fn_tx = time.time() - t0
+
+        # print(f"time keras {time_keras}")
+        # print(f"time tx {time_tx}")
+        # print(f"time fn tx {time_fn_tx}")
 
         self.assertArrayEqual(res, res2)
+        self.assertArrayEqual(res, res3)
 
 
 if __name__ == '__main__':

@@ -677,7 +677,8 @@ class Input(Layer):
                 expected_shape = self.shape
         else:  # VALUE NOT NONE
             if self.shape is None:
-                if self.n_units > 0:
+                # if self.n_units is None at this point it means the value.shape[-1] is None for the input tensor
+                if self.n_units is not None and self.n_units > 0:
                     expected_shape = [None] * len(self._value.shape[:-1]) + [self.n_units]
                 else:
                     expected_shape = [None] * len(self._value.shape)
@@ -1386,19 +1387,21 @@ class Module(Layer):
         missing_inputs: if True adds missing inputs to the graph but only tries to feed it the given inputs
     """
 
-    def __init__(self, inputs, output=None, missing_inputs=False, name="module"):
+    def __init__(self, inputs, output=None, dependencies=[], name="module"):
         self.inputs = as_list(inputs)
         self.output = output
-        self.missing_inputs = missing_inputs
+        self.dependencies = as_list(dependencies)
 
         try:
-            self.graph = Graph.build(inputs, output, missing_inputs=missing_inputs)
+            inputs = self.inputs + self.dependencies
+            self.graph = Graph.build(inputs=inputs, outputs=self.output, missing_inputs=True)
 
             # to that we don't need to call reuse on compute with params
-            self.graph_compute = self.graph.as_function(ord_inputs=inputs,
-                                                        ord_outputs=output)
-            if not inputs:
-                inputs = list(self.graph.in_nodes)
+            self.module_fn = self.graph.as_function(ord_inputs=inputs,
+                                                    ord_outputs=output,
+                                                    fn_name=f"{name}_fn")
+            # if self.inputs:
+            #    self.inputs = list(self.graph.in_nodes)
         except ValueError as e:
             raise ValueError(f"Could not build a module with the given "
                              f"endpoints: \n\t{str(e)}")
@@ -1407,7 +1410,8 @@ class Module(Layer):
                          n_units=output.n_units,
                          dtype=output.dtype,
                          name=name,
-                         ignore_missing=missing_inputs)
+                         inputs=self.inputs,
+                         dependencies=self.dependencies)
 
     def init_state(self):
         state = super().init_state()
@@ -1415,23 +1419,26 @@ class Module(Layer):
         # add layer to state so that we can retrieve variables of a module etc
         for i, node in enumerate(self.graph.nodes):
             setattr(state, f"layer_{i}", node)
+        return state
 
     def compute(self, *input_tensors):
-        return self.graph_compute(*input_tensors)
+        return self.module_fn(*input_tensors)
 
     def reuse_with(self, *input_layers, name=None):
         if name is None:
             name = self.name
 
         nl = len(input_layers)
-        nm = len(self.input_layers)
+        # nm = len(self.input_layers)
+        nm = len(self.inputs)
 
         if nl > nm:
             raise ValueError(f"Module has {nm} input layers, {nl} provided")
 
         input_layers = [as_layer(lr) for lr in input_layers]
-        matching_inputs = self.input_layers[:nl]
-        other_inputs = self.input_layers[nl:]
+        # we only match reuse_with input_layers with module inputs, although other dependencies might exist
+        matching_inputs = self.inputs[:nl]
+        other_inputs = self.inputs[nl:]
         mismatch_dtype = list(map(lambda x: x[0].dtype != x[1].dtype, zip(input_layers, matching_inputs)))
         input_layers = input_layers + other_inputs
         if any(mismatch_dtype):
@@ -1439,16 +1446,15 @@ class Module(Layer):
                              f"\t     expected types: {[lr.dtype for lr in self.input_layers]}\n"
                              f"\t calling reuse with: {[lr.dtype for lr in input_layers]}")
 
-        # maps old inputs to new inputs
-        layer_map = dict(zip(self.input_layers, input_layers))
+        # map from self.input_layers[0] -> new_input_layers[0] ...
+        layer_map = dict(zip(self.input_layers, input_layers + self.dependencies))
 
         dep_iter = self.graph.dependency_iter()
-        # print("inputs")
-        # list(map(print, input_layers))
         for node in dep_iter:
             if node not in self.graph.in_nodes:
-                new_inputs = [layer_map[lr] for lr in node.input_layers if lr not in other_inputs]
+                new_inputs = [layer_map[lr] for lr in node.input_layers]  # if lr not in other_inputs]
                 layer_map[node] = node.reuse_with(*new_inputs)
+                # list(map(print, layer_map[node].input_layers))
 
         new_output = layer_map[self.output]
 
@@ -1457,7 +1463,7 @@ class Module(Layer):
         #  and when we get the new inputs reuse doesn't map correctly ? but we can fix this by ignoring inputs that are
         #  not specified (using the same inputs because they haven't been specified anyway
         # TODO in the future perhaps I should check if the non-declared inputs are terminals or not?
-        return Module(inputs=input_layers, output=new_output, missing_inputs=self.missing_inputs, name=name)
+        return Module(inputs=input_layers, output=new_output, dependencies=self.dependencies, name=name)
 
 
 class ViewLayer(Layer):
@@ -1975,7 +1981,8 @@ class BaseRNNCell(Layer, ABC):
                                                                                      len(previous_state)))
         else:
             previous_state = tuple([None] * len(state_size))
-        # fills in all previous states\
+
+        # feel previous states
         # TODO VALIDATION I should really validate the previous_state object that we receive
         # if we receive a list of lists of layers, it fails
         previous_state = list(map(init_states, enumerate(previous_state)))
@@ -2059,10 +2066,10 @@ class BaseRNNCell(Layer, ABC):
                          dtype=dtype,
                          name=name)
 
-    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None, **kwargs):
+    def reuse_with(self, input_layer, *previous_state, regularized=None, name=None, **kwargs):
         # because we use objects and not scopes we can use self always on share state with
         share_state_with = self  # self if self.share_state_with is None else self.share_state_with
-        previous_state = self.previous_state if previous_state is None else previous_state
+        previous_state = self.previous_state if len(previous_state) == 0 else previous_state
         name = self.name if name is None else name
         regularized = self.regularized if regularized is None else regularized
 
@@ -2142,7 +2149,6 @@ class RNN(Layer):
                          cell_proto=cell_proto,
                          regularized=regularized,
                          reverse=reverse,
-                         previous_state=previous_state,
                          stateful=stateful,
                          return_state=return_state,
                          share_state_with=share_state_with)
@@ -2235,13 +2241,13 @@ class RNN(Layer):
             else:
                 return out
 
-    def reuse_with(self, input_seq, previous_state=None, regularized=None, reverse=None, stateful=None,
+    def reuse_with(self, input_seq, *previous_state, regularized=None, reverse=None, stateful=None,
                    return_state=None, name=None):
         name = self.name if name is None else None
         regularized = self.regularized if regularized is None else regularized
         reverse = self.reverse if reverse is None else reverse
         share_state_with = self.share_state_with if self.share_state_with is not None else self
-        previous_state = self.previous_state if previous_state is None else previous_state
+        previous_state = self.previous_state if not previous_state else previous_state
         return_state = self.return_state if return_state is None else return_state
         stateful = self.stateful if stateful is None else stateful
 
@@ -3033,8 +3039,12 @@ class GRUCell(BaseRNNCell):
         output = self.output.compute(input_layer, *previous_state)
         return output
 
-    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
-        return super().reuse_with(input_layer, previous_state, regularized, name, gate_activation=self.gate_activation)
+    def reuse_with(self, input_layer, *previous_state, regularized=None, name=None):
+        return super().reuse_with(input_layer,
+                                  *previous_state,
+                                  regularized=regularized,
+                                  name=name,
+                                  gate_activation=self.gate_activation)
 
 
 class LSTMCell(BaseRNNCell):
@@ -3219,9 +3229,10 @@ class LSTMCell(BaseRNNCell):
         output = self.output.compute(input_tensor, previous_h, previous_memory)
         return output
 
-    def reuse_with(self, input_layer, previous_state=None, regularized=None, name=None):
-        return super().reuse_with(input_layer=input_layer,
-                                  previous_state=previous_state,
+    def reuse_with(self, input_layer, *previous_state, regularized=None, name=None):
+        # TODO change reuse_with with input_layer, *previous_state
+        return super().reuse_with(input_layer,
+                                  *previous_state,
                                   regularized=regularized,
                                   name=name,
                                   gate_activation=self.gate_activation,
@@ -3709,7 +3720,7 @@ class MHAttention(Layer):
         with layer_scope(self):
             dk = self.n_units
             wq = self.wq.compute(query)
-            wk = self.wq.compute(key)
+            wk = self.wk.compute(key)
             wv = self.wv.compute(value)
 
             qh = heads(wq)

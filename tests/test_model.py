@@ -1,15 +1,16 @@
-import unittest
-import tensorx as tx
 import os
-import tensorflow as tf
-import numpy as np
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import unittest
+import tensorx as tx
+import tensorflow as tf
+import numpy as np
 
 
 class MyTestCase(unittest.TestCase):
     def test_model_vars(self):
-        target = tx.Tensor([[1.]])
+        target = tx.Constant([[1.]])
         inputs = tx.Input(n_units=2, name="inputs", constant=False)
         output = tx.Linear(inputs, n_units=1, name="y")
         loss = tx.Lambda(target, output, fn=tf.nn.softmax_cross_entropy_with_logits, name="xent")
@@ -18,7 +19,7 @@ class MyTestCase(unittest.TestCase):
         self.assertListEqual(m.trainable_variables, output.trainable_variables)
 
     def test_add_optimizer(self):
-        target = tx.Tensor([[1.]])
+        target = tx.Constant([[1.]])
 
         inputs = tx.Input(n_units=2, name="inputs")
         output = tx.Linear(inputs, n_units=1, name="y")

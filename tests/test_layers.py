@@ -313,6 +313,47 @@ class TestLayers(TestCase):
 
         self.assertArrayEqual(m1, m2)
 
+    def test_module_rnn(self):
+        # test wrapping module around RNN because it has input dependencies that might not be given in the constructor
+        x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
+        x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
+        rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+        rnn2 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+
+        out = tx.Concat(rnn1, rnn2)
+
+        # we need to add previous state as a dependency to a module
+        m = tx.Module(inputs=x1, output=out, dependencies=rnn1.previous_state + rnn2.previous_state)
+
+        m2 = m.reuse_with(x2)
+        var_layers = set()
+        for node in m2.graph.dependency_iter():
+            if isinstance(node, tx.VariableLayer):
+                var_layers.add(node)
+        self.assertSetEqual(var_layers, set(rnn1.previous_state + rnn2.previous_state))
+
+        self.assertArrayEqual(m(), m2())
+
+    def test_module_with_attention(self):
+        # logger = logging.getLogger('tensorx')
+        # logger.setLevel(logging.DEBUG)
+        # ch = logging.StreamHandler()
+        # ch.setLevel(logging.DEBUG)
+        # logger.addHandler(ch)
+
+        x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
+        x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
+        rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+        att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
+        m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
+        g = tx.Graph.build(inputs=x1, outputs=m, missing_inputs=True)
+        list(map(print, g.in_nodes))
+        fn = g.as_function(ord_inputs=x1, ord_outputs=m)
+        # TODO instead of other_inputs in compiled functions use the layer names
+        # out = g.compute(tf.ones([1, 2, 3]))
+        out = fn(tf.ones([1, 2, 3]))
+        list(map(print, m.trainable_variables))
+
     def test_module(self):
         l1 = tx.Input([[1]], n_units=1, dtype=tf.float32)
         l2 = tx.Input([[1]], n_units=1, dtype=tf.float32)
@@ -398,10 +439,10 @@ class TestLayers(TestCase):
                               w_dropconnect=0.5,
                               regularized=True
                               )
-        rnn2 = rnn1.reuse_with(inputs2, previous_state=rnn1)
-        rnn3 = rnn1.reuse_with(inputs2, previous_state=rnn1)
-        rnn4 = rnn1.reuse_with(inputs2, previous_state=None, regularized=False)
-        rnn5 = rnn4.reuse_with(inputs2, previous_state=None, regularized=True)
+        rnn2 = rnn1.reuse_with(inputs2, rnn1)
+        rnn3 = rnn1.reuse_with(inputs2, rnn1)
+        rnn4 = rnn1.reuse_with(inputs2, None, regularized=False)
+        rnn5 = rnn4.reuse_with(inputs2, None, regularized=True)
 
         r1, r2, r3, r4, r5 = rnn1(), rnn2(), rnn3(), rnn4(), rnn5()
         # w is a linear layer from the input but a regularized layer applies dropout to the input, so we have a dropout
@@ -438,12 +479,10 @@ class TestLayers(TestCase):
 
         rnn_1 = tx.GRUCell(inputs, n_hidden)
 
-        rnn_2 = rnn_1.reuse_with(input_layer=inputs,
-                                 previous_state=rnn_1)
+        rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
 
         # if we don't wipe the memory it reuses it
-        rnn_3 = rnn_1.reuse_with(inputs,
-                                 previous_state=tx.GRUCell.zero_state(rnn_1.n_units))
+        rnn_3 = rnn_1.reuse_with(inputs, tx.GRUCell.zero_state(rnn_1.n_units))
 
         res1 = rnn_1()
         res2 = rnn_2()
@@ -481,11 +520,11 @@ class TestLayers(TestCase):
         inputs = tx.Input(np.ones([batch_size, n_inputs], np.float32), n_units=n_inputs, constant=True)
         rnn1 = tx.LSTMCell(inputs, n_hidden, gate_activation=tf.sigmoid)
         previous_state = (None, rnn1.state[-1]())
-        rnn2 = rnn1.reuse_with(inputs, previous_state=previous_state)
+        rnn2 = rnn1.reuse_with(inputs, *previous_state)
 
         # if we don't wipe the memory it reuses it
         previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
-        rnn3 = rnn1.reuse_with(inputs, previous_state=previous_state)
+        rnn3 = rnn1.reuse_with(inputs, *previous_state)
         rnn4 = rnn1.reuse_with(inputs)
 
         res1 = rnn1()
@@ -512,13 +551,13 @@ class TestLayers(TestCase):
                            name="lstm1")
 
         rnn2 = rnn1.reuse_with(inputs,
-                               previous_state=rnn1.state,
+                               *rnn1.state,
                                regularized=True,
                                name="lstm2"
                                )
 
         rnn3 = rnn2.reuse_with(inputs,
-                               previous_state=rnn1.state,
+                               *rnn1.state,
                                name="lstm3"
                                )
 
@@ -592,9 +631,9 @@ class TestLayers(TestCase):
         self.assertArrayEqual(out1, out2)
         self.assertArrayEqual(last1, last2)
 
-        rnn3 = rnn1.reuse_with(seq, previous_state=zero_state)
+        rnn3 = rnn1.reuse_with(seq, zero_state)
         rnn4 = rnn3.reuse_with(seq)
-        rnn5 = rnn4.reuse_with(seq, previous_state=ones_state)
+        rnn5 = rnn4.reuse_with(seq, ones_state)
 
         self.assertArrayEqual(rnn2.previous_state, rnn1.previous_state)
         self.assertArrayEqual(rnn3.previous_state, rnn4.previous_state)
@@ -658,11 +697,11 @@ class TestLayers(TestCase):
         self.assertArrayEqual(tf.shape(rnn0()), tf.shape(rnn0_()))
         self.assertArrayEqual(tf.shape(rnn1()), tf.shape(rnn1_()))
 
-        print(tf.shape(rnn0()))
+        # print(tf.shape(rnn0()))
         r0 = rnn0()
         r1 = rnn1()
         c = tx.Concat(rnn0, rnn1, axis=-1)
-        print(tf.shape(c()))
+        # print(tf.shape(c()))
 
         # concat = tx.Con
         # print(tf.shape())

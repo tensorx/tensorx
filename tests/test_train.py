@@ -5,7 +5,7 @@ import tensorflow as tf
 import tensorx as tx
 from tensorx.test_utils import TestCase
 import numpy as np
-
+import logging
 
 class TestTrain(TestCase):
 
@@ -98,7 +98,7 @@ class TestTrain(TestCase):
         params = model.optimizer_params[model.optimizer]
         data_dict, params_dict = tx.Model.parse_input({x: data1,
                                                        "learning_rate": 0.2},
-                                                      model.run_graph,
+                                                      model.run_graph.in_nodes,
                                                       params)
         self.assertEqual(len(data_dict), 1)
         self.assertEqual(len(params_dict), 1)
@@ -136,7 +136,7 @@ class TestTrain(TestCase):
         batch_size = 2
 
         x = tx.Input(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
-        y = tx.Input(np.random.random([batch_size, out_size]), n_units=seq_size, dtype=tf.float32)
+        y = tx.Input(np.random.random([batch_size, out_size]), n_units=out_size, dtype=tf.float32)
         lookup = tx.Lookup(x, seq_size=seq_size, embedding_shape=[n_features, embed_size])
         # seq = lookup.permute_batch_time()
         seq = tx.Transpose(lookup, [1, 0, 2])
