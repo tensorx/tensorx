@@ -336,7 +336,7 @@ class Graph:
 
         # all other inputs that are not feedable
         other_inputs = list(input_set.difference(feedable_inputs))
-        node_map.update({in_layer: f"other_inputs_{node_index.pop(0)}" for in_layer in other_inputs})
+        node_map.update({in_layer: f"{in_layer.name}_{node_index.pop(0)}" for in_layer in other_inputs})
 
         # requires outer access to layers var
         for x in other_inputs:
@@ -383,10 +383,10 @@ class Graph:
             names = Counter()
             named_nodes = dict()  # nodes to names
             g = AGraph(directed=True)
-            for node in self.nodes:
+            for node in self.dependency_iter():
                 name = node.name
+                names[name] += 1
                 if name not in names:
-                    names[name] += 1
                     named_nodes[node] = name
                 else:
                     if node not in named_nodes:

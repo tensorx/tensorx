@@ -347,12 +347,15 @@ class TestLayers(TestCase):
         att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
         m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
         g = tx.Graph.build(inputs=x1, outputs=m, missing_inputs=True)
-        list(map(print, g.in_nodes))
+        # list(map(print, g.in_nodes))
         fn = g.as_function(ord_inputs=x1, ord_outputs=m)
-        # TODO instead of other_inputs in compiled functions use the layer names
-        # out = g.compute(tf.ones([1, 2, 3]))
-        out = fn(tf.ones([1, 2, 3]))
-        list(map(print, m.trainable_variables))
+        # this returns a tuple
+        out1 = g.compute(tf.ones([1, 2, 3]))
+        # this returns the function result
+        out2 = fn(tf.ones([1, 2, 3]))
+
+        self.assertArrayEqual(out1[0], out2)
+        # list(map(print, m.trainable_variables))
 
     def test_module(self):
         l1 = tx.Input([[1]], n_units=1, dtype=tf.float32)
