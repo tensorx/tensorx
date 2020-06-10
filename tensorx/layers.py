@@ -12,6 +12,9 @@ from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
 import tensorx as tx
 
+import threading
+from collections import Counter
+
 
 class LayerState(AutoTrackable):
     """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
@@ -36,8 +39,7 @@ class LayerState(AutoTrackable):
         return list(self.var_dict().values())
 
     def var_dict(self):
-        """ returns a dictionary where the keys are the attribute names
-        in a layer state or the attribute names in an inner layer of the layer state.
+        """ returns a dictionary where the keys are the var refs
 
         Returns:
             dict: a dictionary from attribute names to variable instances with all
@@ -55,6 +57,7 @@ class LayerState(AutoTrackable):
             elif isinstance(obj, tf.Variable):
                 # Tensors are not hashable but this gets the object id
                 all_vars[obj.ref()] = obj
+                # all_vars[attr] = obj
         return all_vars
 
     def __str__(self):
@@ -66,14 +69,9 @@ class LayerScope:
 
     Args:
         current_layer: layer to be used in this scope, the layer name is used as scope name for tensorflow tf.name_scope
-        and variable_scope, also modifies the layer name if the scope name clashes with existing names
-
-        reuse: if True does not change the input layer name but it does create a unique name for tf.name_scope
-        (for debug purposes only)
     """
 
-    def __init__(self, current_layer, name=None, reuse=False):
-        self.reuse = reuse
+    def __init__(self, current_layer, name=None):
         self.layer = current_layer
         if name is not None and current_layer is not None:
             self.layer.name = name
@@ -89,15 +87,7 @@ class LayerScope:
             layer_name_scope = tf.name_scope(self.name)
             scoped_name = stack.enter_context(layer_name_scope)
             scoped_name = scoped_name[:-1]
-            unique_unscoped_name = scoped_name[scoped_name.find(self.name):]
 
-            if not self.reuse:
-                self.name = unique_unscoped_name
-                if self.layer is not None:
-                    self.layer.name = self.name
-                    self.layer.scoped_name = scoped_name
-            else:
-                scoped_name = self.name
             self._stack = stack.pop_all()
             return scoped_name
 
@@ -177,10 +167,26 @@ class Layer(AutoTrackable):
         name: layer name (used to nam the placeholder)
 
     """
+    NAMES = Counter()
+    NAME_LOCK = threading.RLock()
 
     def __init__(self, input_layers, n_units, dtype=None, name="layer", **kwargs):
         self.n_units = n_units
-        self.name = getattr(self, "name", name)
+
+        with Layer.NAME_LOCK:
+            if name in Layer.NAMES:
+                Layer.NAMES[name] += 1
+                self.name = name + f"_{Layer.NAMES[name]}"
+            else:
+                Layer.NAMES[name] = 1
+                self.name = name
+        with tf.name_scope(self.name) as scope:
+            # scoped_name = stack.enter_context(layer_name_scope)
+            # scoped_name = layer_name_scope
+            self.scoped_name = scope[:-1]
+
+        # self.scoped_name = name
+
         self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
 
         # a cleaner way to set attributes is to add kwargs to the super().__init__(...attr=value)
@@ -192,8 +198,6 @@ class Layer(AutoTrackable):
         new_args = proto.filter_args(**self.__dict__)
         proto.update(**new_args)
         self.proto = proto
-
-        self.scoped_name = name
         self._input_layers = [as_layer(input_layer) for input_layer in as_list(input_layers)]
 
         self.layer_state = self.init_state()
@@ -730,19 +734,20 @@ class Input(Layer):
         if self._value is None:
             self._value = [[]]
 
-        if not self.constant and self._value is not None:
-            if isinstance(self._value, tf.SparseTensor):
-                layer_state.slot = txf.SparseVariable(initial_value=self._value,
-                                                      validate_shape=False,
-                                                      trainable=False,
-                                                      name=f"{self.name}_slot")
-            else:
-                layer_state.slot = tf.Variable(initial_value=self._value,
-                                               shape=tf.TensorShape(self.shape),
-                                               dtype=self.dtype,
-                                               validate_shape=False,
-                                               trainable=False,
-                                               name=f"{self.name}_slot")
+        with layer_scope(self):
+            if not self.constant and self._value is not None:
+                if isinstance(self._value, tf.SparseTensor):
+                    layer_state.slot = txf.SparseVariable(initial_value=self._value,
+                                                          validate_shape=False,
+                                                          trainable=False,
+                                                          name=f"{self.name}_slot")
+                else:
+                    layer_state.slot = tf.Variable(initial_value=self._value,
+                                                   shape=tf.TensorShape(self.shape),
+                                                   dtype=self.dtype,
+                                                   validate_shape=False,
+                                                   trainable=False,
+                                                   name=f"{self.name}_slot")
 
         return layer_state
 

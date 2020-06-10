@@ -89,7 +89,7 @@ class Model:
             def add_graph(g: AGraph, layer_graph: tx.Graph, cluster):
                 for node in layer_graph.nodes:
                     # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
-                    g.add_node(f"{cluster}_{node.name}", shape="none", margin=0, label=tx.utils.vizstyle(node))
+                    g.add_node(f"{cluster}_{node.name}", shape="none", margin=0, label=tx.utils.vizlayer(node))
                 for node in layer_graph.nodes:
                     for other_node in layer_graph.edges_out[node]:
                         g.add_edge(f"{cluster}_{node.name}", f"{cluster}_{other_node.name}")

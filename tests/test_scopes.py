@@ -13,32 +13,34 @@ def my_op(a, b, c, name=None):
 
 """
 
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import unittest
 import tensorflow as tf
 from tensorx.layers import layer_scope
+import tensorx as tx
 
 
 class TestScopes(unittest.TestCase):
 
     def test_layer_scope(self):
         name = "test_name"
-        with layer_scope(None, name=name) as scope:
+        with tf.name_scope(name) as scope:
+            x1 = tx.Input(tf.ones([2, 2]), name="x")
+            x2 = tx.Input(tf.ones([2, 2]), name="x")
+            print(x1.slot.name)
+            print(x2.slot.name)
+            print(x1.scoped_name)
+            print(x2.name)
             name1 = scope
 
-        with layer_scope(None, name=name) as scope:
+        with tf.name_scope(name) as scope:
             name2 = scope
 
-        with layer_scope(None, name=name, reuse=True) as scope:
-            name3 = scope
-
-        if tf.executing_eagerly():
-            # unique names are only present when not executing eagerly
-            self.assertEqual(name1, name2)
-            self.assertEqual(name1, name3)
-        else:
-            self.assertNotEqual(name1, name2)
-            self.assertTrue(name1 in name2)
-            self.assertEqual(name1, name3)
+        # unique names are only present when not executing eagerly
+        self.assertEqual(name1, name2)
 
     def test_name_scope(self):
         with tf.name_scope("testing_scope") as scope:
