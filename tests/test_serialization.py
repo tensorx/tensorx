@@ -34,7 +34,7 @@ class MyTestCase(TestCase):
         # print(w2)
 
         track: AutoTrackable = l1.layer_state
-        print(util.list_objects(track))
+        # print(util.list_objects(track))
 
         ckpt = tf.train.Checkpoint(l1=l1)
         manager = tf.train.CheckpointManager(ckpt, './ckpts', max_to_keep=1)
@@ -47,7 +47,7 @@ class MyTestCase(TestCase):
         status.assert_existing_objects_matched()
 
         # print()
-        print(tf.train.list_variables(manager.latest_checkpoint))
+        # print(tf.train.list_variables(manager.latest_checkpoint))
 
         shutil.rmtree('./ckpts')
 

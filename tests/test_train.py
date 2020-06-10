@@ -158,8 +158,7 @@ class TestTrain(TestCase):
                          train_loss=loss(y_, y)
                          )
 
-        model.draw("test.pdf")
-
+        # model.draw("test.pdf")
 
         model.set_optimizer(tf.optimizers.SGD, lr=0.5)
 

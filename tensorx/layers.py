@@ -11,7 +11,6 @@ from tensorx.transform import embedding_lookup_sparse
 from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
 import tensorx as tx
-
 import threading
 from collections import Counter
 

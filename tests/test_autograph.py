@@ -193,10 +193,10 @@ class TestAutoGraph(unittest.TestCase):
         t4 = timeit(lambda: simple_graph_2(tf.random.uniform([256, 1000])), number=n)
         # t5 = timeit(lambda: compiled_recursive(tf.random.uniform([256, 1000])), number=n)
 
-        print(f"{t1}\tupdate input and run")
-        print(f"{t2}\tgenerated function")
-        print(f"{t3}\tcompile value change and graph call")
-        print(f"{t4}\tgraph call with autograph")
+        # print(f"{t1}\tupdate input and run")
+        # print(f"{t2}\tgenerated function")
+        # print(f"{t3}\tcompile value change and graph call")
+        # print(f"{t4}\tgraph call with autograph")
         # TODO I'm almost sure this slow down is due to reference to outside collections
         # print(f"{t5}\trecursive autograph")
         # TODO the problem with simple graph is that if we want to create a graph for

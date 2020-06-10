@@ -30,11 +30,10 @@ class TestScopes(unittest.TestCase):
         with tf.name_scope(name) as scope:
             x1 = tx.Input(tf.ones([2, 2]), name="x")
             x2 = tx.Input(tf.ones([2, 2]), name="x")
-            print(x1.slot.name)
-            print(x2.slot.name)
-            print(x1.scoped_name)
-            print(x2.name)
+            self.assertNotEqual(x1.name, x2.name)
             name1 = scope
+
+        self.assertEqual(name1, x1.scoped_name.replace(x1.name, ""))
 
         with tf.name_scope(name) as scope:
             name2 = scope

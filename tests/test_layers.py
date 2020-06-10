@@ -346,7 +346,7 @@ class TestLayers(TestCase):
         rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
         att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
         m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
-        m.graph.draw("test.pdf")
+        #m.graph.draw("test.pdf")
         g = tx.Graph.build(inputs=x1, outputs=m, missing_inputs=True)
         # list(map(print, g.in_nodes))
         fn = g.as_function(ord_inputs=x1, ord_outputs=m)
