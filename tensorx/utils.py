@@ -1,6 +1,7 @@
 import tensorflow as tf
 import logging
 from collections import Counter
+from typing import List
 
 logging.captureWarnings(True)  # captures into py.warnings
 logger = logging.getLogger('tensorx')
@@ -395,7 +396,34 @@ class Graph:
 
                 g.add_node(named_nodes[node], shape="none", margin=0, label=vizstyle(node))
 
-            for node in self.nodes:
+            dependencies = dependency_graph(self.nodes)
+            state_deps = [node for node in dependencies.nodes if not dependencies.edges_in[node] and
+                          len(dependencies.edges_out[node]) > 1]
+            for node in state_deps:
+                if node not in named_nodes:
+                    if hasattr(node, "name"):
+                        name = node.name
+                    else:
+                        try:
+                            name = node.deref().name
+                        except Exception:
+                            name = str(type(node))
+
+                    # todo unique names scope system
+                    names[name] += 1
+                    if name not in names:
+                        named_nodes[node] = name
+                    else:
+                        if node not in named_nodes:
+                            new_name = f"{name}_{names[name]}"
+                            named_nodes[node] = new_name
+
+                    g.add_node(named_nodes[node], color="red", shape="box")
+                    layers = dependencies.edges_out[node]
+                    for layer in layers:
+                        g.add_edge(named_nodes[node], named_nodes[layer], color="red")
+
+            for node in self.dependency_iter():
                 for other_node in self.edges_out[node]:
                     g.add_edge(named_nodes[node], named_nodes[other_node])
 
@@ -477,6 +505,19 @@ class Graph:
     def eval(cls, *layers):
         graph = Graph.build(inputs=None, outputs=layers)
         return graph()
+
+
+def dependency_graph(layers):
+    g = Graph()
+    for layer in layers:
+        state = layer.layer_state
+        layer_vars = layer.variables
+
+        g.add_edge(state, layer)
+        for var in layer_vars:
+            ref = var.ref()
+            g.add_edge(ref, layer)
+    return g
 
 
 def as_tensor(x, dtype=None):
