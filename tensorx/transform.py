@@ -277,6 +277,108 @@ def dropout(tensor,
             return ret
 
 
+def alpha_dropout(tensor,
+                  noise_shape=None,
+                  random_mask=None,
+                  probability=0.1,
+                  seed=None,
+                  return_mask=False,
+                  name="dropout"):
+    """ alpha_dropout
+
+    keeps mean and variance of inputs in order to ensure the self-normalization after dropout. Alpha dropout is
+    proposed for Scaled Exponential Linear Units (SELUs) because it randomly sets activations to the
+    negative saturation value rather than 0.
+
+    The multiplicative noise will have standard deviation $\\sqrt{\\frac{probability}{(1-probability)}}
+
+    !!! cite "References"
+        1. [Self-Normalizing Neural Networks](https://arxiv.org/pdf/1706.02515.pdf)
+
+    Args:
+        noise_shape: A 1-D `Tensor` of type `int32`, representing the shape for randomly generated drop flags.
+        return_mask: if true, returns the random mask used
+        random_mask: a tensor used to create the random bernoulli mask
+        tensor: A floating point tensor.
+        probability: A scalar `Tensor` with the same type as x. The probability that each element is kept.
+        seed: A Python integer with the random number generator seed
+        name: a name for this operation (optional)
+
+    Returns:
+        result (`Tensor`): a tensor with the same shape as the input with the dropped units set to negative values
+
+    """
+    tensor = tf.convert_to_tensor(tensor, name="x")
+    with tf.name_scope(name):
+        if random_mask is not None:
+            random_mask = as_tensor(random_mask, tensor.dtype)
+
+        if not tensor.dtype.is_floating:
+            try:
+                tensor = tf.cast(tensor, tf.float32)
+            except Exception as e:
+                raise ValueError("x has to be a floating point tensor since it might be scaled"
+                                 "Got a %s tensor instead. and could not cast it" % tensor.dtype)
+
+        if not 0 <= probability < 1:
+            raise ValueError("drop probability must be a scalar tensor or a float in the "
+                             "range [0, 1), got %g" % probability)
+
+        # Early return if nothing needs to be dropped.
+        if isinstance(probability, float) and probability == 0:
+            if return_mask:
+                return tensor, None
+            else:
+                return tensor
+        elif isinstance(probability, float) and probability == 1:
+            zeros = tf.zeros_like(tensor)
+            if return_mask:
+                return zeros, None
+            else:
+                return zeros
+
+        probability = tf.convert_to_tensor(
+            probability, dtype=tensor.dtype, name="drop_probability")
+        probability.get_shape().assert_is_compatible_with(tf.TensorShape([]))
+
+        # Do nothing if we know drop_probability == 0
+        const_val = tensor_util.constant_value(probability)
+        if const_val == 0:
+            if return_mask:
+                return tensor, None
+            else:
+                return tensor
+        elif const_val == 1:
+            zeros = tf.zeros_like(tensor)
+            if return_mask:
+                return zeros, None
+            else:
+                return zeros
+
+        noise_shape = _get_noise_shape(tensor, noise_shape)
+
+        if random_mask is None:
+            with tf.name_scope(name="random_mask"):
+                keep_prob = 1 - probability
+                random_state = tf.random.uniform(noise_shape, seed=seed, dtype=tensor.dtype)
+                mask = keep_prob + random_state
+                random_mask = tf.math.floor(mask, name="binary_mask")
+
+        alpha = 1.6732632423543772848170429916717
+        scale = 1.0507009873554804934193349852946
+        alpha_p = -alpha * scale
+
+        # Get affine transformation params
+        a = ((1 - probability) * (1 + probability * alpha_p ** 2)) ** -0.5
+        b = -a * alpha_p * probability
+
+        # Apply mask
+        x = tensor * random_mask + alpha_p * (1 - random_mask)
+
+        # Do affine transformation
+        return a * x + b
+
+
 def binary_mask(tensor, mask_probability=0.0, seed=None):
     with tf.name_scope(name="random_mask"):
         tensor = as_tensor(tensor)
@@ -673,6 +775,7 @@ __all__ = ["apply_gate",
            "sparse_one_hot",
            "matrix_indices",
            "dropout",
+           "alpha_dropout",
            "sparse_dropout",
            "binary_mask",
            "empty_sparse_tensor",

@@ -175,6 +175,31 @@ def gelu(x, approximate: bool = True) -> tf.Tensor:
         return 0.5 * x * (1.0 + tf.math.erf(x / tf.cast(tf.sqrt(2.0), x.dtype)))
 
 
+def selu(x):
+    """ The Scaled Exponential Linear Unit (SELU)
+
+    `scale * x` if `x > 0` and `scale * alpha * (exp(x) - 1)` if `x < 0`
+    where alpha and scale are pre-defined constants (`alpha = 1.67326324` and `scale = 1.05070098`).
+
+    The values of alpha and scale are chosen so that the mean and variance of the inputs are preserved
+    between two consecutive layers as long as the weights are initialized correctly
+    (see `variance_scaling_init`).
+
+    To be used together with initializer = tf.variance_scaling_initializer(factor=1.0, mode='FAN_IN').
+    For correct dropout, use tf.contrib.nn.alpha_dropout.
+
+    !!! cite "References"
+        1. [Self-Normalizing Neural Networks](https://arxiv.org/pdf/1706.02515.pdf)
+
+    Args:
+        x (`Tensor`): input tensor
+
+    Returns:
+        tensor (`Tensor`): results in `scale * x` if `x > 0` and `scale * alpha * (exp(x) - 1)` if `x < 0`
+    """
+    return tf.nn.selu(x)
+
+
 def softmax(x, axis=None, name=None):
     """ softmax activation
 
@@ -249,6 +274,7 @@ __all__ = [
     "hard_sigmoid",
     "tanh",
     "relu",
+    "selu",
     "elu",
     "gelu",
     "softmax",

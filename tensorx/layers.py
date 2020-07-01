@@ -2543,6 +2543,10 @@ class Lookup(Layer):
                                  "share_state_with is provided but \n"
                                  f"self shape: {self.embedding_shape} different from "
                                  f"other shape: {self.share_state_with.embedding_shape}")
+        else:
+            for dim in self.embedding_shape:
+                if not isinstance(dim, int):
+                    TypeError(f"Embedding shape should be a list of int: {type(dim)} found")
 
         with layer_scope(self):
             # init weights

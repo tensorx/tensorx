@@ -69,7 +69,7 @@ def categorical_cross_entropy(labels, logits, axis=-1, name="categorical_cross_e
         tensor (`Tensor`): categorical (softmax) cross-entropy loss.
 
     """
-    return tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits, axis=axis, name=name)
+    return tf.nn.softmax_cross_entropy_with_logits(labels=labels, logits=logits, axis=axis, name=name)
 
 
 def binary_hinge(labels, logits):

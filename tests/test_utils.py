@@ -20,6 +20,8 @@ class TestUtils(TestCase):
         linear = tx.Linear(in1, 1, add_bias=False)
         graph = tx.Graph.build(inputs=in1, outputs=linear)
 
+        self.assertIn(in1, graph.in_nodes)
+
         try:
             tx.Graph.build(inputs=[in1, in2], outputs=linear)
             self.fail("should have raised an exception: some inputs are not connected to anything")
