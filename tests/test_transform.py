@@ -8,7 +8,7 @@ import tensorx as tx
 import numpy as np
 
 import unittest
-from tensorx.test_utils import TestCase
+from tensorx.testing import TestCase
 
 
 class TestLayers(TestCase):

@@ -8,7 +8,7 @@ import logging
 import tensorx as tx
 import numpy as np
 import unittest
-from tensorx.test_utils import TestCase
+from tensorx.testing import TestCase
 from tensorx.layers import LayerProto
 import tensorflow as tf
 

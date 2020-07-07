@@ -1462,11 +1462,6 @@ class Module(Layer):
 
         new_output = layer_map[self.output]
 
-        # the constructor of Module will trace and compile the new graph
-        # TODO the problem with this is that RNN layers depend on a previous state which is optional
-        #  and when we get the new inputs reuse doesn't map correctly ? but we can fix this by ignoring inputs that are
-        #  not specified (using the same inputs because they haven't been specified anyway
-        # TODO in the future perhaps I should check if the non-declared inputs are terminals or not?
         return Module(inputs=input_layers, output=new_output, dependencies=self.dependencies, name=name)
 
 
@@ -1501,62 +1496,6 @@ class ViewLayer(Layer):
         layer_state = super().init_state()
         setattr(layer_state, "inner_layer", self.inner_layer)
         return layer_state
-
-
-# class Mode(Layer):
-#     DEFAULT = "__BASE__"
-#
-#     def __init__(self, default_layer: Layer, mode_layer: Layer, mode):
-#         input_layers = default_layer.input_layers
-#         try:
-#             mode_layer = Module(inputs=input_layers, output=mode_layer)
-#         except ValueError:
-#             raise ValueError("Invalid mode_layer: mode_layer must connect to the inputs of bypass_layer")
-#
-#         if default_layer.n_units != mode_layer.n_units:
-#             raise ValueError("bypass and mode layers must have the same n_units")
-#         if default_layer.dtype != mode_layer.dtype:
-#             raise ValueError("bypass and mode layers must have the same dtype")
-#
-#         if type(default_layer, Mode):
-#             other_modes = default_layer.modes
-#
-#         self.modes = {Mode.DEFAULT: default_layer, mode: mode_layer}
-#         self.mode = Mode.DEFAULT
-#
-#         super().__init__(input_layers=input_layers,
-#                          n_units=default_layer.n_units,
-#                          dtype=default_layer.dtype,
-#                          name=f"modal_{default_layer.name}")
-#
-#     def init_state(self):
-#         state = super().init_state()
-#
-#         return state
-#
-#     def mode(self, mode):
-#         """ selects a mode from the given modal layer and returns the corresponding layer
-#
-#         Args:
-#             mode (`str`): a mode name
-#
-#         Raises:
-#             error (`KeyError`): if mode not in modes
-#
-#         Returns:
-#             layer (`Layer`): a layer if mode in modes
-#         """
-#         return self.modes[mode]
-#
-#     def reuse_with(self, *layers, **kwargs):
-#         for mode in self.modes:
-#             lr = self.modes[mode]
-#             lr = lr.reuse_with(*layers, **kwargs)
-#             self.modes[mode] = lr
-#
-#
-#     def compute(self, *args):
-#         self.modes[]
 
 
 class DropConnect(ViewLayer):
@@ -1709,7 +1648,8 @@ class Dropout(Layer):
 
     Args:
         layer: an input layer :class:`Layer` to which dropout will be applied
-        keep_prob: a scalar float with the probability that each element is kept.
+        probability: a scalar float with the probability that each element is dropped.
+        alpha (`Bool`): if True uses alpha dropout instead of dropout, default is False.
         seed: A Python integer. Used to create a random seed for the dropout op.
 
     Warning:
@@ -1726,6 +1666,7 @@ class Dropout(Layer):
                  mask=None,
                  noise_shape=None,
                  locked=False,
+                 alpha=False,
                  seed=None,
                  name="dropout",
                  share_state_with=None
@@ -1738,6 +1679,7 @@ class Dropout(Layer):
         self.locked = locked
         self.seed = seed
         self.share_state_with = share_state_with
+        self.alpha = alpha
 
         super().__init__(input_layers=input_layer,
                          n_units=input_layer.n_units,
@@ -1776,8 +1718,7 @@ class Dropout(Layer):
         else:
             layer_state = self.share_state_with.layer_state
 
-        # TODO usually we don't manipulate input_layers directly, but the random mask is a
-        #  new dependency on this layer
+        # note usually we don't manipulate input_layers directly, but the random mask is a new dependency
         if hasattr(layer_state, "mask"):
             self._input_layers.append(layer_state.mask)
 
@@ -1813,16 +1754,25 @@ class Dropout(Layer):
                                                   probability=self.probability,
                                                   scale=self.scale,
                                                   return_mask=True,
+                                                  alpha=self.alpha,
                                                   seed=self.seed)
 
             else:
-                tensor, mask = txf.dropout(tensor=input_value,
-                                           noise_shape=self.noise_shape,
-                                           random_mask=mask_value,
-                                           probability=self.probability,
-                                           scale=self.scale,
-                                           return_mask=True,
-                                           seed=self.seed)
+                if self.alpha:
+                    tensor, mask = txf.alpha_dropout(tensor=input_value,
+                                                     noise_shape=self.noise_shape,
+                                                     random_mask=mask_value,
+                                                     probability=self.probability,
+                                                     return_mask=True,
+                                                     seed=self.seed)
+                else:
+                    tensor, mask = txf.dropout(tensor=input_value,
+                                               noise_shape=self.noise_shape,
+                                               random_mask=mask_value,
+                                               probability=self.probability,
+                                               scale=self.scale,
+                                               return_mask=True,
+                                               seed=self.seed)
 
             return tensor
 
@@ -1839,6 +1789,7 @@ class Dropout(Layer):
                        scale=self.scale,
                        locked=locked,
                        seed=self.seed,
+                       alpha=self.alpha,
                        share_state_with=share_state_with,
                        name=name)
 

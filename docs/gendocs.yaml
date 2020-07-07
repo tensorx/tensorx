@@ -21,6 +21,7 @@ pages:
     source: 'tensorx/math.py'
     functions:
       - sparse_multiply_dense
+      - rms
   - page: "transform.md"
     source: 'tensorx/transform.py'
     functions:

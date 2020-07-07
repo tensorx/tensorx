@@ -3,7 +3,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorx as tx
-from tensorx.test_utils import TestCase
+from tensorx.testing import TestCase
 import numpy as np
 import logging
 

@@ -62,10 +62,11 @@ tests_requires = [
 ]
 
 extras_require = {
-    'graphviz': ['pygraphviz'],
-    'tqdm': ['tqdm'],
-    'matplotlib': ['matplotlib'],  # for plot callback backend
-    'pyqtgraph': ['pyqtgraph', 'PyQt5']  # for plot callback backend
+    'tensornetwork': ['tensornetwork'],     # for tensor-network-based layers
+    'graphviz': ['pygraphviz'],             # for plot callback if backend == pygraphviz
+    'tqdm': ['tqdm'],                       # for progress callback
+    'matplotlib': ['matplotlib'],           # for plot callback backend
+    'pyqtgraph': ['pyqtgraph', 'PyQt5']     # for plot callback backend
 }
 
 setup(
@@ -87,6 +88,7 @@ setup(
     classifiers=[
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8'
     ],
     python_requires='>=3.6',
     cmdclass={"upload": UploadCommand},

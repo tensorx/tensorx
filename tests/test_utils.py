@@ -8,7 +8,7 @@ import tensorx as tx
 from tensorx.utils import *
 import numpy as np
 import functools
-from tensorx.test_utils import TestCase
+from tensorx.testing import TestCase
 
 
 class TestUtils(TestCase):

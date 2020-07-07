@@ -397,6 +397,7 @@ def sparse_dropout(sp_tensor,
                    seed=None,
                    mask=None,
                    return_mask=False,
+                   alpha=False,
                    name="sparse_dropout"):
     """Performs a dropout on a ``SparseTensor``.
 
@@ -414,6 +415,7 @@ def sparse_dropout(sp_tensor,
         seed: A Python integer. Used to create random seeds. (See `TensorFlow` documentation
         for ``tf.set_random_seed`` for behavior.)
         name: A name for this operation (optional).
+        alpha (`Bool`): if True uses `alpha_dropout` instead of `dropout` in the inputs
 
     """
     with tf.name_scope(name=name):
@@ -428,13 +430,20 @@ def sparse_dropout(sp_tensor,
         probability = tf.convert_to_tensor(probability,
                                            dtype=sp_tensor.dtype,
                                            name="drop_probability")
-
-        drop_values = dropout(tensor=sp_tensor.values,
-                              random_mask=mask,
-                              probability=probability,
-                              scale=scale,
-                              return_mask=return_mask,
-                              seed=seed)
+        if alpha:
+            drop_values = alpha_dropout(tensor=sp_tensor.values,
+                                        random_mask=mask,
+                                        probability=probability,
+                                        return_mask=return_mask,
+                                        seed=seed
+                                        )
+        else:
+            drop_values = dropout(tensor=sp_tensor.values,
+                                  random_mask=mask,
+                                  probability=probability,
+                                  scale=scale,
+                                  return_mask=return_mask,
+                                  seed=seed)
 
         if return_mask is not None:
             drop_values, mask = drop_values

@@ -2,7 +2,7 @@ import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-from tensorx.test_utils import TestCase
+from tensorx.testing import TestCase
 import unittest
 import tensorx as tx
 import tensorflow as tf
