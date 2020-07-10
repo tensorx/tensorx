@@ -507,7 +507,7 @@ def apply_gate(x, gate):
         feature_dim = n_units // n_gates
 
         if isinstance(x, tf.SparseTensor):
-            tensor_in = tf.sparse_reshape(x, [-1, n_gates, feature_dim])
+            tensor_in = tf.sparse.reshape(x, [-1, n_gates, feature_dim])
             gated = tf.sparse.sparse_dense_matmul(tensor_in, tf.expand_dims(gate, -1))
         else:
             tensor_in = tf.reshape(x, [-1, n_gates, feature_dim])
@@ -820,25 +820,25 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
     with the values of the first one
 
     Args:
-        name: name for this op
-        sp_tensor1: a `SparseTensor`
-        sp_tensor2: a `SparseTensor`
+        sp_tensor1 (`SparseTensor`): a sparse tensor
+        sp_tensor2 (`SparseTensor`): another sparse tensor
+        name (`str`): name for this op
 
     Returns:
-        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
+        sp1, sp2 (`SparseTensor`, `SparseTensor`):  sparse tensors with the overlapping indices
     """
     with tf.name_scope(name):
         ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
         ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
 
-        index_union = tf.sparse_add(ones1, ones2)
+        index_union = tf.sparse.add(ones1, ones2)
 
-        index_filter = tf.math.equal(index_union.values, 2.)
+        index_filter = tf.math.equal(index_union.valfues, 2.)
 
         zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
-        expand1 = tf.sparse_add(zeros1, sp_tensor1)
+        expand1 = tf.sparse.add(zeros1, sp_tensor1)
 
-        filtered = tf.sparse_retain(expand1, index_filter)
+        filtered = tf.sparse.retain(expand1, index_filter)
         return filtered
 
 
