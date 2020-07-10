@@ -94,12 +94,12 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
 
         shape = tf.shape(index_tensor, out_type=dtype)
         row_indices = tf.range(0, shape[0])
-        row_indices = repeat(row_indices, shape[1])
+        row_indices = repeat(row_indices, shape[-1])
 
         # sort ascending
         if sort_indices:
             sorted_indices, _ = tf.nn.top_k(tf.cast(index_tensor, tf.int32),
-                                            k=tf.cast(shape[1], tf.int32))
+                                            k=tf.cast(shape[-1], tf.int32))
             sorted_indices = tf.reverse(sorted_indices, axis=[-1])
             col_indices = sorted_indices
         else:
@@ -842,6 +842,44 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
         return filtered
 
 
+def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
+    """ sort_by_first
+
+    Sorts two tensors. Sorts the second by the changes in the first sort
+
+    Args:
+        tensor1 (`Tensor`): tensor to determine the oder by which the second is sorted
+        tensor2 (`Tensor`): tensor to be sorted according to the sorting of the first
+        ascending (`Bool`): if True sorts by ascending order of value
+        name (`str`): name of the op
+
+    Returns:
+        tensor1, tensor2 (`Tensor`,`Tensor`): sorted first tensor, second tensor sorted according to the indices of the
+        first tensor sorting
+
+    """
+
+    with tf.name_scope(name=name):
+        tensor1 = as_tensor(tensor1)
+        tensor2 = as_tensor(tensor2)
+
+        sorted_tensor1, sorted_tensor1_indices = tf.nn.top_k(tensor1, k=tf.shape(tensor1)[-1])
+        if ascending:
+            sorted_tensor1 = tf.reverse(sorted_tensor1, axis=[-1])
+            sorted_tensor1_indices = tf.reverse(sorted_tensor1_indices, axis=[-1])
+
+        # TODO not sure what the performance implication of this check is when converted to graph
+        if len(tensor1.shape.as_list()) == 1:
+            sorted_tensor1_indices = tf.expand_dims(sorted_tensor1_indices, 1)
+        else:
+            sorted_tensor1_indices = matrix_indices(sorted_tensor1_indices, sort_indices=False)
+
+        sorted_values = tf.gather_nd(tensor2, sorted_tensor1_indices)
+        sorted_values = tf.reshape(sorted_values, tf.shape(tensor2))
+
+        return sorted_tensor1, sorted_values
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -857,4 +895,6 @@ __all__ = ["apply_gate",
            "embedding_lookup_sparse",
            "dense_one_hot",
            "sparse_zeros",
+           "sparse_overlap",
+           "sort_by_first",
            "grid"]

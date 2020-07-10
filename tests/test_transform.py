@@ -62,6 +62,23 @@ class TestLayers(TestCase):
 
         self.assertTrue(all_zero)
 
+    def test_sort_by_first(self):
+        v1 = tf.constant([[3, 1], [2, 1]])
+        sorted1 = [[1, 3], [1, 2]]
+        v2 = tf.constant([[1, 2], [1, 2]])
+        sorted2 = [[2, 1], [2, 1]]
+
+        s1, s2 = tx.sort_by_first(v1, v2, ascending=True)
+
+        self.assertArrayEqual(s1, sorted1)
+        self.assertArrayEqual(s2, sorted2)
+
+        s1, s2 = tx.sort_by_first([2, 1, 3], [1, 2, 3])
+        sorted1 = [1, 2, 3]
+        sorted2 = [2, 1, 3]
+        self.assertArrayEqual(s1, sorted1)
+        self.assertArrayEqual(s2, sorted2)
+
 
 if __name__ == '__main__':
     unittest.main()

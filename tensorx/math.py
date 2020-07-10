@@ -178,6 +178,29 @@ def sparse_l2_norm(sp_tensor, axis=-1, keep_sparse=False, keepdims=False, name="
         return l2_norm
 
 
+def logit(x, dtype=tf.float32):
+    """ logit
+
+    The logit is a link function / a transformation of a parameter. It is the logarithm of the odds.
+
+    $$
+    logit(p) = log(p/(1-p))
+    $$
+
+    logit(0) = -inf, logit(1) = inf, and logit(p) for p<0 or p>1 yields nan.
+
+    Args:
+        x (`Tensor`): an input tensor
+        dtype (`DType`): data type
+
+    Returns:
+        logit (`Tensor`): a tensor f the same shape as `x`
+    """
+    x = tf.convert_to_tensor(x, dtype)
+    x = tf.math.divide(x, 1 - x)
+    return tf.math.log(x)
+
+
 __all__ = [
     "sparse_multiply_dense",
     "sparse_dot",
