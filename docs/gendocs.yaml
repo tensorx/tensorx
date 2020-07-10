@@ -60,3 +60,9 @@ pages:
       - sinkhorn_loss
       - sparsemax_loss
       - binary_hinge
+  - page: "metrics.md"
+    source: 'tensorx/metrics.py'
+    functions:
+      - euclidean_distance
+      - cosine_distance
+      - torus_l1_distance

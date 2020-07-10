@@ -4,7 +4,24 @@ from tensorflow.python.platform import tf_logging as logging
 
 from tensorx.utils import as_tensor
 from tensorflow.python.framework import tensor_shape, tensor_util
-from tensorx.math import sparse_multiply_dense
+
+
+def grid(shape, name="grid"):
+    with tf.name_scope(name):
+        if len(shape) == 1:
+            return tf.expand_dims(tf.range(0, shape[0], 1), -1)
+        elif len(shape) == 2:
+            max_x = shape[0]
+            max_y = shape[1]
+
+            ys = tf.range(0, max_y, 1)
+            ys = tf.tile(ys, [max_x])
+            ys = tf.reshape(ys, shape)
+
+            xys = matrix_indices(ys)
+            return xys
+        else:
+            raise ValueError("Invalid shape: shape should have len 1 or 2")
 
 
 def sparse_indices(sp_values, name="sparse_indices"):
@@ -113,6 +130,26 @@ def sparse_ones(indices, dense_shape, dtype=tf.float32, name="sparse_ones"):
         dense_shape = as_tensor(dense_shape, tf.int64)
         indices_shape = indices.shape
         values = tf.ones([indices_shape[0]], dtype)
+        return tf.SparseTensor(indices, values, dense_shape)
+
+
+def sparse_zeros(indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
+    """ Creates a new ``SparseTensor`` with the given indices having value 1
+
+    Args:
+        indices: a rank 2 ``Tensor`` with the indices for the resulting sparse tensor
+        dense_shape: the ``SparseTensor`` dense shape
+        dtype: the tensor type for the values
+        name: name for this op
+
+    Returns:
+        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
+    """
+    with tf.name_scope(name=name):
+        indices = as_tensor(indices, tf.int64)
+        dense_shape = as_tensor(dense_shape, tf.int64)
+        indices_shape = tf.shape(indices)
+        values = tf.zeros([indices_shape[0]], dtype)
         return tf.SparseTensor(indices, values, dense_shape)
 
 
@@ -471,7 +508,7 @@ def apply_gate(x, gate):
 
         if isinstance(x, tf.SparseTensor):
             tensor_in = tf.sparse_reshape(x, [-1, n_gates, feature_dim])
-            gated = sparse_multiply_dense(tensor_in, tf.expand_dims(gate, -1))
+            gated = tf.sparse.sparse_dense_matmul(tensor_in, tf.expand_dims(gate, -1))
         else:
             tensor_in = tf.reshape(x, [-1, n_gates, feature_dim])
             gated = tensor_in * tf.expand_dims(gate, -1)
@@ -778,6 +815,33 @@ def dense_one_hot(column_indices, num_cols, dtype=tf.float32, name="dense_one_ho
         return one_hot_dense
 
 
+def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
+    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
+    with the values of the first one
+
+    Args:
+        name: name for this op
+        sp_tensor1: a `SparseTensor`
+        sp_tensor2: a `SparseTensor`
+
+    Returns:
+        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
+    """
+    with tf.name_scope(name):
+        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
+        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
+
+        index_union = tf.sparse_add(ones1, ones2)
+
+        index_filter = tf.math.equal(index_union.values, 2.)
+
+        zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
+        expand1 = tf.sparse_add(zeros1, sp_tensor1)
+
+        filtered = tf.sparse_retain(expand1, index_filter)
+        return filtered
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
@@ -791,4 +855,6 @@ __all__ = ["apply_gate",
            "SparseVariable",
            "to_sparse",
            "embedding_lookup_sparse",
-           "dense_one_hot"]
+           "dense_one_hot",
+           "sparse_zeros",
+           "grid"]
