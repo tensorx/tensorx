@@ -213,33 +213,29 @@ def batch_manhattan_distance(tensor1, tensor2, keepdims=False):
     return tf.reduce_sum(abs_diff, axis=-1, keepdims=keepdims)
 
 
-def batch_sparse_cosine_distance(sp_tensor, tensor2, dtype=tf.float32, keepdims=False):
-    """ Computes the cosine dsitance between two non-zero `SparseTensor` and `Tensor`
+def batch_sparse_cosine_distance(sp_tensor, tensor, dtype=tf.float32, keepdims=False):
+    """ Computes the cosine distance between two non-zero `SparseTensor` and `Tensor`
 
         Warning:
-            1 - cosine similarity is not a proper distance metric, but any use where only the relative ordering of
-            similarity or distance within a set of vectors is important, the resulting order will be unaffected
-            by the choice.
+            1 - cosine similarity is not a proper distance metric, to repair the triangle inequality property while
+            maintaining the same ordering, it is necessary to convert to angular distance
 
         Args:
-            keepdims: keeps the original dimension of the input tensor
             sp_tensor: a `SparseTensor`
-            tensor2: a `Tensor`
-            dim: the dimension along which the distance is computed
+            tensor: a `Tensor`
             dtype:
+            keepdims: keeps the original dimension of the input tensor
 
         Returns:
             a `Tensor` with the cosine distance between two tensors
         """
-    tensor1 = tf.SparseTensor.from_value(sp_tensor)
-    if tensor1.values.dtype != dtype:
-        tensor1.values = tf.cast(tensor1.values, dtype)
-    tensor2 = tf.convert_to_tensor(tensor2, dtype)
+    sp_tensor = as_tensor(sp_tensor, dtype)
+    tensor = tf.convert_to_tensor(tensor, dtype)
 
-    dot_prod = batch_sparse_dot(tensor1, tensor2, keepdims=keepdims)
+    dot_prod = batch_sparse_dot(sp_tensor, tensor, keepdims=keepdims)
 
-    norm1 = sparse_l2_norm(tensor1, axis=-1, keepdims=True)
-    norm2 = tf.norm(tensor2, axis=-1)
+    norm1 = sparse_l2_norm(sp_tensor, axis=-1, keepdims=True)
+    norm2 = tf.norm(tensor, axis=-1)
 
     norm12 = norm1 * norm2
     if keepdims:
@@ -266,9 +262,9 @@ def sinkhorn(tensor1, tensor2, epsilon, n_iter, cost_fn=None):
     outputs an approximation of the Optimal Transport (OT) cost with regularization
     parameter epsilon, niter is the maximum number of steps in sinkhorn loop
 
-    !!! cite "References"
-        1. [Concerning nonnegative matrices and doubly stochastic matrices](https://msp.org/pjm/1967/21-2/p14.xhtml)
-        2. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
+    !!! cite "References" 1. [Concerning nonnegative matrices and doubly stochastic matrices](
+    https://msp.org/pjm/1967/21-2/p14.xhtml) 2. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](
+    https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
 
     Args:
         tensor1 (`Tensor`): a tensor representing a distribution
@@ -295,7 +291,6 @@ def sinkhorn(tensor1, tensor2, epsilon, n_iter, cost_fn=None):
         cost_m = cost_matrix(tensor1, tensor2)
     else:
         cost_m = cost_fn(tensor1, tensor2)
-
     # both marginals are fixed with equal weights
     # mu = Variable(1. / n * tf.ones([n], dtype=tf.float32))
     # nu = Variable(1. / n * tf.ones([n], dtype=tf.float32))
@@ -311,7 +306,7 @@ def sinkhorn(tensor1, tensor2, epsilon, n_iter, cost_fn=None):
     rho = 1  # (.5) **2 # unbalanced transport
     tau = -.8  # nesterov-like acceleration
     lam = rho / (rho + epsilon)  # Update exponent
-    thresh = 10 ** (-1)  # stopping criterion
+    thresh = 0.1  # stopping criterion
 
     # Elementary operations .....................................................................
     def ave(u, u1):
@@ -322,9 +317,9 @@ def sinkhorn(tensor1, tensor2, epsilon, n_iter, cost_fn=None):
         # Modified cost for logarithmic updates $M_{ij} = (-c_{ij} + u_i + v_j) / \epsilon$
         return (-cost_m + tf.expand_dims(u, 1) + tf.expand_dims(v, 0)) / epsilon
 
-    # def lse(A):
-    # log-sum-exp
-    #    return tf.math.log(tf.reduce_sum(tf.exp(A), 1, keepdims=True) + 1e-6)  # add 10^-6 to prevent NaN
+    def lse(A):
+        # log-sum-exp
+        return tf.reduce_logsumexp(A, axis=1, keepdims=True)
 
     # Actual Sinkhorn loop ......................................................................
     init_u, init_v, init_err = 0. * mu, 0. * nu, 0.
@@ -332,9 +327,8 @@ def sinkhorn(tensor1, tensor2, epsilon, n_iter, cost_fn=None):
 
     def body(i, u, v, _):
         u0 = u  # to check the error threshold
-        new_u = epsilon * (tf.math.log(mu) - tf.squeeze(tf.reduce_logsumexp(M(u, v), keepdims=True))) + u
-        new_v = epsilon * (
-                tf.math.log(nu) - tf.squeeze(tf.reduce_logsumexp(tf.transpose(M(new_u, v)), keepdims=True))) + v
+        new_u = epsilon * (tf.math.log(mu) - tf.squeeze(lse(M(u, v)))) + u
+        new_v = epsilon * (tf.math.log(nu) - tf.squeeze(lse(tf.transpose(M(new_u, v))))) + v
         # accelerated unbalanced iterations
         # u = ave( u, lam * ( epsilon * ( torch.log(mu) - lse(M(u,v)).squeeze()   ) + u ) )
         # v = ave( v, lam * ( epsilon * ( torch.log(nu) - lse(M(u,v).t()).squeeze() ) + v ) )
@@ -342,13 +336,16 @@ def sinkhorn(tensor1, tensor2, epsilon, n_iter, cost_fn=None):
 
         return i + 1, new_u, new_v, error
 
-    i, u, v, err = tf.while_loop(cond=lambda i, u, v, err: err < thresh and tf.less(i, n_iter),
+    def cond(i, u, v, err):
+        return tf.logical_and(tf.less(err, thresh), tf.less(i, n_iter))
+
+    i, u, v, err = tf.while_loop(cond=cond,
                                  body=body,
                                  loop_vars=(0, init_u, init_v, init_err))
 
     pi = tf.exp(M(u, v))  # Transport plan p_i = diag(a)*K*diag(b)
 
-    return tf.reduce_sum(pi * cost_m)
+    return tf.reduce_sum(pi * cost_m)  # pi * cost_m  # tf.reduce_sum(pi * cost_m)
 
 
 __all__ = [
@@ -358,5 +355,6 @@ __all__ = [
     "cosine_distance",
     "batch_manhattan_distance",
     "batch_sparse_cosine_distance",
-    "sinkhorn"
+    "sinkhorn",
+    "pairwise_euclidean_distance"
 ]

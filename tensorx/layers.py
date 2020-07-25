@@ -657,7 +657,14 @@ class Input(Layer):
         self.shape = self._no_dependency(shape)
         self.constant = constant
         self.sparse = sparse
-        self.dtype = dtype if dtype is not None else tf.float32
+        if dtype is not None:
+            self.dtype = dtype
+        elif n_active is not None:
+            self.dtype = tf.int64
+        else:
+            self.dtype = tf.float32
+        if self.n_active is not None and self.dtype != tf.int64:
+            raise TypeError(f"Sparse index input tensors should have type {tf.int64}, {self.dtype} found instead")
         self.n_units = n_units
         # Check params =================================================================================================
 

@@ -136,6 +136,15 @@ class Graph:
             del self.in_nodes[node2]
 
     def append_layer(self, layer):
+        """ Appends a layer to the current graph
+
+        Adds input edges from the given layer input_layers attribute
+        and updates the output nodes with the new layer
+
+        Args:
+            layer (`tx.Layer`): a layer to be appended to the layer graph
+
+        """
         out_nodes = dict.fromkeys(self.out_nodes)
 
         in_nodes = layer.input_layers

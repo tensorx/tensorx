@@ -91,6 +91,9 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
     """
     with tf.name_scope(name):
         index_tensor = as_tensor(index_tensor, dtype)
+        if len(index_tensor.shape) < 2:
+            index_tensor = tf.expand_dims(index_tensor, 0)
+        # print(index_tensor)
 
         shape = tf.shape(index_tensor, out_type=dtype)
         row_indices = tf.range(0, shape[0])
