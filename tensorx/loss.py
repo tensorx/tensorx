@@ -1,57 +1,48 @@
-""" Loss Functions
-
-To be used with to optimise neural network models, some of these are forwards from the `TensorFlow` API with some
-additional documentation.
-"""
-
-from tensorx.math import embedding_lookup_sparse
-import tensorx.random as tx_rnd
-
 import tensorflow as tf
-from tensorflow.python.ops.nn import uniform_candidate_sampler as uniform_sampler
-import tensorx.transform as txf
-
-
-def mse(labels, predictions, weights=1.0):
-    """ Mean Squared Error (MSE)
-
-    Measures the average of the squares of the errors - the difference between an estimator and what is estimated.
-    This is a risk function, corresponding to the expected value of the quadratic loss. Like variance, mean squared
-    error has the disadvantage of heavily weighting outliers.
-
-
-    Args:
-        weights: Optional `Tensor` whose rank is either 0, or the same rank as `labels`, and must be broadcastable to
-        `labels` (i.e., all dimensions must be either `1`, or the same as the corresponding `losses` dimension).
-        predictions: a tensor with the estimated target values
-        labels: ground truth, correct values
-
-    Returns:
-        ``Tensor``: a float ``Tensor``.
-
-    """
-    return tf.losses.mean_squared_error(labels, predictions, weights)
+import tensorx as tx
 
 
 def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
     """ Binary Cross Entropy
 
     Measures the probability error in discrete binary classification tasks in which each class is independent and
-    not mutually exclusive. The cross entropy between two distributions p and q is defined as:
+    not mutually exclusive.
+
+    !!! note "On Entropy and Cross-Entropy"
+
+        Entropy refers to the number of bits required to transmit a randomly selected event from a probability
+        distribution. A skewed distribution has a low entropy, whereas a distribution where events have equal
+        probability has a larger entropy.
+
+        The entropy of a random variable with a set $x \\in X$ discrete states and their
+        probability $P(x)$, can be computed as:
+
+        $$
+            H(X) = –\\sum_{x \\in X} P(x) * log(P(x))
+        $$
+
+        Cross-entropy builds upon this idea to compute the number of bits required to represent or
+        transmit an average event from one distribution compared to another distribution. if we consider a target
+        distribution $P$ and an approximation of the target distribution $Q$, the cross-entropy of $Q$ from $P$
+        is the number of additional bits to represent an event using Q instead of P:
+
+        $$
+            H(P, Q) = –\\sum_{x \\in X} P(x) * log(Q(x))
+        $$
 
 
-    Warning:
-        This is to be used on the logits of a model, not on the predicted labels.
-        See ``tf.nn.sigmoid_cross_entropy_with_logits``.
+    !!! warning
+        This is to be used on the **logits** of a model, not on the predicted labels.
+        See also [from TensorFlow](https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits).
 
     Args:
-        name: function name
-        labels: ground truth, correct values
-        logits: a tensor with the unscaled log probabilities used to predict the labels with sigmoid(logits)
+        labels (`Tensor`): empiric probability values (labels that occurred for a given sample)
+        logits (`Tensor`): unscaled log probabilities used to predict the labels with `sigmoid(logits)`
+        name (str): op name
 
 
     Returns:
-        ``Tensor``: a float ``Tensor``.
+        tensor (`Tensor`): binary (sigmoid) cross-entropy loss.
 
     """
     return tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits, name=name)
@@ -62,72 +53,103 @@ def categorical_cross_entropy(labels, logits, axis=-1, name="categorical_cross_e
 
     Measures the probability error in discrete classification tasks in which the classes are mutually exclusive.
 
-    Warning:
-        This is to be used on the logits of a model, not on the predicted labels.
-        See ``tf.nn.softmax_cross_entropy_with_logits``.
+   !!! warning
+        This is to be used on the **logits** of a model, not on the predicted labels. Do not call this loss with the
+        output of softmax.
+        See also [from TensorFlow](https://www.tensorflow.org/api_docs/python/tf/nn/softmax_cross_entropy_with_logits).
 
     Args:
-        labels: ground truth, correct values with a one-hot encoding. Each row labels[i] must be a valid probability
-        distribution.
-        logits: a tensor with the unscaled log probabilities used to predict the labels with softmax(logits)
-        axis: The class dimension. Defaulted to -1 which is the last dimension.
-      `labels`, and must be broadcastable to `labels` (i.e., all dimensions must
-      be either `1`, or the same as the corresponding `losses` dimension).
+        labels (Tensor): empiric probability distribution. Each row labels[i] must be a valid probability distribution
+        (integrate to 1).
+        logits (Tensor): unscaled log probabilities used to predict the labels with `softmax(logits)`
+        axis (int): The class dimension. Defaulted to -1 which is the last dimension.
+        name (str): op name
 
     Returns:
-        ``Tensor``: a float ``Tensor``.
+        tensor (`Tensor`): categorical (softmax) cross-entropy loss.
 
     """
-    return tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits, axis=axis, name=name)
+    return tf.nn.softmax_cross_entropy_with_logits(labels=labels, logits=logits, axis=axis, name=name)
 
 
-def binary_hinge(labels, logits, weights=1.0):
+def binary_hinge(labels, logits):
     """ Binary Hinge Loss
 
     Measures the classification error for maximum-margin classification. Margin classifiers like
     Support Vector Machines (SVM) maximise the distance between the closest examples and the decision boundary
-    separating the binary classes.
-    The hinge loss is defined as:
+    separating the binary classes. The hinge loss is defined as:
 
-    .. math::
+    $$
+    \\ell(y) = \\max(0, 1-t \\cdot y),
+    $$
 
-        \ell(y) = \max(0, 1-t \cdot y),
-
-    where :math:`t` is the intended output (labels) and :math:`y` is the `raw` output (logits) from the
+    where $t$ is the intended output (labels) and $y$ are the output logits from the
     classification decision function, not the predicted class label.
 
     Args:
-        labels: The ground truth output tensor with values 0.0 or 1.0. Its shape should match the shape of logits.
-        logits: The unscaled log probabilities, a float tensor.
-        weights: Optional Tensor whose rank is either 0, or the same rank as labels, and must be broadcastable to
-        labels (i.e., all dimensions must be either 1, or the same as the corresponding losses dimension).
+        labels (`Tensor`): tensor with values -1 or 1. Binary (0 or 1) labels are converted to -1 or 1.
+        logits (`Tensor`): unscaled log probabilities.
 
     Returns:
-        ``Tensor``: a float ``Tensor``.
+        tensor (`Tensor`): hinge loss float tensor
     """
-    return tf.losses.hinge_loss(labels, logits, weights)
+    return tf.losses.hinge(labels, logits)
 
 
-def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
-    """Sparsemax loss function.
+def mse(target, predicted):
+    """ Mean Squared Error (MSE) Loss
 
-    References:
-        [1]: From Softmax to Sparsemax: A Sparse Model of Attention and Multi-Label Classification
-        https://arxiv.org/abs/1602.02068
+    Measures the average of the squares of the errors - the difference between an estimator and what is estimated.
+    This is a risk function, corresponding to the expected value of the quadratic loss:
+
+    $$
+    MSE =\\frac{1}{N}​\\sum^{N}_{i=0}​(y-\\hat{y})^2
+    $$
+
+    !!! info
+        MSE is sensitive towards outliers and given several examples with the same input feature values,
+        the optimal prediction will be their mean target value. This should be compared with _Mean Absolute
+        Error_, where the optimal prediction is the median. MSE is thus good to use if you believe that your
+        target data, conditioned on the input, is normally distributed around a mean value --and when it's
+        important to penalize outliers.
 
     Args:
-      logits: A `Tensor`, before sparsemax is applied
-      sparsemax: A `Tensor` resulting from applying a sparsemax activation. Must have the same type as `logits`.
-      labels: A `Tensor`. Must have the same type as `logits`.
-      name: A name for the operation (optional).
+        predicted (`Tensor`): estimated target values
+        target (`Tensor`): ground truth, correct values
 
     Returns:
-      A `Tensor`. Has the same type as `logits`.
+        tensor (`Tensor`): mean squared error value
+
+    """
+    return tf.losses.mean_squared_error(target, predicted)
+
+
+def sparsemax_loss(logits, labels, name="sparsemax_loss"):
+    """ Sparsemax Loss
+
+    A loss function for the sparsemax activation function. This is similar to `tf.nn.softmax`, but able to output s
+    parse probabilities.
+
+    !!! info
+        Applicable to multi-label classification problems and attention-based neural networks
+        (e.g. for natural language inference)
+
+    !!! cite "References"
+        1. [From Softmax to Sparsemax: A Sparse Model of Attention and Multi-Label Classification](https://arxiv.org/abs/1602.02068)
+
+
+    Args:
+        labels (`Tensor`): the target dense labels (one hot encoded)
+        logits (`Tensor`): unnormalized log probabilities
+        name (str): op name
+
+    Returns:
+        loss (`Tensor`): sparsemax loss
     """
 
-    with tf.name_scope(name, [logits, sparsemax, labels]):
+    with tf.name_scope(name):
         logits = tf.convert_to_tensor(logits)
-        sparsemax = tf.convert_to_tensor(sparsemax)
+        sparsemax = tx.sparsemax(logits)
         labels = tf.convert_to_tensor(labels, name="labels")
 
         shifted_logits = logits - tf.math.reduce_mean(logits, axis=1)[:, tf.newaxis]
@@ -142,232 +164,58 @@ def sparsemax_loss(logits, sparsemax, labels, name="sparsemax_loss"):
         return tf.math.reduce_sum(sum_s + q_part, axis=1)
 
 
-def _sum_rows(x):
-    with tf.name_scope("row_sum"):
-        """Returns a vector summing up each row of the matrix x."""
-        # _sum_rows(x) is equivalent to tf.math.reduce_sum(x, 1) when x is
-        # a matrix.  The gradient of _sum_rows(x) is more efficient than
-        # reduce_sum(x, 1)'s gradient in today's implementation. Therefore,
-        # we use _sum_rows(x) in the nce_loss() computation since the loss
-        # is mostly used for training.
-        cols = tf.shape(x)[1]
-        ones_shape = tf.stack([cols, 1])
-        ones = tf.ones(ones_shape, x.dtype)
-        return tf.reshape(tf.math.matmul(x, ones), [-1])
+def kld(target, predicted):
+    """ Kullback–Leibler Divergence Loss
 
+    Kullback–Leibler divergence (also called relative entropy) is a measure of how one probability distribution is
+    different from a second, reference probability distribution.
 
-def nce_loss(labels,
-             model_prediction,
-             weights,
-             bias,
-             scaling_var,
-             num_samples,
-             num_classes,
-             num_true=1,
-             class_sampler=None,
-             labels_to_features=None):
-    if class_sampler is None:
-        class_sampler = uniform_sampler(
-            true_classes=labels,
-            num_true=num_true,
-            num_sampled=num_samples,
-            unique=True,
-            range_max=num_classes,
-            seed=None)
+    $$
+    D_{KL}(P || Q) = - \\sum_{x \\in X}P(x) log\\left(\\frac{Q(x)}{P(x)}\\right)
+    $$
 
-    labels_flat = tf.reshape(labels, [-1])
-
-    # label_sample_prob is the probability of label to appear in the sampled set
-    # sampled_classes_prob is the probability of each sampled class to appear in the sampled_classes
-    sampled_classes, label_sample_prob, sampled_classes_prob = (
-        tf.stop_gradient(s) for s in class_sampler)
-    all_ids = tf.concat([labels_flat, sampled_classes], 0)
-
-    all_ids = labels_to_features(all_ids)
-    if isinstance(all_ids, tf.SparseTensor):
-        sp_values = all_ids
-        sp_indices = txf.sparse_indices(sp_values)
-
-        all_w = embedding_lookup_sparse(
-            params=weights,
-            sp_ids=sp_indices,
-            sp_weights=sp_values,
-            combiner="sum",
-            partition_strategy="mod")
-
-        if bias is not None:
-            all_b = embedding_lookup_sparse(
-                params=bias,
-                sp_ids=sp_indices,
-                sp_weights=sp_values,
-                combiner="sum",
-                partition_strategy="mod")
-
-    else:
-        all_w = tf.nn.embedding_lookup(
-            params=weights,
-            ids=all_ids,
-            partition_strategy="mod")
-
-        if bias is not None:
-            all_b = tf.nn.embedding_lookup(
-                params=bias,
-                ids=all_ids,
-                combiner="sum",
-                partition_strategy="mod")
-
-    # true_w shape is [batch_size * num_true, m] with m being the weights dim
-    true_w = tf.slice(all_w, [0, 0], tf.stack([tf.shape(labels_flat)[0], -1]))
-    sampled_w = tf.slice(all_w, tf.stack([tf.shape(labels_flat)[0], 0]), [-1, -1])
-
-    # [batch_size, num_samples]
-    sampled_logits = tf.math.matmul(model_prediction, sampled_w, transpose_b=True)
-
-    # inputs shape is [batch_size, dim]
-    # true_w shape is [batch_size * num_true, dim]
-    # row_wise_dots is [batch_size, num_true, dim]
-    dim = tf.shape(true_w)[1:2]
-    new_true_w_shape = tf.concat([[-1, num_true], dim], 0)
-    row_wise_dots = tf.math.multiply(
-        tf.expand_dims(model_prediction, 1),
-        tf.reshape(true_w, new_true_w_shape))
-    # We want the row-wise dot plus biases which yields a
-    # [batch_size, num_true] tensor of true_logits.
-    dots_as_matrix = tf.reshape(row_wise_dots,
-                                tf.concat([[-1], dim], 0))
-    true_logits = tf.reshape(_sum_rows(dots_as_matrix), [-1, num_true])
-
-    if bias is not None:
-        true_b = tf.slice(all_b, [0], tf.shape(labels_flat))
-        true_b = tf.reshape(true_b, [-1, num_true])
-        sampled_b = tf.slice(all_b, tf.shape(labels_flat), [-1])
-
-        true_logits += true_b
-        sampled_logits += sampled_b
-
-    # add trainable scaling var
-    true_logits += scaling_var
-    sampled_logits += scaling_var
-
-    # subtract log(k*p_noise(w_j))
-    true_logits -= tf.math.log(label_sample_prob)
-    sampled_logits -= tf.math.log(sampled_classes_prob)
-
-    # Construct output logits and labels. The true labels/logits start at col 0.
-    out_logits = tf.concat([true_logits, sampled_logits], 1)
-
-    # true_logits is a float tensor, ones_like(true_logits) is a float
-    # tensor of ones. We then divide by num_true to ensure the per-example
-    # labels sum to 1.0, i.e. form a proper probability distribution.
-    out_labels = tf.concat([
-        tf.ones_like(true_logits) / num_true,
-        tf.zeros_like(sampled_logits)
-    ], 1)
-
-    return binary_cross_entropy(labels=out_labels, logits=out_logits)
-
-
-def sparse_cnce_loss(label_features,
-                     model_prediction,
-                     weights,
-                     noise_features=None,
-                     num_samples=1,
-                     noise_ratio=0.1,
-                     corrupt_labels=False,
-                     gaussian_corruption=False):
-    """
-    Sparse Conditional Noise-Contrastive Estimation
-
-    A variation of Conditional Noise-Contrastive Estimation where
-    we use sparse additive symmetric noise sampled from an hypercube
-
-    References:
-        Ceylan, Gutmann 2018 - Conditional Noise-Contrastive Estimation of Unnormalised Models
-        https://arxiv.org/abs/1806.03664
+    it is the expectation of the logarithmic difference between the probabilities $P$ and $Q$, where the
+    expectation is taken using the probabilities $P$.
 
     Args:
-        noise_features (SparseTensor) [Optional]: noise_features must be a sparse_tensor with shape
-        [dim,shape(label_features)[0]*num_samples]. It none, the noise is generated by the loss function
-        but it might be slow due to sample using map in tensorx.
-        label_features: the labels to be transformed into sparse features according to the given function
-        gaussian_corruption: if True the corrupted entries of the sparse noise are taken from a
-        random.normal * noise_values
-        corrupt_labels: if True, noise is added to the current sparse feature labels, if False, random noise is used
-        without the current labels
-        noise_ratio: the ratio of noise according to the number of sparse features
-        num_samples: number of counter examples to use for each true label
-        weights: the weight table (embeddings) from which we draw the features
-        model_prediction: the predicted embedding representation for the next class to be predicted
+        target (`Tensor`): target probability distribution
+        predicted (`Tensor`): distribution predicted by the model
 
+    Returns:
+        kld (`Tensor`): LK divergence between the target and predicted distributions
     """
-    with tf.name_scope("sparse_cnce_loss"):
-        label_features = tf.convert_to_tensor_or_sparse_tensor(label_features)
-        num_samples = tf.convert_to_tensor_or_sparse_tensor(num_samples)
-
-        if not isinstance(label_features, tf.SparseTensor):
-            raise TypeError("label_features is must be a SparseTensor: {} found".format(type(label_features)))
-
-        tiled_label_features = txf.sparse_tile(label_features, num_samples)
-
-        if noise_features is None:
-            dim = label_features.get_shape().as_list()[-1]
-            batch_size = tf.shape(tiled_label_features)[0]
-
-            noise = tx_rnd.sparse_random_mask(dim=dim,
-                                              batch_size=batch_size,
-                                              density=noise_ratio,
-                                              mask_values=[-1, 1],
-                                              symmetrical=True,
-                                              dtype=tf.float32)
-
-            if corrupt_labels:
-                noise = tf.sparse_add(tiled_label_features, noise)
-                noise = tf.SparseTensor(noise.indices, noise.values, tiled_label_features.dense_shape)
-
-            if gaussian_corruption:
-                sp_noise_values = noise.values * tf.random_normal(tf.shape(noise.values))
-            else:
-                sp_noise_values = noise.values
-
-            noise_features = tf.SparseTensor(indices=noise.indices,
-                                             values=sp_noise_values,
-                                             dense_shape=noise.dense_shape)
-
-        true_w = embedding_lookup_sparse(
-            params=weights,
-            sp_ids=txf.sparse_indices(tiled_label_features),
-            sp_weights=tiled_label_features,
-            combiner="sum",
-            partition_strategy="mod",
-            name="true_weights"
-        )
-
-        noise_w = embedding_lookup_sparse(
-            params=weights,
-            sp_ids=txf.sparse_indices(noise_features),
-            sp_weights=noise_features,
-            combiner="sum",
-            partition_strategy="mod",
-            name="noise_weights"
-
-        )
-
-        # p_m(y=1|m)
-        true_logits = tf.matmul(model_prediction, true_w, transpose_b=True)
-        noise_logits = tf.matmul(model_prediction, noise_w, transpose_b=True)
-
-        # log(exp(a)/exp(b)) =  -log(exp(b)/exp(a))
-        logit_ratio = true_logits - noise_logits
-
-        # logit_ratio = array_tf.reshape(logit_ratio, [batch_size, -1])
-
-        # log(exp(features) + 1) is the softplus, and softplus from tf already deals with numerical instability
-        return tf.math.reduce_mean(tf.nn.softplus(-logit_ratio))
+    return tf.losses.kullback_leibler_divergence(target, predicted)
 
 
-__all__ = ["mse",
-           "sparsemax_loss",
-           "binary_cross_entropy",
-           "categorical_cross_entropy",
-           "binary_hinge",
-           "sparse_cnce_loss"]
+def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
+    """ Sinkhorn Loss
+
+    Alias:
+        * `tx.metrics.sinkhorn`
+
+    !!! info
+        Optimal Transport (OT) provides a framework from which one can define a more powerful geometry to compare
+        probability distributions. This power comes, however, with a heavy computational price. The cost of computing OT
+        distances scales at least in $O(d^3 log(d))$ when comparing two histograms of dimension $d$. Sinkhorn algorithm
+        alleviate this problem by solving an regularized OT in linear time.
+
+    Given two measures with n points each with locations x and y
+    outputs an approximation of the Optimal Transport (OT) cost with regularization
+    parameter epsilon, niter is the maximum number of steps in sinkhorn loop
+
+    !!! cite "References"
+        1. [Concerning nonnegative matrices and doubly stochastic matrices](https://msp.org/pjm/1967/21-2/p14.xhtml)
+        2. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
+
+    Args:
+        y_pred (`Tensor`): model distribution
+        y_true (`Tensor`): ground_truth, empirical distribution
+        epsilon (float): regularization term >0
+        n_iter (int): number of sinkhorn iterations
+        cost_fn (Callable): function that returns the cost matrix between y_pred and y_true, defaults to $|x_i-y_j|^p$.
+
+    Returns:
+        cost (`Tensor`): sinkhorn cost of moving from the mass from the model distribution `y_pred` to the empirical
+        distribution `y_true`.
+    """
+    return tx.sinkhorn(y_pred, y_true, epsilon=epsilon, n_iter=n_iter, cost_fn=cost_fn)
