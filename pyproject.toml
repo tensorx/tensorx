@@ -44,4 +44,7 @@ graphviz = ["graphviz"]
 [tool.poetry.dev-dependencies]
 pytest = "*"
 pytest-cov = "*"
+mkgendocs = "*"
+mkdocs = "*"
+mkdocs-material = "*"
 
