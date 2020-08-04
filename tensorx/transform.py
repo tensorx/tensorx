@@ -1,7 +1,7 @@
 import tensorflow as tf
-from tensorflow.python import PartitionedVariable
 from tensorflow.python.platform import tf_logging as logging
 
+from tensorflow.python.ops.variables import PartitionedVariable
 from tensorx.utils import as_tensor
 from tensorflow.python.framework import tensor_shape, tensor_util
 
@@ -644,7 +644,7 @@ def to_sparse(tensor, name="to_sparse"):
 
         return sp_tensor
 
-
+# TODO check if this has been fixed from previous versions
 def embedding_lookup_sparse(params,
                             sp_tensor,
                             partition_strategy="mod",

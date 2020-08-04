@@ -8,8 +8,6 @@ import tensorflow as tf
 import tensorx as tx
 from tensorx.utils import Graph
 
-from tensorflow.python.ops import summary_ops_v2
-
 import numpy as np
 
 
@@ -29,54 +27,17 @@ class TestAutoGraph(unittest.TestCase):
 
         # print(y)
 
-    def test_tensorboard(self):
-        logdir = "/home/davex32/tmp/logs/test"  # + datetime.now().strftime("%Y%m%d-%H%M%S")
-        writer = summary_ops_v2.create_file_writer(logdir)
-
-        # Call only one tf.function when tracing.
-
-        x = tx.Input([[1, 1]], dtype=tf.float32)
-        y1 = tx.Linear(x, 2, name="y1")
-        y2 = tx.Linear(y1, 3, name="y2")
-        v2 = tx.VariableLayer(y2)
-        y3 = y2.reuse_with(x, name='y3')
-        y4 = tx.layer(3, 'add')(lambda x1, x2: tf.add(x1, x2))(v2, y3)
-
-        # z = tf.function(y4.compute)
-        z = y4.as_function()
-
-        tf.summary.trace_on(graph=True, profiler=True)
-        z()
-
-        with writer.as_default():
-            tf.summary.trace_export(
-                name="layers",
-                step=0,
-                profiler_outdir=logdir)
-
-        writer.flush()
-
     def test_tensor_layer(self):
         x = tx.Input([[2]], n_units=1, constant=False)
-
-        logdir = "/home/davex32/tmp/logs/test"  # + datetime.now().strftime("%Y%m%d-%H%M%S")
-        writer = summary_ops_v2.create_file_writer(logdir)
 
         fn = x.as_function()
         x.value = [[4]]
 
-        tf.summary.trace_on(graph=True, profiler=True)
+        #tf.summary.trace_on(graph=True, profiler=True)
         y = fn()
 
         self.assertEqual(y.numpy().flatten(), 4)
 
-        with writer.as_default():
-            tf.summary.trace_export(
-                name="default",
-                step=0,
-                profiler_outdir=logdir)
-
-        writer.flush()
 
     def test_default_values(self):
         class Default:
@@ -104,8 +65,8 @@ class TestAutoGraph(unittest.TestCase):
 
         # x = tx.TensorLayer(value=[[5]], constant=False)
 
-        logdir = "/home/davex32/tmp/logs/test"  # + datetime.now().strftime("%Y%m%d-%H%M%S")
-        writer = summary_ops_v2.create_file_writer(logdir)
+        #logdir = "/home/davex32/tmp/logs/test"  # + datetime.now().strftime("%Y%m%d-%H%M%S")
+        #writer = summary_ops_v2.create_file_writer(logdir)
 
         self.assertEqual(x.compute().numpy().flatten(), 5)
         x.value = tf.convert_to_tensor([[2]])
@@ -119,20 +80,20 @@ class TestAutoGraph(unittest.TestCase):
         g2 = test
 
         # g2 = test
-        tf.summary.trace_on(graph=True, profiler=True)
+        #tf.summary.trace_on(graph=True, profiler=True)
         x.value = [[3]]
         # self.assertEqual(fn().numpy(), 10)
         #  x.value = 4
         #  self.assertEqual(fn().numpy(), 8)
         # self.assertEqual(fn(3).numpy(), 6)
 
-        with writer.as_default():
-            tf.summary.trace_export(
-                name="default",
-                step=0,
-                profiler_outdir=logdir)
+        #with writer.as_default():
+        #    tf.summary.trace_export(
+        ##        name="default",
+        #        step=0,
+        #        profiler_outdir=logdir)
 
-        writer.flush()
+        #writer.flush()
 
         # annotated functions become a special callable
         # we can get the python code as follows
