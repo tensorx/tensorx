@@ -15,10 +15,6 @@ markdown_extensions:
 plugins:
   - search
 
-
-#extra_css:
-#    - css/highlight_fix.css
-
 # for mathjax
 extra_javascript:
   - 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML'
@@ -40,6 +36,5 @@ nav:
   - Train:
       - Model: train/model.md
   - Contributing: contributing.md
-#  - Layers: layers.md
 
 
