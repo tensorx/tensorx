@@ -47,7 +47,7 @@ certain hardware, etc)
 Documentation and tutorials will be coming soon
 
 ## Author
-* **[Davide Nunes](https://github.com/davidenunes)**: get in touch [@davidelnunes](https://twitter.com/davidelnunes)
+* **[Davide Nunes](https://github.com/davidenunes)**: get in touch [@davidelnunes](https://twitter.com/davidelnunes) or by [e-mail](mailto:davidenunes@pm.me)
 
 ## License
 
