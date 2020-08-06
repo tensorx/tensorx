@@ -30,16 +30,18 @@ layer graphs that can then be reused as new components in a "Monoidal" fashion.
     
 
 <!--**Documentation** will be available at [tensorx.readthedocs.io](http://tensorx.readthedocs.io/en/latest/?badge=latest).-->
-
+## Documentation
+Documentation will be available soon, I'm switching from sphinx to markdown files and mkdocs using my custom generator ([mkgendocs](https://pypi.org/project/mkgendocs/)) to create the API pages for Google style docstrings. I'll also make available guides for how to contribute documentation. For now, a tentative version of a contribution guide can be found in [CONTRIBUTING.md](https://github.com/davidenunes/tensorx/blob/master/CONTRIBUTING.md).
 
 ## Installation
 TensorX is compatible with **Python 3.7+**. It depends on Tensorflow and pygraphviz but will not be shipping with tensorflow as a dependency. The reason for this is that tensorflow might come under different packages depending on whether or not the user is using GPU hardware. Moreover, you might want to use a custom tensorflow build. For these reasons Tensorflow should be installed separately from tensorx.
 
 ``` bash
 pip install tensorflow 
-# pip install tensorflow-gpu
 pip install tensorx
 ```
+The only reason I don't add Tensorflow to the dependencies of TensorX is because one might want to install custom TF wheels (optimized for
+certain hardware, etc)
 
 ## Getting Started
 Documentation and tutorials will be coming soon
