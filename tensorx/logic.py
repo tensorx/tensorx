@@ -26,9 +26,16 @@ def tensor_equal(first, second):
         elif isinstance(second, SparseTensor):
             second = tf.sparse.to_dense(second)
     elif isinstance(first, SparseTensor):
-        diff: SparseTensor = tf.abs(tf.sparse.add(first, second * -1))
-        return tf.reduce_all(tf.equal(diff.values, tf.zeros_like(diff.values)))
+        diff: SparseTensor = tf.abs(tf.sparse.add(first, second * tf.cast(-1, second.dtype)))
+        first = diff.values
+        second = tf.zeros_like(diff.values)
 
-    shapes_equal = tf.reduce_all(tf.equal(tf.shape(first), tf.shape(second)))
-    return tf.logical_and(shapes_equal,
-                          tf.reduce_all(tf.equal(first, second)))
+    if len(first.shape.as_list()) != len(second.shape.as_list()):
+        return tf.constant(False)
+
+    # logic_and evaluates everything so we use cond instead
+    return tf.cond(
+        tf.reduce_all(tf.equal(tf.shape(first), tf.shape(second))),
+        true_fn=lambda: tf.reduce_all(tf.equal(first, second)),
+        false_fn=lambda: tf.constant(False)
+    )

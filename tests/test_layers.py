@@ -13,7 +13,7 @@ import tensorflow as tf
 
 def test_input():
     inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
-    tx.testing.assert_tensor_equal(inputs.value, tf.zeros([1, 4], dtype=tf.int32))
+    assert tx.tensor_equal(inputs.value, tf.zeros([1, 4], dtype=tf.int32))
 
     with pytest.raises(ValueError):
         inputs.value = np.ones([2, 3], dtype=np.int32)
@@ -25,7 +25,7 @@ def test_input():
 
     # test sparse input
     inputs = tx.Input(n_units=4, n_active=2, dtype=tf.int64, constant=False)
-    tx.testing.assert_tensor_equal(inputs.value, tf.zeros([0, 2], dtype=tf.int64))
+    assert tx.tensor_equal(inputs.value, tf.zeros([0, 2], dtype=tf.int64))
 
     with pytest.raises(ValueError) as ve:
         inputs.value = [[0, 2, 2]]
@@ -40,35 +40,31 @@ def test_input():
     dense_value = tf.sparse.to_dense(inputs())
     dense_value2 = tf.sparse.to_dense(inputs2())
     expected = tf.constant([[1, 0, 1, 0]], dtype=np.int64)
-    tx.testing.assert_tensor_equal(expected, dense_value)
-    tx.testing.assert_tensor_equal(dense_value, dense_value2)
+    assert tx.tensor_equal(expected, dense_value)
+    assert tx.tensor_equal(dense_value, dense_value2)
 
 
-def test_input_3d(self):
-    # we either create a 3d input specifying the shape
+def test_input_3d():
+    # we either create a 3d input or specify the shape
     data = np.ones([2, 2, 2], dtype=np.float32)
     x = tx.Input(shape=[None, None, 2], dtype=tf.float32, n_units=2)
     x.value = data
     x.value = x() * 2
-    self.assertArrayEqual(data * 2, x())
+    assert tx.tensor_equal(data * 2, x())
 
     x2 = tx.Input(data)
-    self.assertEqual(x2.n_units, np.shape(data)[-1])
-    self.assertEqual(x2.shape[-1], np.shape(data)[-1])
+    assert x2.n_units == np.shape(data)[-1]
+    assert x2.shape[-1] == np.shape(data)[-1]
     x2.value = x2() * 2
-    self.assertArrayEqual(data * 2, x2())
+    assert tx.tensor_equal(data * 2, x2())
 
-    try:
+    with pytest.raises(ValueError, match="Invalid shape"):
         x3 = tx.Input(n_units=2)
         x3.value = data
-    except ValueError:
-        # TODO can we delay Input slots to set value ?
-        #  to do that we would have to create it if we called compute() without setting the value
-        #  otherwise it would be created on value set
-        pass
+        pytest.fail("Value Error Expected: invalid shape for value set")
 
 
-def test_dynamic_input_graph(self):
+def test_dynamic_input_graph():
     # tf.autograph.set_verbosity(
     #    10,
     #    alsologtostdout=True
@@ -87,7 +83,7 @@ def test_dynamic_input_graph(self):
     self.assertArrayNotEqual(out1, out2)
 
 
-def test_layer_proto(self):
+def test_layer_proto():
     inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
     inputs_proto = inputs.proto
     l2 = inputs_proto()
@@ -107,7 +103,7 @@ def test_layer_proto(self):
     self.assertEqual(p.param1, 2)
 
 
-def test_shared_state(self):
+def test_shared_state():
     inputs = np.ones([2, 4])
     l1 = tx.Linear(inputs, 8)
 
@@ -122,7 +118,7 @@ def test_shared_state(self):
     self.assertIs(l1.bias, l3.bias)
 
 
-def test_linear(self):
+def test_linear():
     inputs = np.ones([2, 4])
     inputs2 = inputs * 2
 
@@ -158,7 +154,7 @@ def test_linear(self):
     # self.assertTrue(np.array_equal(linear().numpy()*2, linear2().numpy())
 
 
-def test_linear_rank3(self):
+def test_linear_rank3():
     x = tx.Input([[[1], [1]], [[2], [2]]], dtype=tf.float32)
 
     x2 = tx.Transpose(x)
@@ -183,7 +179,7 @@ def test_linear_rank3(self):
     self.assertTrue(np.array_equal(tf.shape(linear2()), [1, 2, 1]))
 
 
-def test_transpose_reshape(self):
+def test_transpose_reshape():
     x = tf.reshape(tf.range(9), [3, 3])
     x2 = tx.Reshape(tf.range(9), [3, 3])
 
@@ -196,7 +192,7 @@ def test_transpose_reshape(self):
     self.assertArrayEqual(y(x), t)
 
 
-def test_wrap_transpose(self):
+def test_wrap_transpose():
     x = tf.reshape(tf.range(9), [3, 3])
     t = tf.transpose(x)
 
@@ -216,7 +212,7 @@ def test_wrap_transpose(self):
     self.assertArrayEqual(w2.compute(x), w2())
 
 
-def test_variable_layer(self):
+def test_variable_layer():
     input_layer = tx.Input([[1]], n_units=1, dtype=tf.float32)
     var_layer = tx.VariableLayer(input_layer, dtype=tf.float32)
 
@@ -227,7 +223,7 @@ def test_variable_layer(self):
     self.assertArrayEqual(after_update, var_layer.variable.numpy())
 
 
-def test_variable_init_from_input(self):
+def test_variable_init_from_input():
     input_layer = tx.Input(n_units=1, constant=False)
     layer_once = tx.VariableLayer(input_layer, update_once=True)
     layer_var = tx.VariableLayer(input_layer, update_once=False)
@@ -263,7 +259,7 @@ def test_variable_init_from_input(self):
     self.assertFalse(np.array_equal(y1, y2))
 
 
-def test_variable_layer_reuse(self):
+def test_variable_layer_reuse():
     input_layer = tx.Input([[1]], n_units=1, dtype=tf.float32)
     input_layer2 = tx.Input([[1], [2]], n_units=1, dtype=tf.float32)
     var1 = tx.VariableLayer(shape=[2, 1])
@@ -289,12 +285,12 @@ def test_variable_layer_reuse(self):
     self.assertTrue(np.array_equal(np.shape(v2), np.shape(v1)))
 
 
-def test_standalone_variable_layer(self):
+def test_standalone_variable_layer():
     var_layer = tx.VariableLayer(shape=[10])
     self.assertTrue(np.array_equal(np.zeros([10]), var_layer()))
 
 
-def test_module_reuse_order(self):
+def test_module_reuse_order():
     x1 = tx.Input([[2.]], n_units=1, name="x1")
     x2 = tx.Input([[2.]], n_units=1, name="x2")
     x3 = tx.Input([[1.]], n_units=1, name="x3")
@@ -316,7 +312,7 @@ def test_module_reuse_order(self):
     self.assertArrayEqual(m1, m2)
 
 
-def test_module_rnn(self):
+def test_module_rnn():
     # test wrapping module around RNN because it has input dependencies that might not be given in the constructor
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
     x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
@@ -338,7 +334,7 @@ def test_module_rnn(self):
     self.assertArrayEqual(m(), m2())
 
 
-def test_module_with_attention(self):
+def test_module_with_attention():
     # logger = logging.getLogger('tensorx')
     # logger.setLevel(logging.DEBUG)
     # ch = logging.StreamHandler()
@@ -363,7 +359,7 @@ def test_module_with_attention(self):
     # list(map(print, m.trainable_variables))
 
 
-def test_module(self):
+def test_module():
     l1 = tx.Input([[1]], n_units=1, dtype=tf.float32)
     l2 = tx.Input([[1]], n_units=1, dtype=tf.float32)
     l3 = tx.layer(n_units=1)(lambda x1, x2: tf.add(x1, x2))(l1, l2)
@@ -385,7 +381,7 @@ def test_module(self):
     self.assertFalse(np.array_equal(m(), m2()))
 
 
-def test_rnn_cell(self):
+def test_rnn_cell():
     n_inputs = 4
     n_hidden = 2
     batch_size = 2
@@ -415,7 +411,7 @@ def test_rnn_cell(self):
     self.assertFalse(np.array_equal(res1, res2))
 
 
-def test_rnn_cell_graph(self):
+def test_rnn_cell_graph():
     n_inputs = 4
     n_hidden = 2
     batch_size = 2
@@ -437,7 +433,7 @@ def test_rnn_cell_graph(self):
         self.fail(str(e))
 
 
-def test_rnn_cell_drop(self):
+def test_rnn_cell_drop():
     n_hidden = 4
     inputs1 = tx.Input(np.ones([2, 100]), dtype=tf.float32)
     inputs2 = tx.Input(np.ones([2, 100]), dtype=tf.float32)
@@ -481,7 +477,7 @@ def test_rnn_cell_drop(self):
     self.assertArrayEqual(mask1, mask2)
 
 
-def test_gru_cell(self):
+def test_gru_cell():
     n_inputs = 4
     n_hidden = 2
     batch_size = 2
@@ -505,7 +501,7 @@ def test_gru_cell(self):
     self.assertArrayNotEqual(res1, res2)
 
 
-def test_module_gate(self):
+def test_module_gate():
     x1 = tx.Input([[1, 1, 1, 1]], n_units=4, dtype=tf.float32)
     x2 = tx.Input([[1, 1]], n_units=2, dtype=tf.float32)
     x1 = tx.Add(x1, x1)
@@ -526,7 +522,7 @@ def test_module_gate(self):
     self.assertArrayEqual(result2, result3)
 
 
-def test_lstm_cell(self):
+def test_lstm_cell():
     n_inputs = 4
     n_hidden = 2
     batch_size = 2
@@ -552,7 +548,7 @@ def test_lstm_cell(self):
     self.assertArrayEqual(res1, res4)
 
 
-def test_lstm_cell_regularization(self):
+def test_lstm_cell_regularization():
     n_inputs = 8
     n_hidden = 2
     batch_size = 2
@@ -596,7 +592,7 @@ def test_lstm_cell_regularization(self):
     self.assertArrayEqual(w2, w3)
 
 
-def test_lstm_cell_state(self):
+def test_lstm_cell_state():
     n_inputs = 8
     n_hidden = 2
     batch = 3
@@ -619,7 +615,7 @@ def test_lstm_cell_state(self):
     s_ = state.compute(x, *s)
 
 
-def test_rnn_layer(self):
+def test_rnn_layer():
     n_features = 5
     embed_size = 4
     hdim = 3
@@ -678,7 +674,7 @@ def test_rnn_layer(self):
     self.assertArrayEqual(last1, last5)
 
 
-def test_biRNN(self):
+def test_biRNN():
     # bidirectional RNN
     n_features = 5
     embed_size = 4
@@ -725,7 +721,7 @@ def test_biRNN(self):
     # self.assertArrayEqual()
 
 
-def test_stateful_rnn_layer(self):
+def test_stateful_rnn_layer():
     n_features = 5
     embed_size = 4
     hdim = 3
@@ -764,7 +760,7 @@ def test_stateful_rnn_layer(self):
     self.assertArrayEqual(reset_state, zero_state0[0])
 
 
-def test_lookup_sequence_dense(self):
+def test_lookup_sequence_dense():
     input_dim = 4
     embed_dim = 3
     seq_size = 2
@@ -787,7 +783,7 @@ def test_lookup_sequence_dense(self):
     self.assertEqual(np.shape(v2), (batch_size, seq_size, embed_dim))
 
 
-def test_lookup_dynamic_sequence(self):
+def test_lookup_dynamic_sequence():
     seq1 = [[1, 2], [3, 4]]
     seq2 = [[1, 2, 3], [4, 5, 6]]
 
@@ -822,7 +818,7 @@ def test_lookup_dynamic_sequence(self):
     self.assertEqual(np.shape(c2)[-1], m * 3)
 
 
-def test_dynamic_concat(self):
+def test_dynamic_concat():
     seq1 = [[1, 2], [3, 4]]
     seq2 = [[1, 2, 3], [4, 5, 6]]
 
@@ -857,7 +853,7 @@ def test_dynamic_concat(self):
     self.assertEqual(np.shape(l2)[-1], m)
 
 
-def test_lookup_dynamic_sparse_sequence(self):
+def test_lookup_dynamic_sparse_sequence():
     k = 8
     m = 3
     seq1 = tf.SparseTensor(
@@ -895,7 +891,7 @@ def test_lookup_dynamic_sparse_sequence(self):
     # self.assertEqual(np.shape(c2)[-1], m * 3)
 
 
-def test_lookup_sequence_sparse(self):
+def test_lookup_sequence_sparse():
     input_dim = 10
     embed_dim = 3
     seq_size = 2
@@ -930,7 +926,7 @@ def test_lookup_sequence_sparse(self):
     self.assertEqual(np.shape(result_1d), (batch_size, seq_size, embed_dim))
 
 
-def test_lookup_sparse_padding(self):
+def test_lookup_sparse_padding():
     input_dim = 6
     embed_dim = 3
     seq_size = 1
@@ -947,7 +943,7 @@ def test_lookup_sparse_padding(self):
     result = lookup()
 
 
-def test_lookup_sequence_bias(self):
+def test_lookup_sequence_bias():
     vocab_size = 4
     n_features = 3
     seq_size = 2
@@ -964,7 +960,7 @@ def test_lookup_sequence_bias(self):
     self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, n_features))
 
 
-def test_lookup_sequence_transform(self):
+def test_lookup_sequence_transform():
     vocab_size = 4
     embed_dim = 2
     seq_size = 2
@@ -993,7 +989,7 @@ def test_lookup_sequence_transform(self):
     self.assertTrue(np.array_equal(v1[:, 0], v3[0]))
 
 
-def test_reuse_dropout(self):
+def test_reuse_dropout():
     x1 = tx.Constant(np.ones(shape=[2, 4]), dtype=tf.float32)
     x2 = tx.Activation(x1)
 
@@ -1032,7 +1028,7 @@ def test_reuse_dropout(self):
     # self.assertArrayNotEqual(d1, d2)
 
 
-def test_drop_lookup(self):
+def test_drop_lookup():
     seq_size = 4
     vocab_size = 10
     embed_dim = 4
@@ -1047,7 +1043,7 @@ def test_drop_lookup(self):
     # TODO this works but need to finish the tests for it
 
 
-def test_residual(self):
+def test_residual():
     x1 = tx.Input([[1., 1., 1., 1.]], 4)
     x2 = tx.Input([[1., 1., 1., 1.]], 4)
 
@@ -1070,7 +1066,7 @@ def test_residual(self):
     self.assertEqual(len(residual2.trainable_variables), 1)
 
 
-def test_fully_connected(self):
+def test_fully_connected():
     x1 = tx.Input(init_value=[[1., 1., 1., 1.]], n_units=4, dtype=tf.float32, constant=True)
     x2 = tx.Input(init_value=np.random.uniform(size=[2, 4]), dtype=tf.float32, n_units=4, constant=True)
 
@@ -1109,7 +1105,7 @@ def test_fully_connected(self):
     # self.assertArrayEqual(y1(), a2())
 
 
-def test_conv1d(self):
+def test_conv1d():
     num_filters = 2
     input_dim = 4
     seq_size = 3
@@ -1135,7 +1131,7 @@ def test_conv1d(self):
     self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
 
 
-def test_map_seq(self):
+def test_map_seq():
     n_features = 5
     embed_size = 4
     hdim = 3
@@ -1154,7 +1150,7 @@ def test_map_seq(self):
     self.assertArrayEqual(tf.shape(seq_map), [seq_size, batch_size, n_units])
 
 
-def test_multihead_attention(self):
+def test_multihead_attention():
     n_features = 3
     embed_size = 128
     seq_size = 3

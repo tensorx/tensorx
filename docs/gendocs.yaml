@@ -23,7 +23,7 @@ pages:
       - sparse_multiply_dense
       - rms
   - page: "transform.md"
-    source: 'tensorx/transform.py'
+    source: 'tensorx/ops.py'
     functions:
       - dense_one_hot
       - matrix_indices

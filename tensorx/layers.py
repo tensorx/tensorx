@@ -4,10 +4,10 @@ from tensorx.utils import as_tensor, as_list, Graph
 from typing import Union, Type, Callable, Optional
 import inspect
 from contextlib import ExitStack
-import tensorx.transform as txf
+import tensorx.ops as txf
 from tensorx.train.callbacks import OnValueChange
 from functools import partial
-from tensorx.transform import embedding_lookup_sparse
+from tensorx.ops import embedding_lookup_sparse
 from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
 import tensorx as tx
@@ -2558,7 +2558,7 @@ class Lookup(Layer):
             if isinstance(input_tensor, tf.SparseTensor):
                 sp_dim = tf.cast(input_tensor.dense_shape[-1], tf.int32)
 
-                # transform.py 1D sparse lookups into 2D sparse lookup with 3 lookups
+                # ops.py 1D sparse lookups into 2D sparse lookup with 3 lookups
                 # similar to the semantics of 1D dense tensor lookups
                 if len(input_tensor.get_shape().as_list()) == 1:
                     sp_batch_size = tf.shape(input_tensor.values)[0]

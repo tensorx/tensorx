@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.python.ops.sparse_ops import sparse_dense_cwise_mul
-from tensorx.transform import sparse_ones, sparse_zeros
+from tensorx.ops import sparse_ones, sparse_zeros
 
 
 def rms(x):

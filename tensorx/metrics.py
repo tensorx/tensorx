@@ -1,6 +1,6 @@
 import tensorflow as tf
 from typing import Union, List
-import tensorx.transform as txf
+import tensorx.ops as txf
 from tensorx.utils import as_tensor
 from tensorx.math import batch_sparse_dot, sparse_l2_norm
 
