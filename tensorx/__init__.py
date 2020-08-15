@@ -9,3 +9,4 @@ from tensorx.train import *
 from tensorx.init import *
 from tensorx.loss import *
 from tensorx.activation import *
+from tensorx.logic import *
