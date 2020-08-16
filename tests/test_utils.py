@@ -117,7 +117,7 @@ def test_graph_repeated():
     l2 = tx.Linear(x, 2, name="l2")
     l3 = tx.layer(n_units=2, name="l3")(lambda a, b: tf.add(a, b))(l1, l2)
 
-    g = Graph.build(l1, l3, missing_inputs=True)
+    g = Graph.build(l1, l3, add_missing_inputs=True)
     assert set([x, l1]) == set(g.in_nodes)
 
 

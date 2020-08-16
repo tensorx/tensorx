@@ -623,7 +623,7 @@ class Input(Layer):
         n_active (int): number of active units <= n_units. If given, `Input` expects a `Tensor` with indices and
             outputs a sparse array.
         sparse (bool): if true, expects the input value to be a `SparseTensor`.
-        shape (List[int]): expected input shape
+        shape (List): expected input shape
         dtype (`tf.Dtype`): type for input values.
         constant: if true, input value cannot be changed after `Input` is initialized.
         name (str): layer name
@@ -924,7 +924,10 @@ class VariableLayer(Layer):
                  share_state_with=None,
                  name="variable"):
 
+        # these are overwritten by the layer state but are here just for attribute reference
+        self.counter = None
         self.variable = None
+
         self.shape = shape
         self.update_once = update_once
         self.trainable = trainable
@@ -1414,7 +1417,7 @@ class Module(Layer):
 
         try:
             inputs = self.inputs + self.dependencies
-            self.graph = Graph.build(inputs=inputs, outputs=self.output, missing_inputs=True)
+            self.graph = Graph.build(inputs=inputs, outputs=self.output, add_missing_inputs=True)
 
             # to that we don't need to call reuse on compute with params
             self.module_fn = self.graph.as_function(ord_inputs=inputs,
@@ -3508,8 +3511,8 @@ class Conv1D(Layer):
                  add_bias=True,
                  name="conv1D",
                  share_state_with=None,
-                 shared_filters=None,
-                 shared_bias=None):
+                 filters=None,
+                 bias=None):
 
         # TODO should shared bias and shared weights/filters etc be in the proto? I guess pickling this requires
         #   the storage of the respective weights
@@ -3517,7 +3520,6 @@ class Conv1D(Layer):
         # self.share_state_with = share_state_with
         # self.shared_filters = shared_filters
         self.padding = "SAME" if same_padding else "VALID"
-
         self.same_padding = same_padding
         self.dilation_rate = dilation_rate
         self.stride = stride
@@ -3525,8 +3527,8 @@ class Conv1D(Layer):
         self.filter_init = filter_init
         self.bias_init = bias_init
         self.add_bias = add_bias
-        self.shared_bias = shared_bias
-        self.shared_filters = shared_filters
+        self.bias = bias
+        self.filters = filters
         self.share_state_with = share_state_with
 
         # input_tensor_shape = input_layer.tensor.get_shape()
@@ -3552,7 +3554,7 @@ class Conv1D(Layer):
             layer_state = super().init_state()
 
         with layer_scope(self):
-            filters = getattr(layer_state, "filters", self.shared_filters)
+            filters = getattr(layer_state, "filters", self.filters)
 
             if filters is None:
                 init_value = self.filter_init(filter_shape, dtype=self.dtype)
@@ -3563,7 +3565,7 @@ class Conv1D(Layer):
             if not hasattr(layer_state, "filters"):
                 layer_state.filters = filters
 
-            bias = getattr(layer_state, "bias", self.shared_bias)
+            bias = getattr(layer_state, "bias", self.bias)
             if self.add_bias:
                 if bias is None:
                     bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
@@ -3609,8 +3611,8 @@ class Conv1D(Layer):
                       bias_init=self.bias_init,
                       add_bias=self.add_bias,
                       name=name,
-                      shared_bias=self.shared_bias,
-                      shared_filters=self.shared_filters,
+                      bias=self.bias,
+                      filters=self.filters,
                       share_state_with=share_state_with)
 
 
@@ -3768,6 +3770,11 @@ class FC(Layer):
                  dtype=tf.float32,
                  name="fc",
                  share_state_with=None):
+
+        # for attribute autocomplete only
+        self.linear = None
+        self.activation = None
+
         super().__init__(input_layers=input_layer,
                          n_units=n_units,
                          dtype=dtype,
@@ -3970,6 +3977,7 @@ def layer(n_units=None, name="layer", dtype=None, var_list=None):
 
 
 __all__ = [
+    "DropConnect",
     "as_layer",
     "Activation",
     "Lambda",

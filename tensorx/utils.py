@@ -200,11 +200,11 @@ class Graph:
 
     # TODO this doesn't take Tensors, only layers
     @staticmethod
-    def build(inputs, outputs, missing_inputs=False):
+    def build(inputs, outputs, add_missing_inputs=False):
         """ build_graph
 
         Args:
-            missing_inputs: if True and input_layers is not empty, missing input dependencies will be added to the graph
+            add_missing_inputs: if True and input_layers is not empty, missing input dependencies will be added to the graph
                 else, having missing inputs will raise a ValueError exception listing the missing dependencies.
             inputs: input terminal layers where the graph must stop
             outputs: output layers from which we start to populate the graph
@@ -240,7 +240,7 @@ class Graph:
                 next_nodes = current_node.input_layers
                 if not next_nodes:
                     add_dep(target_output, current_node, dependencies)
-                    if len(inputs) > 0 and current_node not in inputs and not missing_inputs:
+                    if len(inputs) > 0 and current_node not in inputs and not add_missing_inputs:
                         add_dep(target_output, current_node, missing_dependencies)
                 else:
                     if current_node in inputs:
@@ -252,7 +252,7 @@ class Graph:
 
                 visited.add(current_node)
 
-        if any(missing_dependencies) and not missing_inputs:
+        if any(missing_dependencies) and not add_missing_inputs:
             failed_str = []
             for output_layer in missing_dependencies:
                 missing_str = "\n\t\t".join(map(str, missing_dependencies[output_layer]))

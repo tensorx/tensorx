@@ -59,13 +59,13 @@ class Model:
         #  and supplying the inputs when doing as_function
         self.run_graph: Graph = Graph.build(inputs=run_inputs,
                                             outputs=run_outputs,
-                                            missing_inputs=True)
+                                            add_missing_inputs=True)
         self.train_graph: Graph = Graph.build(inputs=self.train_inputs,
                                               outputs=self.train_outputs + [self.train_loss],
-                                              missing_inputs=True)
+                                              add_missing_inputs=True)
         self.eval_graph: Graph = Graph.build(inputs=self.eval_inputs,
                                              outputs=self.eval_outputs + self.eval_score,
-                                             missing_inputs=True)
+                                             add_missing_inputs=True)
 
         self.graph_inputs = {self.run_graph: self.run_inputs,
                              self.train_graph: self.train_inputs,

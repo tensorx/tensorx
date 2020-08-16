@@ -7,7 +7,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorx as tx
 import numpy as np
 import pytest
-from tensorx.layers import LayerProto
 import tensorflow as tf
 
 
@@ -100,7 +99,7 @@ def test_rnn_layer_proto():
 
 
 def test_shared_state():
-    inputs = np.ones([2, 4])
+    inputs = tf.ones([2, 4])
     l1 = tx.Linear(inputs, 8)
     l2 = tx.Linear(inputs, 8, share_state_with=l1)
     proto = tx.Linear.proto(n_units=8, share_state_with=l1)
@@ -215,7 +214,7 @@ def test_variable_init_from_input():
     layer_once = tx.VariableLayer(input_layer, update_once=True)
     layer_var = tx.VariableLayer(input_layer, update_once=False)
 
-    var_layer_fwd2 = layer_once.reuse_with(init_from_input=False)
+    layer_once.reuse_with(init_from_input=False)
 
     data1 = np.array([[1]])
     data2 = np.array([[2]])
@@ -335,12 +334,11 @@ def test_module_with_attention():
     """
 
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
-    x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
     rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
     att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
     m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
     # m.graph.draw("test.pdf")
-    g = tx.Graph.build(inputs=x1, outputs=m, missing_inputs=True)
+    g = tx.Graph.build(inputs=x1, outputs=m, add_missing_inputs=True)
     # list(map(print, g.in_nodes))
     fn = g.as_function(ord_inputs=x1, ord_outputs=m)
     # this returns a tuple
@@ -409,18 +407,18 @@ def test_rnn_cell_graph():
     data1 = tf.ones([batch_size, n_inputs])
     inputs = tx.Input(data1)
     rnn1 = tx.RNNCell(inputs, n_hidden)
-    # if I use missing_inputs=True, it will just add the input to the graph without
-    try:
-        g = tx.Graph.build(inputs=inputs, outputs=rnn1, missing_inputs=False)
-        self.fail("should have raised Value Error for missing inputs")
-    except ValueError:
-        pass
-    try:
-        g = tx.Graph.build(inputs=inputs, outputs=rnn1, missing_inputs=True)
-        f = g.as_function(ord_inputs=inputs)
-        f(data1)
-    except Exception as e:
-        self.fail(str(e))
+    # if we use missing_inputs=True, extra inputs might be added
+    with pytest.raises(ValueError):
+        tx.Graph.build(inputs=inputs,
+                       outputs=rnn1,
+                       add_missing_inputs=False)
+        pytest.fail("Value Error Expected: missing inputs")
+
+    g = tx.Graph.build(inputs=inputs,
+                       outputs=rnn1,
+                       add_missing_inputs=True)
+    f = g.as_function(ord_inputs=inputs)
+    f(data1)
 
 
 def test_rnn_cell_drop():
@@ -449,29 +447,44 @@ def test_rnn_cell_drop():
     # that is already wired with something (it takes the shape of the input of one layer and creates a mask tensor
     # shared across dropout instances
     # Linear layers should have shared states as well, in this case sharing the weights
-    dropout_state1 = rnn1.w.input_layers[0].layer_state
-    dropout_state2 = rnn2.w.input_layers[0].layer_state
-    dropout_state3 = rnn3.w.input_layers[0].layer_state
+    # dropout_state1 = rnn1.w.input_layers[0].layer_state
+    # dropout_state2 = rnn2.w.input_layers[0].layer_state
+    # dropout_state3 = rnn3.w.input_layers[0].layer_state
 
-    mask1, mask2, mask3 = dropout_state1.mask, dropout_state2.mask, dropout_state3
+    # mask1, mask2, mask3 = dropout_state1.mask, dropout_state2.mask, dropout_state3
 
-    # TODO MASKS are probabilistic so this could fail
-    # self.assertArrayEqual(mask1, mask2)
-    # self.assertArrayNotEqual(r1, r2)
+    assert tx.tensor_equal(r2, r3)
+    assert not tx.tensor_equal(r2, r4)
+    assert not tx.tensor_equal(r4, r5)
 
-    self.assertArrayEqual(r2, r3)
-    self.assertArrayNotEqual(r2, r4)
-    self.assertArrayNotEqual(r4, r5)
+    assert rnn1.dropout_locked
+    assert rnn2.dropout_locked
 
-    mask1, mask2 = rnn1.w.layer_state, rnn2.w.layer_state
-    self.assertArrayEqual(mask1, mask2)
+    assert hasattr(rnn1, "w")
+    assert hasattr(rnn2, "w")
+
+    w1: tx.Layer = getattr(rnn1, "w")
+    w2: tx.Layer = getattr(rnn2, "w")
+
+    assert isinstance(w1, tx.DropConnect)
+
+    state1, state2 = w1.layer_state, w2.layer_state
+
+    assert hasattr(state1, "weight_mask")
+    assert hasattr(state2, "weight_mask")
+
+    # dropout locked == true
+    mask1 = getattr(state1, "weight_mask")
+    mask2 = getattr(state2, "weight_mask")
+
+    assert tx.tensor_equal(mask1, mask2)
 
 
 def test_gru_cell():
     n_inputs = 4
     n_hidden = 2
     batch_size = 2
-    data = np.ones([batch_size, 4])
+    data = tf.ones([batch_size, 4])
 
     inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
 
@@ -486,12 +499,14 @@ def test_gru_cell():
     res2 = rnn_2()
     res3 = rnn_3()
 
-    self.assertEqual((batch_size, n_hidden), np.shape(res1))
-    self.assertArrayEqual(res1, res3)
-    self.assertArrayNotEqual(res1, res2)
+    assert (batch_size, n_hidden) == np.shape(res1)
+    assert tx.tensor_equal(res1, res3)
+    assert not tx.tensor_equal(res1, res2)
 
 
 def test_module_gate():
+    """ Module + Gate Integration
+    """
     x1 = tx.Input([[1, 1, 1, 1]], n_units=4, dtype=tf.float32)
     x2 = tx.Input([[1, 1]], n_units=2, dtype=tf.float32)
     x1 = tx.Add(x1, x1)
@@ -508,8 +523,8 @@ def test_module_gate():
     result2 = m2()
     result3 = gate_module.compute(x3, x4)
 
-    self.assertArrayEqual(result1, result2 * 2)
-    self.assertArrayEqual(result2, result3)
+    assert tx.tensor_equal(result1, result2 * 2)
+    assert tx.tensor_equal(result2, result3)
 
 
 def test_lstm_cell():
@@ -522,7 +537,7 @@ def test_lstm_cell():
     previous_state = (None, rnn1.state[-1]())
     rnn2 = rnn1.reuse_with(inputs, *previous_state)
 
-    # if we don't wipe the memory it reuses it
+    # if we don't wipe the memory, memory will be reused
     previous_state = (None, tx.LSTMCell.zero_state(rnn1.n_units))
     rnn3 = rnn1.reuse_with(inputs, *previous_state)
     rnn4 = rnn1.reuse_with(inputs)
@@ -532,10 +547,10 @@ def test_lstm_cell():
     res3 = rnn3()
     res4 = rnn4()
 
-    self.assertEqual((batch_size, n_hidden), np.shape(res1))
-    self.assertArrayEqual(res1, res3)
-    self.assertArrayNotEqual(res1, res2)
-    self.assertArrayEqual(res1, res4)
+    assert (batch_size, n_hidden) == np.shape(res1)
+    assert tx.tensor_equal(res1, res3)
+    assert not tx.tensor_equal(res1, res2)
+    assert tx.tensor_equal(res1, res4)
 
 
 def test_lstm_cell_regularization():
@@ -565,21 +580,21 @@ def test_lstm_cell_regularization():
 
     inputs.value = data
 
-    self.assertArrayEqual(rnn2, rnn3)
-    self.assertArrayNotEqual(rnn1, rnn3)
-    self.assertArrayNotEqual(rnn1, rnn3)
+    assert tx.tensor_equal(rnn2, rnn3)
+    assert not tx.tensor_equal(rnn1, rnn3)
+    assert not tx.tensor_equal(rnn1, rnn3)
 
     state2, state3 = rnn2.w_f.weight_mask, rnn3.w_f.weight_mask
-    self.assertArrayEqual(state2, state3)
+    assert tx.tensor_equal(state2, state3)
 
     w2, w3 = rnn2.w_f, rnn3.w_f
-    self.assertArrayEqual(w2, w3)
+    assert tx.tensor_equal(w2, w3)
     w2, w3 = rnn2.w_i, rnn3.w_i
-    self.assertArrayEqual(w2, w3)
+    assert tx.tensor_equal(w2, w3)
     w2, w3 = rnn2.w_o, rnn3.w_o
-    self.assertArrayEqual(w2, w3)
+    assert tx.tensor_equal(w2, w3)
     w2, w3 = rnn2.w_c, rnn3.w_c
-    self.assertArrayEqual(w2, w3)
+    assert tx.tensor_equal(w2, w3)
 
 
 def test_lstm_cell_state():
@@ -595,20 +610,21 @@ def test_lstm_cell_state():
                        name="cell")
 
     state = cell.previous_state
-    state = [s() for s in state]
+    assert len(state) == 2
+    # state = [s() for s in state]
 
     state = tx.Graph.build(inputs=None,
                            outputs=cell.state)
 
     x = tf.random.uniform([batch, n_inputs])
     s = state.compute(x)
-    s_ = state.compute(x, *s)
+    state.compute(x, *s)
 
 
 def test_rnn_layer():
     n_features = 5
     embed_size = 4
-    hdim = 3
+    hidden_dim = 3
     seq_size = 3
     batch_size = 2
 
@@ -616,59 +632,59 @@ def test_rnn_layer():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    ones_state = tf.ones([batch_size, hdim])
-    zero_state = (tf.zeros([batch_size, hdim]))
+    ones_state = tf.ones([batch_size, hidden_dim])
+    zero_state = (tf.zeros([batch_size, hidden_dim]))
 
-    rnn_proto = tx.RNNCell.proto(n_units=hdim)
+    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
 
     rnn1 = tx.RNN(seq, cell_proto=rnn_proto, previous_state=ones_state, return_state=True)
     rnn2 = rnn1.reuse_with(seq)
 
-    # TODO problem with RNN layer is that it uses modules that require
+    #  problem with RNN layer is that it uses modules that require
     #  all the params to output the right answer
     #  we need to supply the default values for the rest or all the inputs
     out1, last1 = rnn1()
     out2, last2 = rnn2()
 
-    self.assertArrayEqual(out1, out2)
-    self.assertArrayEqual(last1, last2)
+    assert tx.tensor_equal(out1, out2)
+    assert tx.tensor_equal(last1, last2)
 
     rnn3 = rnn1.reuse_with(seq, zero_state)
     rnn4 = rnn3.reuse_with(seq)
     rnn5 = rnn4.reuse_with(seq, ones_state)
 
-    self.assertArrayEqual(rnn2.previous_state, rnn1.previous_state)
-    self.assertArrayEqual(rnn3.previous_state, rnn4.previous_state)
+    assert tx.tensor_equal(rnn2.previous_state, rnn1.previous_state)
+    assert tx.tensor_equal(rnn3.previous_state, rnn4.previous_state)
 
     out3, last3 = rnn3.tensor()
     out4, last4 = rnn4.tensor()
 
-    self.assertArrayEqual(out3, out4)
-    self.assertArrayEqual(last3, last4)
+    assert tx.tensor_equal(out3, out4)
+    assert tx.tensor_equal(last3, last4)
 
     cell_state1 = rnn1.cell.previous_state[0].tensor()
     cell_state2 = rnn2.cell.previous_state[0].tensor()
     cell_state3 = rnn3.cell.previous_state[0].tensor()
     cell_state4 = rnn4.cell.previous_state[0].tensor()
 
-    self.assertEqual(len(rnn1.cell.previous_state), 1)
+    assert len(rnn1.cell.previous_state) == 1
 
-    self.assertArrayEqual(cell_state1, cell_state2)
-    self.assertArrayEqual(cell_state3, cell_state4)
+    assert tx.tensor_equal(cell_state1, cell_state2)
+    assert tx.tensor_equal(cell_state3, cell_state4)
 
-    self.assertArrayNotEqual(out1, out3)
+    assert not tx.tensor_equal(out1, out3)
 
     out5, last5 = rnn5.tensor()
 
-    self.assertArrayEqual(out1, out5)
-    self.assertArrayEqual(last1, last5)
+    assert tx.tensor_equal(out1, out5)
+    assert tx.tensor_equal(last1, last5)
 
 
 def test_biRNN():
     # bidirectional RNN
     n_features = 5
     embed_size = 4
-    hdim = 3
+    hidden_dim = 3
     seq_size = 6
     batch_size = 2
 
@@ -676,14 +692,14 @@ def test_biRNN():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    rnn_proto = tx.RNNCell.proto(n_units=hdim)
+    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
     rnn0 = tx.RNN(seq, cell_proto=rnn_proto, stateful=False, return_state=True)
 
     # because a stateful rnn0 has a variable layer as input as well
     rnn_m0 = tx.Module(inputs=rnn0.input_layers, output=rnn0)
 
     rnn1 = rnn0.reuse_with(seq, reverse=True, stateful=False, return_state=True)
-    # TODO this solves rnn output multiple tensors
+    # this solves rnn output multiple tensors
 
     r01 = rnn_m0.compute(seq(), rnn0.previous_state[0]())
     rnn0.reset()
@@ -701,9 +717,9 @@ def test_biRNN():
     assert tx.shape_equal(rnn1(), rnn1_())
 
     # print(tf.shape(rnn0()))
-    r0 = rnn0()
-    r1 = rnn1()
-    c = tx.Concat(rnn0, rnn1, axis=-1)
+    # r0 = rnn0()
+    # r1 = rnn1()
+    # c = tx.Concat(rnn0, rnn1, axis=-1)
     # print(tf.shape(c()))
 
     # concat = tx.Con
@@ -714,7 +730,7 @@ def test_biRNN():
 def test_stateful_rnn_layer():
     n_features = 5
     embed_size = 4
-    hdim = 3
+    hidden_dim = 3
     seq_size = 3
     batch_size = 2
 
@@ -722,32 +738,34 @@ def test_stateful_rnn_layer():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    rnn_proto = tx.RNNCell.proto(n_units=hdim)
+    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
 
     rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True, return_state=True)
-    lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hdim), stateful=True, return_state=True)
+    lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hidden_dim), stateful=True, return_state=True)
 
     zero_state0 = [layer() for layer in rnn1.previous_state]
 
-    self.assertEqual(len(zero_state0), 1)
-    self.assertArrayEqual(zero_state0[0], np.zeros([1, hdim]))
+    assert len(zero_state0) == 1
+    expected_state = tf.zeros([1, hidden_dim], dtype=tf.float32)
+    assert tx.tensor_equal(zero_state0[0], expected_state)
 
-    import logging
-    logging.getLogger("tensorx").setLevel(logging.DEBUG)
+    # import logging
+    # logging.getLogger("tensorx").setLevel(logging.DEBUG)
 
     out1, state1 = rnn1()
 
-    layers = tx.Graph.build(inputs=None, outputs=lstm1)
-    out2, state2 = lstm1()
+    tx.Graph.build(inputs=None, outputs=lstm1)
+    # out2, state2 = lstm1()
+    lstm1()
 
     # state after single run
     # zero_state1 = [layer.tensor() for layer in ]
     zero_state1 = rnn1.previous_state[0].tensor()
-    self.assertArrayEqual(zero_state1, state1)
+    assert tx.tensor_equal(zero_state1, state1)
 
     rnn1.reset()
     reset_state = rnn1.previous_state[0].tensor()
-    self.assertArrayEqual(reset_state, zero_state0[0])
+    assert tx.tensor_equal(reset_state, zero_state0[0])
 
 
 def test_lookup_sequence_dense():
@@ -769,8 +787,8 @@ def test_lookup_sequence_dense():
     v1 = lookup.tensor()
     v2 = lookup_from_tensor.tensor()
 
-    self.assertEqual(np.shape(v1), (batch_size, seq_size, embed_dim))
-    self.assertEqual(np.shape(v2), (batch_size, seq_size, embed_dim))
+    assert np.shape(v1) == (batch_size, seq_size, embed_dim)
+    assert np.shape(v2) == (batch_size, seq_size, embed_dim)
 
 
 def test_lookup_dynamic_sequence():
@@ -786,10 +804,10 @@ def test_lookup_dynamic_sequence():
     concat = lookup.as_concat()
 
     inputs.value = seq1
-    r1 = inputs.tensor()
+    inputs.tensor()
 
     inputs.value = seq2
-    r2 = inputs.tensor()
+    inputs.tensor()
 
     inputs.value = seq1
     l1 = lookup.tensor()
@@ -801,11 +819,11 @@ def test_lookup_dynamic_sequence():
     inputs.value = seq2
     c2 = concat.tensor()
 
-    self.assertEqual(np.shape(l1)[-1], m)
-    self.assertEqual(np.shape(l2)[-1], m)
+    assert np.shape(l1)[-1] == m
+    assert np.shape(l2)[-1] == m
 
-    self.assertEqual(np.shape(c1)[-1], m * 2)
-    self.assertEqual(np.shape(c2)[-1], m * 3)
+    assert np.shape(c1)[-1] == m * 2
+    assert np.shape(c2)[-1] == m * 3
 
 
 def test_dynamic_concat():
@@ -823,27 +841,31 @@ def test_dynamic_concat():
     concat1 = lookup.as_concat()
     concat2 = lookup2.as_concat()
 
-    self.assertFalse(concat1.n_units)
-    self.assertTrue(concat2.n_units)
+    assert concat1.n_units is None
+    assert concat2.n_units is not None
 
     concat3 = tx.SeqConcat(lookup, time_major=False)
     concat4 = tx.SeqConcat(lookup, seq_size=3, time_major=False)
 
     c1, c2 = concat1(), concat3()
-    self.assertArrayEqual(c1, c2)
-    self.assertFalse(concat3.n_units)
-    self.assertEqual(concat4.n_units, 3 * lookup.n_units)
+    assert tx.tensor_equal(c1, c2)
+    assert concat3.n_units is None
+    assert concat4.n_units == 3 * lookup.n_units
 
     inputs.value = seq1
     l1 = lookup()
     inputs.value = seq2
     l2 = lookup()
 
-    self.assertEqual(np.shape(l1)[-1], m)
-    self.assertEqual(np.shape(l2)[-1], m)
+    assert np.shape(l1)[-1] == m
+    assert np.shape(l2)[-1] == m
 
 
 def test_lookup_dynamic_sparse_sequence():
+    """ Testing Sparse Inputs to Lookup with dynamic
+    seq_len passed through Input layer that acts as
+    a parameter (scalar, this is n_units = 0)
+    """
     k = 8
     m = 3
     seq1 = tf.SparseTensor(
@@ -861,24 +883,25 @@ def test_lookup_dynamic_sparse_sequence():
 
     inputs = tx.Input(n_units=k, sparse=True, dtype=tf.int32, constant=False)
     seq_len = tx.Input(init_value=2, shape=[], constant=False)
+    assert seq_len.n_units == 0
+
     lookup = tx.Lookup(inputs, seq_size=seq_len, embedding_shape=[k, m])
     # concat = lookup.as_concat()
 
     inputs.value = seq1
-    in1 = inputs.tensor()
-    # set seq_len to 2
-    l1 = lookup.tensor()
+    inputs()
+    # set seq_len to 4
+    seq_len.value = 4
+    lookup_4 = lookup()
+    # (batch, seq_len, embed_dim)
+    assert lookup_4.numpy().shape == (1, 4, m)
 
     # set seq len to 3
     inputs.value = seq2
     seq_len.value = 3
-    l2 = lookup.tensor()
-
-    # c1 = concat.tensor, {inputs.placeholder: seq1, seq_len.placeholder: 2})
-    # c2 = self.eval(concat.tensor, {inputs.placeholder: seq2, seq_len.placeholder: 3})
-
-    # self.assertEqual(np.shape(c1)[-1], m * 2)
-    # self.assertEqual(np.shape(c2)[-1], m * 3)
+    lookup_4 = lookup()
+    # (batch, seq_len, embed_dim)
+    assert lookup_4.numpy().shape == (2, 3, 3)
 
 
 def test_lookup_sequence_sparse():
@@ -911,17 +934,25 @@ def test_lookup_sequence_sparse():
     result_padding = lookup_padding()
     result_1d = lookup_1d()
 
-    self.assertEqual(np.shape(result), (2, seq_size, embed_dim))
-    self.assertEqual(np.shape(result_padding), (batch_size, seq_size, embed_dim))
-    self.assertEqual(np.shape(result_1d), (batch_size, seq_size, embed_dim))
+    assert np.shape(result) == (2, seq_size, embed_dim)
+    assert np.shape(result_padding) == (batch_size, seq_size, embed_dim)
+    assert np.shape(result_1d) == (batch_size, seq_size, embed_dim)
 
 
 def test_lookup_sparse_padding():
-    input_dim = 6
-    embed_dim = 3
-    seq_size = 1
+    """ Sparse Lookup Padding
+    Lookup adds padding if seq_size is greater than the max row indice
+    in the input SparseTensor
 
-    sparse_input = tf.SparseTensor([[0, 1], [0, 3], [1, 0]], [1, 1, 1], [2, input_dim])
+    """
+    input_dim = 6
+    embed_dim = 4
+    seq_size = 3
+
+    sparse_input = tf.SparseTensor(indices=[[0, 1], [0, 3],
+                                            [1, 0]],
+                                   values=[1, 1, 1],
+                                   dense_shape=[2, input_dim])
     sparse_input = tx.Constant(sparse_input, input_dim)
 
     lookup = tx.Lookup(sparse_input,
@@ -931,6 +962,8 @@ def test_lookup_sparse_padding():
                        batch_padding=False)
 
     result = lookup()
+    assert tf.sparse.to_dense(sparse_input()).shape == (2, input_dim)
+    assert tx.tensor_equal(result[0][-1], tf.zeros([embed_dim]))
 
 
 def test_lookup_sequence_bias():
@@ -947,7 +980,7 @@ def test_lookup_sequence_bias():
 
     inputs.value = input_data
     v1 = lookup()
-    self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, n_features))
+    assert np.shape(v1) == (np.shape(input_data)[0], seq_size, n_features)
 
 
 def test_lookup_sequence_transform():
@@ -964,7 +997,7 @@ def test_lookup_sequence_transform():
     concat_lookup = lookup.as_concat()
     seq_lookup = lookup.permute_batch_time()
 
-    self.assertTrue(hasattr(lookup, "seq_size"))
+    assert hasattr(lookup, "seq_size")
 
     inputs.value = input_data
 
@@ -972,65 +1005,58 @@ def test_lookup_sequence_transform():
     v2 = concat_lookup()
     v3 = seq_lookup()
 
-    self.assertEqual(np.shape(v1), (np.shape(input_data)[0], seq_size, embed_dim))
-    self.assertEqual(np.shape(v2), (np.shape(input_data)[0], seq_size * embed_dim))
+    assert np.shape(v1) == (np.shape(input_data)[0], seq_size, embed_dim)
+    assert np.shape(v2) == (np.shape(input_data)[0], seq_size * embed_dim)
 
-    self.assertEqual(np.shape(v3), (seq_size, np.shape(input_data)[0], embed_dim))
-    self.assertTrue(np.array_equal(v1[:, 0], v3[0]))
+    assert np.shape(v3) == (seq_size, np.shape(input_data)[0], embed_dim)
+    assert tx.tensor_equal(v1[:, 0], v3[0])
 
 
 def test_reuse_dropout():
     x1 = tx.Constant(np.ones(shape=[2, 4]), dtype=tf.float32)
     x2 = tx.Activation(x1)
-
     drop1 = tx.Dropout(x2, probability=0.5, locked=True)
 
-    self.assertEqual(len(drop1.input_layers), 2)
-    self.assertIs(drop1.input_layers[0], x2)
-    self.assertIs(drop1.input_layers[-1], drop1.layer_state.mask)
+    assert len(drop1.input_layers) == 2
+    assert drop1.input_layers[0] is x2
+    assert drop1.input_layers[-1] is drop1.layer_state.mask
 
     # shared state overrides mask?
     _, mask = tx.dropout(x2, return_mask=True)
     drop2 = drop1.reuse_with(x2, mask)
 
-    self.assertEqual(len(drop2.input_layers), 2)
-    self.assertIs(drop2.input_layers[0], x2)
-    self.assertIs(drop2.input_layers[-1], drop2.layer_state.mask)
+    assert len(drop2.input_layers) == 2
+    assert drop2.input_layers[0] is x2
+    assert drop2.input_layers[-1] is drop2.layer_state.mask
 
-    self.assertArrayNotEqual(drop1(), drop2())
+    assert not tx.tensor_equal(drop1(), drop2())
 
     graph = tx.Graph.build(inputs=None, outputs=[drop1, drop2])
 
     out1, out2 = graph()
-    self.assertArrayEqual(out1, out2)
+    assert tx.tensor_equal(out1, out2)
 
     drop1 = tx.Dropout(x2, probability=0.5)
     drop2 = drop1.reuse_with(x1)
 
     graph.eval(drop1, drop2)
-    #
-    # d1, d2, d3 = drop1(),drop2(),drop3()
-    #
-    # self.assertIs(drop1.mask, drop3.mask)
-    # self.assertIsNot(drop1.mask, drop2.mask)
-    #
-    # self.assertArrayEqual(d1, d3)
-    # self.assertArrayNotEqual(d1, d2)
 
 
 def test_drop_lookup():
+    """ Embedding Dropout
+    TODO finish test
+    """
     seq_size = 4
     vocab_size = 10
-    embed_dim = 4
-    input_data = np.array([[2, 0, 2, 0], [1, 2, 2, 1], [0, 2, 0, 2]])
+    embed_dim = 3
+    input_data = tf.constant([[2, 0, 2, 0], [1, 2, 2, 3], [0, 3, 0, 2]])
     inputs = tx.Input(init_value=input_data, n_units=seq_size, dtype=tf.int32)
     lookup = tx.Lookup(inputs,
                        seq_size=seq_size,
                        embedding_shape=[vocab_size, embed_dim],
                        add_bias=True)
 
-    drop = tx.DropLookup(lookup, probability=0.5)
-    # TODO this works but need to finish the tests for it
+    tx.DropLookup(lookup, probability=0.5)
 
 
 def test_residual():
@@ -1044,16 +1070,15 @@ def test_residual():
     residual = tx.Residual(x1, h1)
     residual2 = tx.Residual(x1, h2)
 
-    try:
-        residual3 = tx.Residual(x1, h3)
-    except ValueError:
-        pass
+    with pytest.raises(ValueError):
+        tx.Residual(x1, h3)
+        pytest.fail("ValueError Expected: invalid module x1 not connected to h3")
 
-    self.assertArrayEqual(tf.shape(h1()), tf.shape(residual()))
-    self.assertFalse(hasattr(residual, "projection"))
-    self.assertTrue(hasattr(residual2, "projection"))
-    self.assertEqual(len(residual.trainable_variables), 0)
-    self.assertEqual(len(residual2.trainable_variables), 1)
+    assert tx.shape_equal(h1(), residual())
+    assert not hasattr(residual, "projection")
+    assert hasattr(residual2, "projection")
+    assert len(residual.trainable_variables) == 0
+    assert len(residual2.trainable_variables) == 1
 
 
 def test_fully_connected():
@@ -1068,31 +1093,26 @@ def test_fully_connected():
     w = y2.weights
     b = y2.bias
 
-    self.assertIs(y1.linear.weights, w)
-    self.assertIs(y1.linear.bias, b)
+    assert y1.linear.weights is w
+    assert y1.linear.bias is b
 
     x = x1()
     y = tf.matmul(x, w) + b
     a = tf.sigmoid(y)
 
-    self.assertArrayEqual(y2(), y)
-    self.assertArrayEqual(y1(), a)
-    self.assertArrayEqual(y1(), a2())
-    self.assertArrayEqual(a2(), a)
+    assert tx.tensor_equal(y2(), y)
+    assert tx.tensor_equal(y1(), a)
+    assert tx.tensor_equal(y1(), a2())
+    assert tx.tensor_equal(a2(), a)
 
     y1 = y1.reuse_with(x2)
     y2 = y2.reuse_with(x2)
-    a2 = a2.reuse_with(y2)
 
-    self.assertIs(y2.weights, w)
-    self.assertIs(y2.bias, b)
+    assert y2.weights is w
+    assert y2.bias is b
 
-    self.assertIs(y1.linear.weights, w)
-    self.assertIs(y1.linear.bias, b)
-
-    # print(y1())
-
-    # self.assertArrayEqual(y1(), a2())
+    assert y1.linear.weights is w
+    assert y1.linear.bias is b
 
 
 def test_conv1d():
@@ -1108,7 +1128,7 @@ def test_conv1d():
     x_layer = tx.Constant(x, input_dim)
 
     filters = tf.ones(filter_shape)
-    conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, shared_filters=filters)
+    conv_layer = tx.Conv1D(x_layer, num_filters, filter_size, filters=filters)
     conv = tf.nn.conv1d(input=x,
                         filters=filters,
                         stride=1,
@@ -1116,15 +1136,16 @@ def test_conv1d():
                         data_format="NWC")
 
     output = conv_layer()
-    self.assertArrayEqual(conv, output)
-    self.assertArrayEqual(tf.shape(conv_layer.filters), (filter_size, input_dim, num_filters))
-    self.assertArrayEqual(tf.shape(output), (batch_size, seq_size, num_filters))
+    assert tx.tensor_equal(conv, output)
+    assert tx.tensor_equal(tf.shape(conv_layer.filters),
+                           [filter_size, input_dim, num_filters])
+    assert tx.tensor_equal(tf.shape(output),
+                           [batch_size, seq_size, num_filters])
 
 
 def test_map_seq():
     n_features = 5
     embed_size = 4
-    hdim = 3
     seq_size = 3
     batch_size = 2
 
@@ -1134,13 +1155,17 @@ def test_map_seq():
 
     n_units = 2
     linear_fn = tx.Linear.proto(n_units=n_units)
-    self.assertArrayEqual(tf.shape(seq()), [seq_size, batch_size, embed_size])
+    assert tx.tensor_equal(tf.shape(seq()), [seq_size, batch_size, embed_size])
 
     seq_map = tx.SeqMap(seq, n_units=2, layer_proto=linear_fn)
-    self.assertArrayEqual(tf.shape(seq_map), [seq_size, batch_size, n_units])
+    assert tx.tensor_equal(tf.shape(seq_map), [seq_size, batch_size, n_units])
 
 
 def test_multihead_attention():
+    """
+    TODO check causality
+
+    """
     n_features = 3
     embed_size = 128
     seq_size = 3
@@ -1148,7 +1173,9 @@ def test_multihead_attention():
     n_heads = 8
 
     inputs = tx.Constant(np.random.random([batch_size, seq_size]), n_units=seq_size, dtype=tf.int32)
-    emb = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
+    emb = tx.Lookup(inputs,
+                    seq_size=seq_size,
+                    embedding_shape=[n_features, embed_size])
 
     attention = tx.MHAttention(query=emb,
                                key=emb,
@@ -1159,25 +1186,25 @@ def test_multihead_attention():
                                attention_dropout=0.1,
                                regularized=False)
 
-    self.assertEqual(len(attention.input_layers), 3)
+    assert len(attention.input_layers) == 3
 
     # 3 "kernels" + bias
-    self.assertEqual(len(attention.variables), 3)
+    assert len(attention.variables) == 3
 
     attention_reg = attention.reuse_with(emb, emb, emb, regularized=True)
     attention_2 = attention.reuse_with(emb, emb, emb, regularized=False)
     attention_causal = attention.reuse_with(emb, emb, emb, causality=True)
 
-    res = attention_causal()
+    attention_causal()
 
     result = attention()
     result_reg = attention_reg()
     result2 = attention_2()
 
-    self.assertArrayEqual(tf.shape(result), tf.shape(result_reg))
-    self.assertArrayEqual(result, result2)
+    assert tx.shape_equal(result, result_reg)
+    assert tx.tensor_equal(result, result2)
 
     vars1 = map(lambda v: v.ref(), attention.variables)
     vars2 = map(lambda v: v.ref(), attention_2.variables)
 
-    self.assertSetEqual(set(vars1), set(vars2))
+    assert set(vars1) == set(vars2)
