@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorx.utils import as_tensor
-from typing import Union
+from typing import Union, List
 from tensorflow import Tensor, SparseTensor
 
 
@@ -9,8 +9,8 @@ def tensor_equal(first, second):
     `False` otherwise.
 
     Args:
-        first (`Union[Tensor, SparseTensor]`): a tensor
-        second (`Union[Tensor, SparseTensor]`): second tensor
+        first: An object whose type has a registered `Tensor` conversion function.
+        second: Another object whose type has a registered `Tensor` conversion function.
 
     Returns:
         tensor (`Tensor`): a tensor with dtype `tf.bool`
@@ -39,3 +39,7 @@ def tensor_equal(first, second):
         true_fn=lambda: tf.reduce_all(tf.equal(first, second)),
         false_fn=lambda: tf.constant(False)
     )
+
+
+def shape_equal(first, second):
+    return tensor_equal(tf.shape(first), tf.shape(second))

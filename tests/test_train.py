@@ -3,11 +3,10 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorx as tx
-from tensorx.testing import TestCase
 import numpy as np
 import logging
 
-class TestTrain(TestCase):
+class TestTrain():
 
     def test_model_run(self):
         data1 = [[1., 1.]]

@@ -23,3 +23,11 @@ def test_tensor_equal():
 
     assert tx.tensor_equal(sp1, sp1)
     assert not tx.tensor_equal(sp1, sp2)
+
+
+def test_shape_equal():
+    t1 = tf.random.uniform([2, 2], dtype=tf.float32)
+    t2 = tf.random.uniform([2, 3], dtype=tf.float32)
+
+    assert tx.shape_equal(t1, t1)
+    assert not tx.shape_equal(t1, t2)

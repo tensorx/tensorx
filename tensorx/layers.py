@@ -1,7 +1,7 @@
 from abc import ABC
 import tensorflow as tf
 from tensorx.utils import as_tensor, as_list, Graph
-from typing import Union, Type, Callable, Optional
+from typing import Union, Type, Callable, Optional, List
 import inspect
 from contextlib import ExitStack
 import tensorx.ops as txf
@@ -339,6 +339,14 @@ class Layer(AutoTrackable):
                       n_units=self.n_units,
                       dtype=self.dtype,
                       name=f"get_item_{item_name.replace('-', 'minus')}")
+
+    # def __add__(self, other):
+    #    other = as_layer(other, dtype=self.dtype)
+    #    return Add(self, other)
+
+    def __mul__(self, other):
+        other = as_layer(other, dtype=self.dtype)
+        return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, name="Mul")
 
     # TODO REMOVE
     def tensor(self):
@@ -916,6 +924,7 @@ class VariableLayer(Layer):
                  share_state_with=None,
                  name="variable"):
 
+        self.variable = None
         self.shape = shape
         self.update_once = update_once
         self.trainable = trainable
@@ -1120,7 +1129,7 @@ class Linear(Layer):
     Fully connected layer that implements a linear transformation of the form $f(x) = Wx + b$
 
     Args:
-        input_layer (Layer): input layer
+        input_layer (`Layer`): input layer or a value convertible to Layer
         n_units (Optional[int]): number of output units
         shape (Optional[Iterable[int]]): shape for the layer weights (not the output). Needed if n_units and
             input_layer.n_units is not known. If add_bias then the bias variable has shape [shape[-1]]
@@ -1141,7 +1150,7 @@ class Linear(Layer):
     def __init__(self,
                  input_layer: Layer,
                  n_units: Optional[int] = None,
-                 shape=None,
+                 shape: List[int] = None,
                  weight_init=tf.initializers.glorot_uniform(),
                  weights=None,
                  add_bias=True,
@@ -1274,9 +1283,9 @@ class Linear(Layer):
     def compute(self, input_tensor):
         weights = self.layer_state.weights
         if input_tensor.dtype != weights.dtype:
-            raise ValueError("invalid dtype for Linear inputs:\n"
-                             "\t expected (weights dtype): {}\n"
-                             "\t                 received: {}".format(weights.dtype, input_tensor.dtype))
+            raise ValueError(f"invalid dtype for Linear inputs:\n"
+                             f"\t expected (weights dtype): {weights.dtype}\n"
+                             f"\t                 received: {input_tensor.dtype}")
 
         with layer_scope(self):
 

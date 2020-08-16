@@ -65,162 +65,149 @@ def test_input_3d():
 
 
 def test_dynamic_input_graph():
-    # tf.autograph.set_verbosity(
-    #    10,
-    #    alsologtostdout=True
-    # )
-    # issue with python 3.8
-    # https://github.com/tensorflow/tensorflow/issues/34433
-
+    """
+    When we freeze the graph function with a dynamic input,
+    the function includes a variable value read operation, that
+    reads from the variable defined in the Input layer
+    """
     x = tx.Input(tf.zeros([2, 2]), n_units=2, constant=False)
-    # p = x.proto
-    g = x.as_function(input_signature=None)
+    y = tx.Linear(x, 2, add_bias=False)
+    graph_function = y.as_function()
 
-    out1 = g()
+    out1 = graph_function()
+
+    assert tx.tensor_equal(out1, tf.zeros([2, 2]))
+
     x.value = tf.ones([2, 2])
-    out2 = g()
+    out2 = graph_function()
 
-    self.assertArrayNotEqual(out1, out2)
+    assert tx.tensor_equal(out2, tf.matmul(tf.ones([2, 2]), y.weights))
+    assert not tx.tensor_equal(out1, out2)
 
 
-def test_layer_proto():
+def test_rnn_layer_proto():
     inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
     inputs_proto = inputs.proto
-    l2 = inputs_proto()
-    self.assertArrayEqual(inputs(), l2())
+    inputs2 = inputs_proto()
+    assert tx.tensor_equal(inputs(), inputs2())
 
-    # linear = tx.Linear(inputs,n_units=3)
-    # cfg1 = linear.proto
+    rnn_cell = tx.RNNCell(input_layer=inputs, n_units=3)
+    rnn_proto = rnn_cell.proto
+    rnn_cell2 = rnn_proto(inputs)
 
-    rnncell = tx.RNNCell(input_layer=inputs, n_units=3)
-
-    class KWClass:
-        def __init__(self, param1, **kwargs):
-            self.param1 = param1
-
-    proto = LayerProto(KWClass, param2=1, param1=2)
-    p = proto()
-    self.assertEqual(p.param1, 2)
+    assert tx.shape_equal(rnn_cell(), rnn_cell2())
+    assert not tx.tensor_equal(rnn_cell(), rnn_cell2())
 
 
 def test_shared_state():
     inputs = np.ones([2, 4])
     l1 = tx.Linear(inputs, 8)
-
     l2 = tx.Linear(inputs, 8, share_state_with=l1)
+    proto = tx.Linear.proto(n_units=8, share_state_with=l1)
+    l3 = proto(inputs)
 
-    p = tx.Linear.proto(n_units=8, share_state_with=l1)
-    l3 = p(inputs)
-
-    self.assertIs(l1.weights, l2.weights)
-    self.assertIs(l1.bias, l2.bias)
-    self.assertIs(l1.weights, l3.weights)
-    self.assertIs(l1.bias, l3.bias)
+    assert l1.weights is l2.weights
+    assert l1.bias is l2.bias
+    assert l1.weights is l3.weights
+    assert l1.bias is l3.bias
 
 
 def test_linear():
-    inputs = np.ones([2, 4])
+    inputs = tx.Constant(tf.ones([2, 4]), dtype=tf.float64)
     inputs2 = inputs * 2
 
-    linear = tx.Linear(inputs, 8)
+    linear = tx.Linear(inputs, n_units=8, dtype=tf.float64)
 
     w = linear.weights
     b = linear.bias
 
-    self.assertEqual(w.shape, [4, 8])
-    self.assertEqual(b.shape, [8])
-    self.assertEqual(len(linear.trainable_variables), 2)
+    assert w.shape == [4, 8]
+    assert b.shape == [8]
+    assert len(linear.trainable_variables) == 2
 
-    t1 = linear.tensor()
-    t2 = linear.tensor()
+    t1 = linear()
+    t2 = linear()
 
-    self.assertTrue(np.array_equal(t1.numpy(), t2.numpy()))
+    assert tx.tensor_equal(t1, t2)
 
-    linear2 = tx.Linear(linear.input_layers[0], 8, share_state_with=linear)
+    linear2 = tx.Linear(linear.input_layers[0], 8, share_state_with=linear, dtype=tf.float64)
     t3 = linear2.tensor()
-    self.assertTrue(np.array_equal(t1.numpy(), t3.numpy()))
+    assert tx.tensor_equal(t1, t3)
 
-    linear = tx.Linear(inputs, 8)
+    linear = tx.Linear(inputs, 8, dtype=tf.float64)
     linear2 = linear.reuse_with(inputs2)
 
-    # Can't use equals this because they changed the equality operator
-    # self.assertTrue(linear.weights == linear2.weights)
-    self.assertIs(linear.weights, linear2.weights)
-    self.assertIs(linear.bias, linear2.bias)
+    assert linear.weights is linear2.weights
+    assert linear.bias is linear2.bias
 
-    # with eager we can do this in the tests
-    self.assertArrayEqual(linear() * 2, linear2())
-    # in alternative to
-    # self.assertTrue(np.array_equal(linear().numpy()*2, linear2().numpy())
+    assert tx.tensor_equal(linear() * 2, linear2())
 
 
 def test_linear_rank3():
-    x = tx.Input([[[1], [1]], [[2], [2]]], dtype=tf.float32)
-
-    x2 = tx.Transpose(x)
-    x_flat = tx.Reshape(x, [-1, 1])
-    linear1 = tx.Linear(x, n_units=2)
+    x1 = tx.Input([[[1], [1]], [[2], [2]]], dtype=tf.float32)
+    x2 = tx.Transpose(x1)
+    x1_flat = tx.Reshape(x1, [-1, 1])
+    linear1 = tx.Linear(x1, n_units=2)
     linear2 = tx.Linear(x2,
                         shape=[2, 1],
                         weights=linear1.weights,
                         transpose_weights=True)
 
-    # we cant do this because it changes the definition of the layer (n_units etc)
-    try:
-        linear3 = linear1.reuse_with(x2, transpose_weights=True)
-        self.fail("we can't reuse with transpose weights while changing the layer definition")
-    except ValueError as e:
-        pass
+    # we cant do this because it changes the definition
+    # of the layer (n_units etc)
+    with pytest.raises(ValueError):
+        linear1.reuse_with(x2, transpose_weights=True)
+        pytest.fail("can't reuse with transpose weights while changing the layer definition")
 
-    linear_flat = linear1.reuse_with(x_flat)
-    linear_flat = tx.Reshape(linear_flat, x().get_shape().as_list()[:-1] + [2])
+    linear_flat = linear1.reuse_with(x1_flat)
+    linear_flat = tx.Reshape(linear_flat, x1().get_shape().as_list()[:-1] + [2])
 
-    self.assertTrue(np.array_equal(linear1(), linear_flat()))
-    self.assertTrue(np.array_equal(tf.shape(linear2()), [1, 2, 1]))
+    assert tx.tensor_equal(linear1(), linear_flat())
+    assert tx.tensor_equal(tf.shape(linear2()), [1, 2, 1])
 
 
 def test_transpose_reshape():
     x = tf.reshape(tf.range(9), [3, 3])
     x2 = tx.Reshape(tf.range(9), [3, 3])
 
-    self.assertArrayEqual(x2(), x)
-    self.assertArrayEqual(x2(tf.range(9)), x)
-    t = tf.transpose(x)
+    assert tx.tensor_equal(x2(), x)
+    assert tx.tensor_equal(x2(tf.range(9)), x)
 
+    t = tf.transpose(x)
     y = tx.Transpose(t)
-    self.assertArrayEqual(y(), x)
-    self.assertArrayEqual(y(x), t)
+    assert tx.tensor_equal(y(), x)
+    assert tx.tensor_equal(y(x), t)
 
 
 def test_wrap_transpose():
-    x = tf.reshape(tf.range(9), [3, 3])
-    t = tf.transpose(x)
+    tensor = tf.reshape(tf.range(9), [3, 3])
+    t = tf.transpose(tensor)
 
     trans = tx.Transpose(t, n_units=3)
-    # using this or a module is practically the same (in this case) except we
+    # using Wrap or a module is the same (in this case) except we
     # don't have to create the graph and then the module
     w = tx.Wrap(trans, lambda layer: tx.Lambda(layer, fn=lambda x: x * 2))
-    w2 = w.reuse_with(x)
+    w2 = w.reuse_with(tensor)
 
-    self.assertArrayEqual(w2(), t * 2)
-    self.assertArrayEqual(w(x), t * 2)
+    assert tx.tensor_equal(w2(), t * 2)
+    assert tx.tensor_equal(w(tensor), t * 2)
 
-    self.assertArrayEqual(w(t), w())
+    assert tx.tensor_equal(w(t), w())
 
-    self.assertArrayEqual(w.compute(t), tf.transpose(t) * 2)
-    self.assertArrayEqual(trans.compute(t), x)
-    self.assertArrayEqual(w2.compute(x), w2())
+    assert tx.tensor_equal(w.compute(t), tf.transpose(t) * 2)
+    assert tx.tensor_equal(trans.compute(t), tensor)
+    assert tx.tensor_equal(w2.compute(tensor), w2())
 
 
 def test_variable_layer():
     input_layer = tx.Input([[1]], n_units=1, dtype=tf.float32)
     var_layer = tx.VariableLayer(input_layer, dtype=tf.float32)
 
-    init_value = var_layer.variable.numpy()
-    after_update = var_layer().numpy()
+    init_value = var_layer.variable.value()
+    after_update = var_layer()
 
-    self.assertArrayNotEqual(init_value, after_update)
-    self.assertArrayEqual(after_update, var_layer.variable.numpy())
+    assert not tx.tensor_equal(init_value, after_update)
+    assert tx.tensor_equal(after_update, var_layer.variable.value())
 
 
 def test_variable_init_from_input():
@@ -235,28 +222,30 @@ def test_variable_init_from_input():
     data3 = np.array([[3]])
 
     input_layer.value = data1
-    self.assertEqual(layer_once.counter.numpy(), 0)
+    # counter is a tf.Variable
+    assert layer_once.counter.value() == 0
     input_layer.value = data2
     y1 = layer_once()
-    self.assertEqual(layer_once.counter.numpy(), 1)
-    self.assertTrue(np.array_equal(layer_once.variable.value(), y1))
+
+    assert layer_once.counter.value() == 1
+    assert tx.tensor_equal(layer_once.variable.value(), y1)
     input_layer.value = data3
     y2 = layer_once()
-    self.assertEqual(layer_once.counter.numpy(), 1)
-    self.assertTrue(np.array_equal(y1, y2))
-    self.assertTrue(np.array_equal(y1, layer_once.variable.value()))
+    assert layer_once.counter.value() == 1
+    assert tx.tensor_equal(y1, y2)
+    assert tx.tensor_equal(y1, layer_once.variable.value())
 
     # dynamic var layer
     input_layer.value = data1
-    self.assertEqual(layer_var.counter.numpy(), 0)
+    assert layer_var.counter.value() == 0
     y1 = layer_var()
-    self.assertEqual(layer_var.counter.numpy(), 1)
-    self.assertTrue(np.array_equal(layer_var.variable.value(), y1))
+    assert layer_var.counter.value() == 1
+    assert tx.tensor_equal(layer_var.variable.value(), y1)
 
     input_layer.value = data2
     y2 = layer_var()
-    self.assertEqual(layer_var.counter.numpy(), 2)
-    self.assertFalse(np.array_equal(y1, y2))
+    assert layer_var.counter.value() == 2
+    assert not tx.tensor_equal(y1, y2)
 
 
 def test_variable_layer_reuse():
@@ -269,25 +258,28 @@ def test_variable_layer_reuse():
 
     v0 = var1()
     v1 = var2()
-    self.assertFalse(np.array_equal(v0, v1))
+    assert not tx.tensor_equal(v0, v1)
 
     # v0 inner variable changed when we evaluate v1
     v2 = var1()
-    self.assertFalse(np.array_equal(v0, v1))
+    assert not tx.tensor_equal(v0, v1)
 
     v3 = var3()
-    self.assertFalse(np.array_equal(v2, v3))
+    assert not tx.tensor_equal(v2, v3)
     v4 = var1()
-    self.assertTrue(np.array_equal(v3, v4))
+    assert tx.tensor_equal(v3, v4)
 
     # variable batch dimension is dynamic its shape will be different
-    self.assertFalse(np.array_equal(np.shape(v4), np.shape(v1)))
-    self.assertTrue(np.array_equal(np.shape(v2), np.shape(v1)))
+    assert not tx.shape_equal(v4, v1)
+    assert tx.shape_equal(v2, v1)
 
 
 def test_standalone_variable_layer():
-    var_layer = tx.VariableLayer(shape=[10])
-    self.assertTrue(np.array_equal(np.zeros([10]), var_layer()))
+    var_layer = tx.VariableLayer(shape=[4])
+
+    assert tx.tensor_equal(np.zeros([4], dtype=np.float32), var_layer())
+    assert not tx.tensor_equal(np.zeros([4]), var_layer())
+    assert tx.tensor_equal(tf.zeros([4]), var_layer())
 
 
 def test_module_reuse_order():
@@ -298,21 +290,22 @@ def test_module_reuse_order():
     h = tx.Add(x2, x3)
     y = tx.Add(x1, h)
 
-    m = tx.Module(inputs=[x1, x2, x3], output=y)
+    module = tx.Module(inputs=[x1, x2, x3], output=y)
 
     x1_ = tx.Constant([[2.]], name="x1b")
     x2_ = tx.Constant([[2.]], name="x2b")
-    x3_ = tx.Constant([[1.]], name="x2b")
 
-    m2 = m.reuse_with(x1_, x2_)
+    m2 = module.reuse_with(x1_, x2_)
 
-    m1 = m()
+    m1 = module()
     m2 = m2()
 
-    self.assertArrayEqual(m1, m2)
+    assert tx.tensor_equal(m1, m2)
 
 
 def test_module_rnn():
+    """ Module + RNN integration
+    """
     # test wrapping module around RNN because it has input dependencies that might not be given in the constructor
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
     x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
@@ -321,25 +314,25 @@ def test_module_rnn():
 
     out = tx.Concat(rnn1, rnn2)
 
-    # we need to add previous state as a dependency to a module
-    m = tx.Module(inputs=x1, output=out, dependencies=rnn1.previous_state + rnn2.previous_state)
+    # add previous state as a dependency to a module
+    m = tx.Module(inputs=x1, output=out,
+                  dependencies=rnn1.previous_state + rnn2.previous_state)
 
     m2 = m.reuse_with(x2)
     var_layers = set()
     for node in m2.graph.dependency_iter():
         if isinstance(node, tx.VariableLayer):
             var_layers.add(node)
-    self.assertSetEqual(var_layers, set(rnn1.previous_state + rnn2.previous_state))
 
-    self.assertArrayEqual(m(), m2())
+    assert var_layers == set(rnn1.previous_state + rnn2.previous_state)
+    assert tx.tensor_equal(m(), m2())
 
 
 def test_module_with_attention():
-    # logger = logging.getLogger('tensorx')
-    # logger.setLevel(logging.DEBUG)
-    # ch = logging.StreamHandler()
-    # ch.setLevel(logging.DEBUG)
-    # logger.addHandler(ch)
+    """ Module + Attention integration
+    This also tests Graph indirectly to check if we can add layers
+    whose input layers are the same object (e.g. in self-attention)
+    """
 
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
     x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
@@ -355,8 +348,7 @@ def test_module_with_attention():
     # this returns the function result
     out2 = fn(tf.ones([1, 2, 3]))
 
-    self.assertArrayEqual(out1[0], out2)
-    # list(map(print, m.trainable_variables))
+    assert tx.tensor_equal(out1[0], out2)
 
 
 def test_module():
@@ -376,9 +368,9 @@ def test_module():
     with tf.name_scope("module_reuse"):
         m2 = m.reuse_with(in2, in3, in1)
 
-    self.assertTrue(np.array_equal(m(), m2()))
+    assert tx.tensor_equal(m(), m2())
     in2.value = [[3]]
-    self.assertFalse(np.array_equal(m(), m2()))
+    assert not tx.tensor_equal(m(), m2())
 
 
 def test_rnn_cell():
@@ -396,19 +388,17 @@ def test_rnn_cell():
     rnn_2 = rnn1.reuse_with(inputs, state)
     rnn_3 = rnn1.reuse_with(inputs)
 
-    try:
+    with pytest.raises(TypeError):
         tx.RNNCell(inputs, n_hidden, share_state_with=inputs)
-        self.fail("should have thrown exception because inputs cannot share state with RNNCell")
-    except TypeError:
-        pass
+        pytest.fail("Type Error Expected: inputs cannot share state with RNNCell")
 
     res1 = rnn1()
     res2 = rnn_2()
     res3 = rnn_3()
 
-    self.assertEqual((batch_size, n_hidden), np.shape(res1))
-    self.assertTrue(np.array_equal(res1, res3))
-    self.assertFalse(np.array_equal(res1, res2))
+    assert (batch_size, n_hidden) == np.shape(res1)
+    assert tx.tensor_equal(res1, res3)
+    assert not tx.tensor_equal(res1, res2)
 
 
 def test_rnn_cell_graph():
@@ -699,16 +689,16 @@ def test_biRNN():
     rnn0.reset()
     r02 = rnn0()
 
-    self.assertArrayEqual(r01[0], r02[0])
+    assert tx.tensor_equal(r01[0], r02[0])
 
     rnn0_ = rnn0[0]
     rnn1_ = rnn1[0]
     rnn0 = tx.Wrap(rnn0, wrap_fn=lambda y: y[0], n_units=rnn0.n_units)
     rnn1 = tx.Wrap(rnn1, wrap_fn=lambda y: y[0], n_units=rnn1.n_units)
 
-    self.assertArrayEqual(tf.shape(rnn0()), tf.shape(rnn1()))
-    self.assertArrayEqual(tf.shape(rnn0()), tf.shape(rnn0_()))
-    self.assertArrayEqual(tf.shape(rnn1()), tf.shape(rnn1_()))
+    assert tx.shape_equal(rnn0(), rnn1())
+    assert tx.shape_equal(rnn0(), rnn0_())
+    assert tx.shape_equal(rnn1(), rnn1_())
 
     # print(tf.shape(rnn0()))
     r0 = rnn0()
