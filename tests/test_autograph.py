@@ -3,230 +3,83 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['AUTOGRAPH_VERBOSITY'] = '10'
 
-import unittest
 import tensorflow as tf
 import tensorx as tx
 from tensorx.utils import Graph
 
-import numpy as np
+
+def test_autograph_to_graph():
+    inputs = tx.Input(tf.ones([2, 4]))
+
+    def fn(x):
+        return tf.multiply(x, 2)
+
+    # only works in functions that expose __code__
+    g = tf.autograph.to_graph(fn)
+    y = g(inputs)
+
+    assert tx.tensor_equal(y, inputs() * 2)
 
 
-class TestAutoGraph(unittest.TestCase):
-    def test_autograph_to_graph(self):
-        x = tx.Input(tf.ones([2, 4]))
+def test_tensor_layer():
+    x = tx.Input([[2]], n_units=1, constant=False)
 
-        def fn(x):
-            return tf.tile(x, [1, 2])
+    fn = x.as_function()
+    x.value = [[4]]
+    y = fn()
 
-        # this generates a function that is compiled into a graph
-        g = tf.autograph.to_graph(fn)
-        # this generates the autograph code
-        # c = tf.autograph.to_code(fn)
-
-        y = g(x)
-
-        # print(y)
-
-    def test_tensor_layer(self):
-        x = tx.Input([[2]], n_units=1, constant=False)
-
-        fn = x.as_function()
-        x.value = [[4]]
-
-        #tf.summary.trace_on(graph=True, profiler=True)
-        y = fn()
-
-        self.assertEqual(y.numpy().flatten(), 4)
+    assert y.numpy().flatten() == 4
 
 
-    def test_default_values(self):
-        class Default:
-            def __init__(self, value):
-                self._value = tf.convert_to_tensor(value)
-                self.var = tf.Variable(initial_value=value,
-                                       trainable=False,
-                                       validate_shape=False,
-                                       shape=tf.TensorShape([None, None]))
+def test_build_graph():
+    x1 = tx.Input(n_units=1000, constant=False, dtype=tf.float32)
+    x2 = tx.Input(init_value=tf.ones([1, 3]), dtype=tf.float32, constant=True)
 
-            @property
-            def value(self):
-                # return self._value
-                return self.compute()
+    y10 = tx.Linear(x1, n_units=3)
+    y11 = tx.Activation(y10)
+    y1 = tx.Module(x1, y11)
+    y2 = tx.Add(y1, x2)
+    output = y2
 
-            @value.setter
-            def value(self, value):
-                self.var.assign(value)
-                # self._value = value
+    graph = Graph.build(inputs=None, outputs=[y1, y2])
+    # module condenses 2 nodes so it's 4 and not 6
+    assert len(graph.nodes) == 4
 
-            def compute(self):
-                return self.var.value()
+    @tf.function
+    def simple_graph(in0):
+        x1.value = in0
+        return y2()
 
-        x = Default([[5]])
+    simple_graph_2 = Graph.build(inputs=[x1, x2], outputs=y2)
+    simple_graph_2 = tf.function(simple_graph_2)
+    g = Graph.build(inputs=[x1, x2], outputs=y2)
+    y2fn = y2.as_function()
+    data = tf.ones([256, 1000])
+    x1.value = data
 
-        # x = tx.TensorLayer(value=[[5]], constant=False)
+    compiled_fn = g.as_function(ord_inputs=x1,
+                                ord_outputs=output)
 
-        #logdir = "/home/davex32/tmp/logs/test"  # + datetime.now().strftime("%Y%m%d-%H%M%S")
-        #writer = summary_ops_v2.create_file_writer(logdir)
+    assert tx.tensor_equal(compiled_fn(data), y2fn())
+    assert tx.tensor_equal(compiled_fn(data), simple_graph_2()[0])
 
-        self.assertEqual(x.compute().numpy().flatten(), 5)
-        x.value = tf.convert_to_tensor([[2]])
+    from timeit import timeit
 
-        g = tf.function(x.compute)
+    def update_run():
+        x1.value = tf.random.uniform([256, 1000])
+        return y2fn()
 
-        @tf.function
-        def test():
-            return tf.multiply(g(), 2)
+    n = 1000
+    t_update_run = timeit(update_run, number=n)
+    t_generated = timeit(lambda: compiled_fn(tf.random.uniform([256, 1000])), number=n)
+    t_compile_value_set = timeit(lambda: simple_graph(tf.random.uniform([256, 1000])), number=n)
+    t_graph_call_tf = timeit(lambda: simple_graph_2(tf.random.uniform([256, 1000])), number=n)
 
-        g2 = test
+    assert t_generated < t_update_run
+    assert t_generated < t_compile_value_set
+    assert t_generated < t_graph_call_tf
+    assert t_update_run > t_compile_value_set
 
-        # g2 = test
-        #tf.summary.trace_on(graph=True, profiler=True)
-        x.value = [[3]]
-        # self.assertEqual(fn().numpy(), 10)
-        #  x.value = 4
-        #  self.assertEqual(fn().numpy(), 8)
-        # self.assertEqual(fn(3).numpy(), 6)
-
-        #with writer.as_default():
-        #    tf.summary.trace_export(
-        ##        name="default",
-        #        step=0,
-        #        profiler_outdir=logdir)
-
-        #writer.flush()
-
-        # annotated functions become a special callable
-        # we can get the python code as follows
-        # x.compute.python_function
-
-        # print(tf.autograph.to_code(x.compute.python_function))
-
-    def test_build_graph(self):
-        x1 = tx.Input(n_units=1000, constant=False, dtype=tf.float32)
-        x2 = tx.Input(init_value=tf.ones([1, 3]), dtype=tf.float32, constant=True)
-
-        y10 = tx.Linear(x1, n_units=3)
-        y11 = tx.Activation(y10)
-        y1 = tx.Module(x1, y11)
-        y2 = tx.Add(y1, x2)
-        output = y2
-
-        test_graph = Graph.build(inputs=None, outputs=[y1, y2])
-
-        # print(test_graph.out_nodes)
-        # print(test_graph.in_nodes)
-
-        @tf.function
-        def simple_graph(in0):
-            x1.value = in0
-            return y2()
-
-        simple_graph_2 = Graph.build(inputs=[x1, x2], outputs=y2)
-        simple_graph_2 = tf.function(simple_graph_2)
-
-        g = Graph.build(inputs=[x1, x2], outputs=y2)
-
-        y2fn = y2.as_function()
-
-        data = tf.ones([256, 1000])
-
-        x1.value = data
-
-        compiled_fn = g.as_function(ord_inputs=x1,
-                                    ord_outputs=output)
-
-        # compiled_recursive = g.compile_recursive(x1)
-        # print(compiled_recursive)
-        # print(compiled_recursive(tf.random.uniform([256, 1000])))
-
-        np.testing.assert_array_equal(compiled_fn(data), y2fn())
-        np.testing.assert_array_equal(compiled_fn(data), simple_graph_2()[0])
-
-        from timeit import timeit
-        def update_run():
-            x1.value = tf.random.uniform([256, 1000])
-            return y2fn()
-
-        n = 1000
-        t1 = timeit(update_run, number=n)
-        t2 = timeit(lambda: compiled_fn(tf.random.uniform([256, 1000])), number=n)
-        t3 = timeit(lambda: simple_graph(tf.random.uniform([256, 1000])), number=n)
-        t4 = timeit(lambda: simple_graph_2(tf.random.uniform([256, 1000])), number=n)
-        # t5 = timeit(lambda: compiled_recursive(tf.random.uniform([256, 1000])), number=n)
-
-        # print(f"{t1}\tupdate input and run")
-        # print(f"{t2}\tgenerated function")
-        # print(f"{t3}\tcompile value change and graph call")
-        # print(f"{t4}\tgraph call with autograph")
-        # TODO I'm almost sure this slow down is due to reference to outside collections
-        # print(f"{t5}\trecursive autograph")
-        # TODO the problem with simple graph is that if we want to create a graph for
-        #   inputs that start at the middle of a neural network (e.g. a module), this
-        #   would not work unless we created the inputs first, but we would loose access to the
-        #   variable slots in the process
-
-        # TODO problems here
-        # o1 = y2()
-        # x1.value = np.random.uniform(size=[256, 1000])
-        # o2 = y2()
-        # self.assertFalse(np.array_equal(o1, o2))
-        # print(graph)
-
-        o1 = compiled_fn(tf.random.uniform([256, 1000]))
-        o2 = compiled_fn(tf.random.uniform([256, 1000]))
-        self.assertFalse(np.array_equal(o1, o2))
-
-        # source = compile(fn_def + fn_compute,mode="eval")
-
-        # print(source)
-        # print(locals()["graph"](2))
-        # {"graph": locals()["graph"], "layers": layers}
-        # print(
-        #    eval("""graph(2)"""))
-
-        # TODO to analyse the code we can use the dis module
-        # dis.dis(some function)
-        #
-
-    def test_autograph_dynamic_code(self):
-        # the string bellow detects a line break as a line break and a tab as a tab just as
-        # typical python code
-        a = '''def fn(arg):
-                res = tf.multiply(arg,2)
-                print(arg)
-                return res
-            '''
-
-        exec(a, globals(), globals())
-
-        g = tf.function(eval("fn"))
-        # print(g(2))
-        # print(eval("fn"))
-        # print(eval("fn(2)"))
-
-    def test_model(self):
-        import numpy as np
-
-        x = tx.Input(n_units=200, constant=False)
-        h = tx.Linear(x, n_units=100)
-        h = tx.Activation(h, tf.nn.relu)
-        y = tx.Linear(h, n_units=6)
-        y = tx.Activation(y, tf.nn.softmax)
-
-        m = tx.Module(inputs=x, output=y)
-        # print(list(m.graph.in_nodes))
-        # print(m.inputs)
-        # print(list(m.graph.out_nodes))
-
-        x2 = tx.Input(n_units=200, constant=False)
-        m = m.reuse_with(x2)
-
-        x.value = np.ones([4, 200])
-        # print(y())
-        # print(m())
-        x2.value = np.ones([4, 200])
-        # print(m())
-
-        # g = Graph.build_graph(None, output_layers=y)
-
-        # print(str(g.edges_in[y][0]))
+    o1 = compiled_fn(tf.random.uniform([256, 1000]))
+    o2 = compiled_fn(tf.random.uniform([256, 1000]))
+    assert not tx.tensor_equal(o1, o2)
