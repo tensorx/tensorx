@@ -31,3 +31,13 @@ def test_shape_equal():
 
     assert tx.shape_equal(t1, t1)
     assert not tx.shape_equal(t1, t2)
+
+
+def test_tensor_close():
+    t1 = tf.ones([2], dtype=tf.float32)
+    t2 = tf.constant([1., 1. + 1e-5])
+
+    assert not tx.tensor_all_close(t1, t2)
+    assert tx.tensor_all_close(t1, t2, atol=1e-5)
+    assert not tx.tensor_all_close(t1, t2, rtol=1e-5)
+    assert tx.tensor_all_close(t1, t2, rtol=1e-4)

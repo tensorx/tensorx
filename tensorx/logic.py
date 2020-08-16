@@ -43,3 +43,16 @@ def tensor_equal(first, second):
 
 def shape_equal(first, second):
     return tensor_equal(tf.shape(first), tf.shape(second))
+
+
+def tensor_close(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):  # pylint: disable=missing-docstring
+    rtol_ = as_tensor(rtol)
+    atol_ = as_tensor(atol)
+    result = (tf.math.abs(a - b) <= atol_ + rtol_ * tf.math.abs(b))
+    if equal_nan:
+        result = tf.logical_or(result, tf.logical_and(tf.math.is_nan(a), tf.math.is_nan(b)))
+    return result
+
+
+def tensor_all_close(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
+    return tf.reduce_all(tensor_close(a, b, rtol=rtol, atol=atol, equal_nan=equal_nan))

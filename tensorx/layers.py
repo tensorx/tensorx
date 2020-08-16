@@ -3056,6 +3056,9 @@ class LSTMCell(BaseRNNCell):
                  share_state_with=None,
                  name="lstm_cell"):
 
+        # attribute autocomplete
+        self.w = None
+
         self.forget_bias_init = forget_bias_init
         self.gate_activation = gate_activation
         self.output = None
