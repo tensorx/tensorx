@@ -2,7 +2,6 @@ import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-from tensorx.testing import TestCase
 import unittest
 import tensorx as tx
 import tensorflow as tf
@@ -19,38 +18,27 @@ import shutil
 # and Trackable, where dependencies should be added manually
 
 
-class MyTestCase(TestCase):
-    def test_variable_checkpoint(self):
-        x = tf.ones([2, 4])
-        l1 = tx.Linear(x, 3, add_bias=True, name="l1")
-        l2 = tx.Linear(x, 3, add_bias=False, name="l1")
+def test_variable_checkpoint(tmp_path):
+    inputs = tx.Constant(tf.ones([2, 4]))
+    l1 = tx.Linear(inputs, 3, add_bias=True, name="l1")
+    l2 = tx.Linear(inputs, 3, add_bias=False, name="l1")
 
-        w1 = l1.weights
-        w2 = l2.weights
+    # track: AutoTrackable = l1.layer_state
 
-        self.assertIsNot(w1, w2)
+    checkpoint = tf.train.Checkpoint(l1=l1)
+    manager = tf.train.CheckpointManager(checkpoint, tmp_path / 'ckpts',
+                                         max_to_keep=1)
+    manager.save(1)
+    # manager.save(2)
 
-        # print(w1)
-        # print(w2)
+    l1.weights.assign(l2.weights.value())
 
-        track: AutoTrackable = l1.layer_state
-        # print(util.list_objects(track))
+    status = checkpoint.restore(manager.latest_checkpoint)
+    status.assert_existing_objects_matched()
 
-        ckpt = tf.train.Checkpoint(l1=l1)
-        manager = tf.train.CheckpointManager(ckpt, './ckpts', max_to_keep=1)
-        manager.save(1)
-        # manager.save(2)
-
-        l1.weights.assign(l2.weights.value())
-
-        status = ckpt.restore(manager.latest_checkpoint)
-        status.assert_existing_objects_matched()
-
-        # print()
-        # print(tf.train.list_variables(manager.latest_checkpoint))
-
-        shutil.rmtree('./ckpts')
-
-
-if __name__ == '__main__':
-    unittest.main()
+    checkpoint_vars = tf.train.list_variables(manager.latest_checkpoint)
+    assert len(checkpoint_vars) == 4
+    assert checkpoint_vars[0][0] == '_CHECKPOINTABLE_OBJECT_GRAPH'
+    assert "l1/bias" in checkpoint_vars[1][0]
+    assert "l1/weights" in checkpoint_vars[2][0]
+    assert "save_counter" in checkpoint_vars[3][0]

@@ -4,6 +4,7 @@ from tensorx.utils import Graph
 import logging
 from tensorx.train.callbacks import *
 import numpy as np
+from typing import Union, Dict
 from queue import Empty
 import os
 import csv
@@ -152,7 +153,7 @@ class Model:
 
         Args:
             optimizer (Optimizer): optimizer class or instance
-            **config (dict): dictionary with parameters for the optimizer, if you want to modify these parameters during
+            **config : dictionary with parameters for the optimizer, if you want to modify these parameters during
             training pass an ``tx.Param`` as the value for the given parameter instead of constant value.
 
         Returns:
