@@ -6,24 +6,6 @@ from tensorx.utils import as_tensor
 from tensorflow.python.framework import tensor_shape, tensor_util
 
 
-def grid(shape, name="grid"):
-    with tf.name_scope(name):
-        if len(shape) == 1:
-            return tf.expand_dims(tf.range(0, shape[0], 1), -1)
-        elif len(shape) == 2:
-            max_x = shape[0]
-            max_y = shape[1]
-
-            ys = tf.range(0, max_y, 1)
-            ys = tf.tile(ys, [max_x])
-            ys = tf.reshape(ys, shape)
-
-            xys = matrix_indices(ys)
-            return xys
-        else:
-            raise ValueError("Invalid shape: shape should have len 1 or 2")
-
-
 def sparse_indices(sp_values, name="sparse_indices"):
     """ Returns the a ``SparseTensor`` with the indices for the active values on a given ``SparseTensor`` .
 
@@ -156,7 +138,7 @@ def sparse_zeros(indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
         return tf.SparseTensor(indices, values, dense_shape)
 
 
-def sparse_one_hot(column_indices, num_cols, dtype=tf.float32, name="sparse_one_hot"):
+def sparse_matrix_indices(column_indices, num_cols, dtype=tf.float32, name="sparse_one_hot"):
     """Transforms a batch of column indices to a one-hot encoding ``SparseTensor``.
 
         Example::
@@ -256,7 +238,7 @@ def dropout(tensor,
         if not tensor.dtype.is_floating:
             try:
                 tensor = tf.cast(tensor, tf.float32)
-            except Exception as e:
+            except Exception:
                 raise ValueError("x has to be a floating point tensor since it might be scaled"
                                  "Got a %s tensor instead. and could not cast it" % tensor.dtype)
 
@@ -356,7 +338,7 @@ def alpha_dropout(tensor,
         if not tensor.dtype.is_floating:
             try:
                 tensor = tf.cast(tensor, tf.float32)
-            except Exception as e:
+            except Exception:
                 raise ValueError("x has to be a floating point tensor since it might be scaled"
                                  "Got a %s tensor instead. and could not cast it" % tensor.dtype)
 
@@ -611,27 +593,28 @@ class SparseVariable:
 
 
 def to_sparse(tensor, name="to_sparse"):
-    """ Returns a ``SparseTensor` for a`given dense ``Tensor``.
+    """ to_sparse
+    Returns a `SparseTensor` for a given dense `Tensor`.
 
-    Example:
-
-        For a dense ``Tensor`` such as::
-
+    !!! example
+        For a dense `Tensor` such as:
+        ```python
             tensor = [[1,0],
                       [2,3]]
+        ```
+        this returns an op that creates the following two `SparseTensor`:
 
-        this returns an op that creates the following two ``SparseTensor``::
-
+        ```python
             tf.SparseTensor(indices = [[0,0],[1,0],[1,1]],
                                     values = [1,2,3],
                                     dense_shape = [2,2])
-
+        ```
     Args:
-        tensor: a dense ``Tensor``
-        name: name for this operation (optional)
+        tensor (`Tensor`): a dense tensor
+        name (`str`): name for to_sparse op
 
     Returns:
-        ``SparseTensor``: a sparse tensor with sparse index and value tensors
+        sp_tensor (`SparseTensor`): a sparse tensor with sparse index and value tensors
         with the non-zero entries of the given input.
 
     """
@@ -643,6 +626,7 @@ def to_sparse(tensor, name="to_sparse"):
         sp_tensor = tf.SparseTensor(indices, values, dense_shape)
 
         return sp_tensor
+
 
 # TODO check if this has been fixed from previous versions
 def embedding_lookup_sparse(params,
@@ -664,6 +648,7 @@ def embedding_lookup_sparse(params,
         in tensorflow's implementation, sparse gradients do not propagate through gather.
 
     Args:
+        sp_tensor:
         params: A single tensor representing the complete embedding tensor, or a
         list of P tensors all of same shape except for the first dimension,
         representing sharded embedding tensors.  Alternatively, a
@@ -774,61 +759,19 @@ def embedding_lookup_sparse(params,
         return embeddings
 
 
-def dense_one_hot(column_indices, num_cols, dtype=tf.float32, name="dense_one_hot"):
-    """transforms a batch of indices into a dense `Tensor` where each row represents a `one-hot` encoding for the
-    indices.
-
-    Examples:
-        ```python
-        indices = [0,1]
-        dense_one_hot(indices,num_cols=2)
-
-        [[1,0],
-         [0,1]]
-        ```
-
-        If a multiple indices are passed for each row, their one-hot encodings are summed.
-
-        ```python
-        indices = [[0,1],
-                   [1,1]]
-        dense_one_hot(indices,num_cols=2)
-
-        [[1,1],
-         [0,2]]
-        ```
-
-    Args:
-        column_indices (Tensor): a dense `Tensor` with the active indices for each row.
-        num_cols (int): total number of columns for the one-hot encoding
-        dtype (Dtype): output tensor dtype
-        name (str): name for this op
-
-    Returns:
-        dense_tensor (Tensor): A dense ``Tensor`` with a [one-hot encoding](https://en.wikipedia.org/wiki/One-hot)
-        for the given indices.
-    """
-    with tf.name_scope(name=name):
-        column_indices = as_tensor(column_indices, tf.int64)
-        one_hot_dense = tf.one_hot(column_indices, depth=num_cols, dtype=dtype)
-
-        if column_indices.get_shape().ndims == 2:
-            one_hot_dense = tf.math.reduce_sum(one_hot_dense, axis=1)
-
-        return one_hot_dense
-
-
 def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
-    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
-    with the values of the first one
+    """ sparse_overlap
+
+    Returns a `SparseTensor` where the indices of the overlapping indices in the two
+    sparse tensors with the values of the first one.
 
     Args:
         sp_tensor1 (`SparseTensor`): a sparse tensor
         sp_tensor2 (`SparseTensor`): another sparse tensor
-        name (`str`): name for this op
+        name (`str`): name for sparse_overlap op
 
     Returns:
-        sp1, sp2 (`SparseTensor`, `SparseTensor`):  sparse tensors with the overlapping indices
+        sp_tensor (`SparseTensor`): sparse tensor with the overlapping indices and the values of `sp_tensor1`
     """
     with tf.name_scope(name):
         ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
@@ -836,7 +779,7 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
 
         index_union = tf.sparse.add(ones1, ones2)
 
-        index_filter = tf.math.equal(index_union.valfues, 2.)
+        index_filter = tf.equal(index_union.values, 2.)
 
         zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
         expand1 = tf.sparse.add(zeros1, sp_tensor1)
@@ -883,10 +826,313 @@ def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
         return sorted_tensor1, sorted_values
 
 
+def ranges(range_sizes, name="ranges"):
+    """ ranges
+
+    similar to concatenating multiple `tf.range` calls applied
+    to each element of a given 1D tensor with range sizes.
+
+    !!! example
+        ```python
+            ranges([1,2,4])
+
+            [0,0,1,0,1,2,3]
+        ```
+
+        the enums are `[0]`, `[0,1]`, `[0,1,2,3]`
+
+    Args:
+        range_sizes (`Tensor`): 1D tensor with range sizes
+        name (`str`): ranges op name
+
+    Returns:
+        ranges (`Tensor`): a 1D `Tensor` with `tf.reduce_sum(range_sizes)` dimensions
+    """
+    with tf.name_scope(name):
+        range_sizes = tf.convert_to_tensor(range_sizes)
+
+        tf.ensure_shape(range_sizes, tf.TensorShape([None]))
+
+        tf.debugging.assert_greater(tf.shape(range_sizes)[0], 0,
+                                    message="range_sizes cannot be empty")
+
+        num_ranges = tf.shape(range_sizes)[0]
+
+        # get maximum repeat length in x
+        max_len = tf.math.reduce_max(range_sizes)
+        x = tf.range(max_len)
+
+        # tile it to the maximum repeat length [maxlen x maxlen] now
+        x_repeat = tf.stack([num_ranges, 1], axis=0)
+        x_tiled = tf.tile(tf.expand_dims(x, 0), x_repeat)
+
+        # create a sequence mask using x
+        # this will create a boolean matrix of shape [xlen, max_len]
+        # where result[i,j] is true if j < x[i].
+        mask = tf.sequence_mask(range_sizes, max_len)
+
+        # mask the elements based on the sequence mask
+        return tf.boolean_mask(x_tiled, mask)
+
+
+def gather_sparse(sp_tensor, ids, name="gather_sparse"):
+    """ gather_sparse
+
+    gather rows from a sparse tensor by the given ids and returns a sparse tensor
+
+    !!! warning
+        gathering from a `SparseTensor` is inefficient
+
+
+    !!! example
+        ```python
+        gather_sparse(sp_tensor,[1,1,4])
+        ```
+        returns a `[3,sp_tensor.dense_shape[-1]]` `SparseTensor`
+
+    Args:
+        sp_tensor (`SparseTensor`): sparse tensor
+        ids (`Tensor`): an int tensor with the ids of the rows to be returned
+        name (`str`): on name
+
+    Returns:
+        sp_gathered (`SparseTensor`): a sparse tensor with the gathered rows.
+
+    """
+    with tf.name_scope(name=name):
+        ids = tf.cast(ids, tf.int64)
+        ids = tf.reshape(ids, [-1])
+
+        # count columns and compute row coordinates
+        sp_column_ones = sparse_ones(sp_tensor.indices, sp_tensor.dense_shape, dtype=tf.int64)
+        col_count = tf.sparse.reduce_sum(sp_column_ones, axis=-1)
+        # sparse_reduce_sum sets shape to unknown
+        col_count.set_shape([sp_tensor.get_shape().as_list()[0]])
+        col_count_cs = tf.math.cumsum(col_count)
+        row_start_coor = col_count_cs - col_count
+
+        g_col_count = tf.gather(col_count, ids)
+        g_row_start_coor = tf.gather(row_start_coor, ids)
+
+        row_start_coor = tf.repeat(g_row_start_coor, g_col_count)
+        # col_counts = repeat_each(g_col_count, g_col_count)
+
+        offset = ranges(g_col_count)
+
+        # use modular arithmetic to make sure we get incremental coordinates
+        # gather_ids = row_start_coor + offset % col_counts
+        gather_ids = row_start_coor + offset
+
+        num_ids = tf.cast(tf.shape(ids)[0], tf.int64)
+        new_rows = tf.repeat(tf.range(num_ids), g_col_count)
+
+        sp_cols = sp_tensor.indices[:, -1]
+        new_cols = tf.gather(sp_cols, gather_ids)
+        new_indices = tf.stack([new_rows, new_cols], axis=-1)
+        new_values = tf.gather(sp_tensor.values, gather_ids)
+
+        new_shape = tf.concat([tf.expand_dims(tf.cast(num_ids, tf.int64), -1),
+                               sp_tensor.dense_shape[1:]],
+                              axis=-1)
+
+        sp = tf.SparseTensor(new_indices, new_values, new_shape)
+        return sp
+
+
+def grid_2d(shape, name="grid_2d"):
+    """ grid_2d
+    
+    Args:
+        shape (`Tensor`): an Tensor of tf.int32 with a 2D shape for the grid
+        name: grid_2d op name
+
+    Returns:
+        grid_coordinates (`Tensor`): 2D tensor with grid coordinates
+
+    """
+    shape = as_tensor(shape, tf.int32)
+    with tf.name_scope(name):
+        x = tf.range(shape[0])
+        y = tf.range(shape[1])
+        x = x[tf.newaxis, :, tf.newaxis]
+        y = y[:, tf.newaxis, tf.newaxis]
+
+        return tf.reshape(tf.concat([x + tf.zeros_like(y),
+                                     tf.zeros_like(x) + y], axis=2), [-1, 2])
+
+
+def sparse_tile(sp_tensor, num, name="sparse_tile"):
+    with tf.name_scope(name):
+        sp_tensor = as_tensor(sp_tensor)
+        values = tf.tile(sp_tensor.values, [num])
+        num = as_tensor(num, tf.int64)
+
+        indices = tf.tile(sp_tensor.indices, [num, 1])
+        row_indices, col_indices = tf.unstack(indices, num=2, axis=-1)
+
+        # fix row indices
+        num_values = tf.shape(sp_tensor.values, out_type=tf.int64)[0]
+        batch_size = tf.shape(sp_tensor, out_type=tf.int64)[0]
+
+        # this is preferable to using dense shape directly because we need the num cols to be known
+        dim = sp_tensor.dense_shape[-1]
+        offset = tf.range(start=0, limit=num * batch_size, delta=batch_size, dtype=tf.int64)
+
+        row_offset = repeat(x=offset, n=num_values)
+        row_indices = row_indices + row_offset
+        indices = tf.stack([row_indices, col_indices], axis=-1)
+
+        tile_batch_size = batch_size * num
+        tiled_dense_shape = tf.stack([tile_batch_size, dim], axis=0)
+        sp_tilled = tf.SparseTensor(indices=indices,
+                                    values=values,
+                                    dense_shape=tiled_dense_shape)
+
+        return sp_tilled
+
+
+def pairs(tensor1, tensor2, name="pairs"):
+    """Pairwise combination of elements from the two tensors.
+
+    !!! example
+        ```python
+        t1 = [[0],[1]]
+        t2 = [2,3,4]
+        t12 = [[0,2],[1,2],[0,3],[1,3],[0,4],[1,4]]
+
+        p12 = tx.pairs(t1,t2)
+        tf.reduce_all(tf.equal(p12,t12))
+        ```
+
+    Args:
+        tensor1 (`Tensor`): a tensor, python list, or numpy array
+        tensor2 (`Tensor`): a tensor, python list, or numpy array
+        name (`str`): name for pairs op)
+
+    Returns:
+        tensor (`Tensor`): a tensor with the pairwise combination of input tensors
+    """
+    tensor1 = tf.convert_to_tensor(tensor1)
+    tensor2 = tf.convert_to_tensor(tensor2)
+
+    with tf.name_scope(name):
+        x, y = tf.meshgrid(tensor1, tensor2)
+        result = tf.stack([x, y], axis=-1)
+        result = tf.reshape(result, [-1, 2])
+        return result
+
+
+def sparse_put(sp_tensor, sp_updates, name="sparse_put"):
+    """ sparse_put
+
+    Changes a given tf.SparseTensor according to the updates specified in a tf.SparseTensor.
+
+    Creates a new tensor where the values of the updates override the
+    values in the original tensor. The input tensors must have the same
+    `dense_shape`.
+
+    Args:
+        sp_tensor (`SparseTensor`): a sparse tensor we which to set some indices to given values
+        sp_updates (`SparseTensor): a ``SparseTensor`` with the indices to be changed and the respective values
+        name (`str`): sparse_put op name
+
+    Returns:
+        sparse_tensor (`SparseTensor`): a sparse tensor with the updated values.
+    """
+    with tf.name_scope(name=name):
+        if sp_updates.dtype != sp_tensor.dtype:
+            sp_updates = tf.cast(sp_updates, sp_tensor.dtype)
+
+        # 1 concat indices and establish final tensor shape
+        update_shape = tf.shape(sp_updates.values)
+        zero_updates = tf.SparseTensor(sp_updates.indices,
+                                       tf.zeros(update_shape, dtype=tf.float32),
+                                       sp_updates.dense_shape)
+        proto_result = tf.sparse.add(sp_tensor, zero_updates)
+
+        # shape of resulting values tensor
+        proto_shape = tf.shape(proto_result.values)
+
+        # 2 get mask for input tensor
+        proto_ones = tf.SparseTensor(proto_result.indices,
+                                     tf.ones(proto_shape, tf.int32),
+                                     proto_result.dense_shape)
+
+        # mask_ones = tf.math.scalar_mul(-1, tf.ones(update_shape))
+        sp_mask = tf.SparseTensor(sp_updates.indices,
+                                  tf.ones_like(sp_updates.values, dtype=tf.int32) * -1,
+                                  sp_updates.dense_shape)
+
+        to_retain = tf.sparse.add(proto_ones, sp_mask)
+        to_retain = tf.not_equal(to_retain.values, 0)
+
+        # get tensor with masked values
+        tensor_masked = tf.sparse.retain(proto_result, to_retain)
+
+        # add values to entries previously set to 0
+        new_tensor = tf.sparse.add(tensor_masked, sp_updates)
+        return new_tensor
+
+
+def put(tensor, sp_updates, name="put"):
+    """ put
+
+    Changes a given dense ``Tensor`` according to the updates specified in a ``SparseTensor``.
+
+    Creates a new ``Tensor`` where the values of the updates override the
+    values in the original tensor. The tensor `shape` must be the same as the updates `dense_shape`.
+
+    Args:
+        tensor (`Tensor`): tensor to be updated
+        sp_updates (`SparseTensor`): sparse tensor with the indices to be changed and the respective values.
+        name (`str`): put op name
+
+    Returns:
+        tensor (`Tensor`): a tensor with the updated values.
+    """
+    tensor = as_tensor(tensor)
+
+    with tf.name_scope(name=name):
+        if sp_updates.dtype != tensor.dtype:
+            sp_updates = tf.cast(sp_updates, tensor.dtype)
+
+        markers = tf.ones(shape=tf.shape(sp_updates.values))
+        sparse_marker_tensor = tf.SparseTensor(indices=sp_updates.indices,
+                                               values=markers,
+                                               dense_shape=sp_updates.dense_shape)
+        dense_update_marker = tf.sparse.to_dense(sparse_marker_tensor)
+        dense_updates = tf.sparse.to_dense(sp_updates)
+
+        new_tensor = tf.where(tf.not_equal(dense_update_marker, 0),
+                              dense_updates,
+                              tensor)
+        return new_tensor
+
+
+def filter_nd(condition, params, name="filter_nd"):
+    """ filter_nd
+    Filters a given tensor based on a condition tensor
+    condition and params must have the same shape
+
+    Args:
+        condition (`Tensor`): a `bool` tensor used to filter params
+        params (`Tensor`): the tensor to be filtered
+        name (`str`): name for filter_nd op
+    Returns:
+        sp_tensor (`SparseTensor`): a sparse tensor with the values in params filtered according to condition
+    """
+    with tf.name_scope(name=name):
+        indices = tf.cast(tf.where(condition), dtype=tf.int64)
+        values = tf.gather_nd(params, indices)
+        dense_shape = tf.cast(tf.shape(params), tf.int64)
+        sp_result = tf.SparseTensor(indices, values, dense_shape)
+        return sp_result
+
+
 __all__ = ["apply_gate",
            "sparse_ones",
            "sparse_indices",
-           "sparse_one_hot",
+           "sparse_matrix_indices",
            "matrix_indices",
            "dropout",
            "alpha_dropout",
@@ -896,8 +1142,15 @@ __all__ = ["apply_gate",
            "SparseVariable",
            "to_sparse",
            "embedding_lookup_sparse",
-           "dense_one_hot",
            "sparse_zeros",
            "sparse_overlap",
            "sort_by_first",
-           "grid"]
+           "ranges",
+           "grid_2d",
+           "gather_sparse",
+           "sparse_tile",
+           "pairs",
+           "sparse_put",
+           "put",
+           "filter_nd"
+           ]

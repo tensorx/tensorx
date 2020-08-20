@@ -98,7 +98,7 @@ def batch_sparse_dot(sp_tensor1, tensor2, name=None, keepdims=True):
 def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
     """ Element-wise multiplication of two sparse tensors
 
-    Note:
+    !!! warning
         if the two sparse tensors don't overlap, returns an empty sparse tensor.
 
     Args:
@@ -207,5 +207,6 @@ __all__ = [
     "sparse_sparse_multiply",
     "batch_sparse_dot",
     "sparse_l2_norm",
-    "rms"
+    "rms",
+    "logit"
 ]

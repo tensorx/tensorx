@@ -833,7 +833,7 @@ class Input(Layer):
     def compute(self):
         with layer_scope(self):
             if self.n_active is not None:
-                return txf.sparse_one_hot(self.value, num_cols=self.n_units, dtype=self.dtype)
+                return tx.sparse_matrix_indices(self.value, num_cols=self.n_units, dtype=self.dtype)
             else:
                 return self.value
 

@@ -1,8 +1,8 @@
 import tensorflow as tf
 from typing import Union, List
-import tensorx.ops as txf
 from tensorx.utils import as_tensor
 from tensorx.math import batch_sparse_dot, sparse_l2_norm
+from tensorx.ops import grid_2d
 
 
 def cosine_distance(tensor1, tensor2, dtype=tf.float32):
@@ -163,7 +163,7 @@ def torus_l1_distance(point, shape):
         max_x = shape[0]
         max_y = shape[1]
 
-        xys = txf.grid(shape)
+        xys = grid_2d(shape)
         xys = tf.cast(xys, tf.float32)
 
         xs, ys = tf.unstack(xys, num=2, axis=-1)
