@@ -130,7 +130,7 @@ def test_linear():
     assert tx.tensor_equal(t1, t2)
 
     linear2 = tx.Linear(linear.input_layers[0], 8, share_state_with=linear, dtype=tf.float64)
-    t3 = linear2.tensor()
+    t3 = linear2()
     assert tx.tensor_equal(t1, t3)
 
     linear = tx.Linear(inputs, 8, dtype=tf.float64)
@@ -656,16 +656,16 @@ def test_rnn_layer():
     assert tx.tensor_equal(rnn2.previous_state, rnn1.previous_state)
     assert tx.tensor_equal(rnn3.previous_state, rnn4.previous_state)
 
-    out3, last3 = rnn3.tensor()
-    out4, last4 = rnn4.tensor()
+    out3, last3 = rnn3()
+    out4, last4 = rnn4()
 
     assert tx.tensor_equal(out3, out4)
     assert tx.tensor_equal(last3, last4)
 
-    cell_state1 = rnn1.cell.previous_state[0].tensor()
-    cell_state2 = rnn2.cell.previous_state[0].tensor()
-    cell_state3 = rnn3.cell.previous_state[0].tensor()
-    cell_state4 = rnn4.cell.previous_state[0].tensor()
+    cell_state1 = rnn1.cell.previous_state[0]()
+    cell_state2 = rnn2.cell.previous_state[0]()
+    cell_state3 = rnn3.cell.previous_state[0]()
+    cell_state4 = rnn4.cell.previous_state[0]()
 
     assert len(rnn1.cell.previous_state) == 1
 
@@ -674,7 +674,7 @@ def test_rnn_layer():
 
     assert not tx.tensor_equal(out1, out3)
 
-    out5, last5 = rnn5.tensor()
+    out5, last5 = rnn5()
 
     assert tx.tensor_equal(out1, out5)
     assert tx.tensor_equal(last1, last5)
@@ -759,12 +759,12 @@ def test_stateful_rnn_layer():
     lstm1()
 
     # state after single run
-    # zero_state1 = [layer.tensor() for layer in ]
-    zero_state1 = rnn1.previous_state[0].tensor()
+    # zero_state1 = [layer() for layer in ]
+    zero_state1 = rnn1.previous_state[0]()
     assert tx.tensor_equal(zero_state1, state1)
 
     rnn1.reset()
-    reset_state = rnn1.previous_state[0].tensor()
+    reset_state = rnn1.previous_state[0]()
     assert tx.tensor_equal(reset_state, zero_state0[0])
 
 
@@ -784,8 +784,8 @@ def test_lookup_sequence_dense():
 
     lookup_from_tensor = lookup.reuse_with(tensor_input)
 
-    v1 = lookup.tensor()
-    v2 = lookup_from_tensor.tensor()
+    v1 = lookup()
+    v2 = lookup_from_tensor()
 
     assert np.shape(v1) == (batch_size, seq_size, embed_dim)
     assert np.shape(v2) == (batch_size, seq_size, embed_dim)
@@ -804,20 +804,20 @@ def test_lookup_dynamic_sequence():
     concat = lookup.as_concat()
 
     inputs.value = seq1
-    inputs.tensor()
+    inputs()
 
     inputs.value = seq2
-    inputs.tensor()
-
-    inputs.value = seq1
-    l1 = lookup.tensor()
-    inputs.value = seq2
-    l2 = lookup.tensor()
+    inputs()
 
     inputs.value = seq1
-    c1 = concat.tensor()
+    l1 = lookup()
     inputs.value = seq2
-    c2 = concat.tensor()
+    l2 = lookup()
+
+    inputs.value = seq1
+    c1 = concat()
+    inputs.value = seq2
+    c2 = concat()
 
     assert np.shape(l1)[-1] == m
     assert np.shape(l2)[-1] == m

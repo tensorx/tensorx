@@ -211,8 +211,8 @@ class Layer(AutoTrackable):
 
         # save this for __call__
         # TODO this should be built lazily for __call__ instead of storing a subgraph on each node
-        input_graph = Graph.build(inputs=None,
-                                  outputs=self.input_layers)
+        input_graph: Graph = Graph.build(inputs=None,
+                                         outputs=self.input_layers)
 
         self.input_graph = track.NoDependency(input_graph)
 
@@ -276,36 +276,28 @@ class Layer(AutoTrackable):
 
             input_tensors = tuple([results[ord_inputs[out]] for out in self.input_layers])
         else:
-            # TODO I think this graph eval could be replaced by something simple, simply converting the
-            #  inputs to tensors, if we provide layers, the conversion would call () on it's own
-            #  2. there's a problem with Tensor Layer for constants where n_units can become None
+            # TODO the problem with this is that is not good to convert to layer
             input_layers = [as_layer(input_layer) for input_layer in input_layers]
             input_tensors = Graph.eval(*input_layers)
 
+        # return {f"{self.scoped_name}_output": self.compute(*input_tensors)}
         return self.compute(*input_tensors)
 
-    def as_function(self, input_signature=None):
-        """
-        !!! Note
-            I generally don't use python objects to control how the graph is created (e.g. number of layers)
-            but if we use python objects we should convert them to tensors to make sure the graph is not
-            retraced each time if the parameters do not affect the resulting graph.
-
-            This is generally not needed because neural network layers do not have multiple traces because layers
-            don't change types.
-
-            double_strings = double.get_concrete_function(tf.TensorSpec(shape=None, dtype=tf.string))
-
-
-        Reference:
-            https://www.tensorflow.org/beta/tutorials/eager/tf_function
-        Args:
-            input_signature:
-
-        Returns:
-            a function with the entire graph traced from the current layer as the output
-        """
-        return tf.function(self.__call__, input_signature)
+    def _list_functions_for_serialization(self, serialization_cache):
+        # TODO problem with this is that if we consider other signature
+        #  it tries to convert __call__ with as_layer which does not work well
+        #  because it tries to create layer objects e.g. for constants
+        #  which means I should consider the semantics for call
+        concrete_call = tf.function()(self.__call__).get_concrete_function()
+        # graph = Graph.build(inputs=None, outputs=self)
+        # print(self.variables)
+        # print(graph.nodes)
+        # fn = graph.as_function()
+        # concrete_call = fn.get_concrete_function()
+        # print(concrete_call)
+        fns = dict({"__call__": concrete_call})
+        fns.update(super()._list_functions_for_serialization(serialization_cache))
+        return fns
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -319,15 +311,15 @@ class Layer(AutoTrackable):
         inputs = ",".join(map(lambda x: x.name, self.input_layers))
         return f"{self.scoped_name}::{class_name}({self.n_units},{self.dtype})({inputs})"
 
-    def __repr__(self):
-        """ returns
-
-        Returns:
-
-        """
-        proto = self.proto
-        kw = ', '.join([f'{k}={repr(v)}' for k, v in proto.arg_dict.items()])
-        return f"{proto.layer_cls.__name__}({kw})"
+    # def __repr__(self):
+    #     """ returns
+    #
+    #     Returns:
+    #
+    #     """
+    #     proto = self.proto
+    #     kw = ', '.join([f'{k}={repr(v)}' for k, v in proto.arg_dict.items()])
+    #     return f"{proto.layer_cls.__name__}({kw})"
 
     def __getitem__(self, item):
         if isinstance(item, tf.Tensor):
@@ -347,15 +339,6 @@ class Layer(AutoTrackable):
     def __mul__(self, other):
         other = as_layer(other, dtype=self.dtype)
         return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, name="Mul")
-
-    # TODO REMOVE
-    def tensor(self):
-        """ tensor() alias for compute without arguments
-
-        Returns:
-            the results of the graph at the current layer
-        """
-        return self()
 
 
 class Lambda(Layer):
