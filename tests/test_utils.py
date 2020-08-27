@@ -38,6 +38,18 @@ def test_layer_graph():
     assert tx.tensor_equal(r1, w)
 
 
+def test_graph_no_inputs():
+    in1 = tx.Input(n_units=2, constant=False)
+    lin1 = tx.Linear(in1, n_units=4)
+
+    graph = tx.Graph.build(inputs=None, outputs=lin1)
+    assert len(graph.nodes) == 2
+    assert in1 in graph.nodes
+    assert lin1 in graph.nodes
+
+    graph = tx.Graph.build(inputs=None,outputs=lin1,add_missing_inputs=True)
+
+
 def test_multi_output_graph():
     data1 = [[1., 1.]]
     data2 = [[2., 1.]]

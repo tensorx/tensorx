@@ -203,14 +203,25 @@ class Graph:
     def build(inputs, outputs, add_missing_inputs=False):
         """ build_graph
 
+        #TODO perhaps I could change the name to inputs, to make this more general, any node with inputs would work
+        Transverses nodes starting from outputs and following `node.input_layers` to create the edges.
+
+        !!! note
+            use `add_missing_inputs` if you have graph inputs but might have other dependencies that might not have
+            been created explicitely. Example: in an RNN layer, if a previous state is not passed explicitly, a default one
+            is created by the layer and stored in input layers. You might be aware of this input node to a graph but
+            not want to pass it explicitly to inputs.
+
         Args:
-            add_missing_inputs: if True and input_layers is not empty, missing input dependencies will be added to the graph
-                else, having missing inputs will raise a ValueError exception listing the missing dependencies.
             inputs: input terminal layers where the graph must stop
             outputs: output layers from which we start to populate the graph
+            add_missing_inputs: if True and `inputs` are provided, input nodes found that are not in given inputs
+                will be added to the graph. If False ValueError is raised with a list of inputs not specified
+                (missing dependencies).
 
         Returns:
-            a graph from the output layers to the given input layers
+            graph (`Graph`): a graph from the outputs to the given input, or to every input found if these are not
+                specified.
         """
         graph = Graph()
         inputs = dict.fromkeys(as_list(inputs))
