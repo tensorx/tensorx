@@ -9,10 +9,13 @@ from tensorx.train.callbacks import OnValueChange
 from functools import partial
 from tensorx.ops import embedding_lookup_sparse
 from tensorflow.python.training.tracking.tracking import AutoTrackable
+from tensorflow.python.training.tracking.base import TrackableReference
 from tensorflow.python.training.tracking import data_structures as track
+
 import tensorx as tx
 import threading
 from collections import Counter
+import re
 
 
 class LayerState(AutoTrackable):
@@ -211,13 +214,13 @@ class Layer(AutoTrackable):
 
         # save this for __call__
         # TODO this should be built lazily for __call__ instead of storing a subgraph on each node
-        input_graph: Graph = Graph.build(inputs=None,
-                                         outputs=self.input_layers)
-
-        self.input_graph = track.NoDependency(input_graph)
+        if self.input_layers:
+            input_graph: Graph = Graph.build(inputs=None,
+                                             outputs=self.input_layers)
+            self.input_graph: Graph = track.NoDependency(input_graph)
 
     def init_state(self):
-        self.layer_state = LayerState()  # LayerState(self)
+        self.layer_state = LayerState()
         return self.layer_state
 
     def __setattr__(self, key, value):
@@ -271,33 +274,53 @@ class Layer(AutoTrackable):
 
     def __call__(self, *input_layers):
         if not input_layers:
-            ord_inputs = {out: i for i, out in enumerate(self.input_graph.out_nodes)}
-            results = self.input_graph()
-
-            input_tensors = tuple([results[ord_inputs[out]] for out in self.input_layers])
+            if self.input_layers:
+                ord_inputs = {out: i for i, out in enumerate(self.input_graph.out_nodes)}
+                results = self.input_graph()
+                input_tensors = tuple([results[ord_inputs[out]] for out in self.input_layers])
+            else:
+                input_tensors = tuple()
         else:
-            # TODO the problem with this is that is not good to convert to layer
-            input_layers = [as_layer(input_layer) for input_layer in input_layers]
+            input_layers = map(as_layer, input_layers)
             input_tensors = Graph.eval(*input_layers)
 
-        # return {f"{self.scoped_name}_output": self.compute(*input_tensors)}
+            # return {f"{self.scoped_name}_output": self.compute(*input_tensors)}
         return self.compute(*input_tensors)
 
+    def as_function(self, name="layer_function"):
+        graph = Graph.build(inputs=None, outputs=self)
+        return graph.as_function(fn_name=name, as_tf_function=False)
+
     def _list_functions_for_serialization(self, serialization_cache):
-        # TODO problem with this is that if we consider other signature
-        #  it tries to convert __call__ with as_layer which does not work well
-        #  because it tries to create layer objects e.g. for constants
-        #  which means I should consider the semantics for call
-        concrete_call = tf.function()(self.__call__).get_concrete_function()
-        # graph = Graph.build(inputs=None, outputs=self)
-        # print(self.variables)
-        # print(graph.nodes)
-        # fn = graph.as_function()
-        # concrete_call = fn.get_concrete_function()
-        # print(concrete_call)
+        concrete_call = tf.function(self.as_function()).get_concrete_function()
         fns = dict({"__call__": concrete_call})
         fns.update(super()._list_functions_for_serialization(serialization_cache))
         return fns
+
+    def _list_extra_dependencies_for_serialization(self, serialization_cache):
+        """ Lists extra dependencies to serialize.
+
+        Internal sub-classes can override this method to return extra dependencies
+
+        Args:
+             serialization_cache: A dictionary shared between all objects in the same
+                object graph. This object is passed to both
+                `_list_extra_dependencies_for_serialization` and
+                `_list_functions_for_serialization`.
+
+        Returns:
+            A dictionary mapping attribute names to trackable objects.
+        """
+        if self._input_layers:
+            layers = self.input_graph.dependency_iter()
+
+            dependencies = {
+                f"input_layer_{index}": dep_layer
+                for index, dep_layer in enumerate(layers)
+            }
+        else:
+            dependencies = {}
+        return dependencies
 
     def __str__(self):
         """ Informal string representation for a layer consists of Layer Class name, number of units and if its
@@ -1267,6 +1290,7 @@ class Linear(Layer):
         return layer_state
 
     def compute(self, input_tensor):
+        input_tensor = as_tensor(input_tensor)
         weights = self.layer_state.weights
         if input_tensor.dtype != weights.dtype:
             raise ValueError(f"invalid dtype for Linear inputs:\n"
@@ -1402,12 +1426,14 @@ class Module(Layer):
             inputs = self.inputs + self.dependencies
             self.graph = Graph.build(inputs=inputs, outputs=self.output, add_missing_inputs=True)
 
+            # required for Modules built with inputs=None
+            # this will make sure that module inputs are always computed
+            # before module_fn is computed
+            inputs = self.graph.in_nodes
             # to that we don't need to call reuse on compute with params
             self.module_fn = self.graph.as_function(ord_inputs=inputs,
                                                     ord_outputs=output,
                                                     fn_name=f"{name}_fn")
-            # if self.inputs:
-            #    self.inputs = list(self.graph.in_nodes)
         except ValueError as e:
             raise ValueError(f"Could not build a module with the given "
                              f"endpoints: \n\t{str(e)}")
@@ -1428,6 +1454,7 @@ class Module(Layer):
         return state
 
     def compute(self, *input_tensors):
+        input_tensors = map(as_tensor, input_tensors)
         return self.module_fn(*input_tensors)
 
     def reuse_with(self, *input_layers, name=None):
@@ -1460,7 +1487,6 @@ class Module(Layer):
             if node not in self.graph.in_nodes:
                 new_inputs = [layer_map[lr] for lr in node.input_layers]  # if lr not in other_inputs]
                 layer_map[node] = node.reuse_with(*new_inputs)
-                # list(map(print, layer_map[node].input_layers))
 
         new_output = layer_map[self.output]
 
@@ -2524,6 +2550,7 @@ class Lookup(Layer):
         return layer_state
 
     def compute(self, input_tensor):
+        input_tensor = as_tensor(input_tensor)
         if isinstance(input_tensor, tf.SparseTensor) and self.seq_size is None:
             raise ValueError("cannot use unknown seq_size with sparse inputs")
 

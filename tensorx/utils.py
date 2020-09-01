@@ -6,6 +6,7 @@ from typing import List
 logging.captureWarnings(True)  # captures into py.warnings
 logger = logging.getLogger('tensorx')
 logger.setLevel(logging.DEBUG)
+import re
 
 
 def vizstyle(layer):
@@ -166,7 +167,7 @@ class Graph:
                cache when transversing the graph.
 
            Returns:
-               dictionary from nodes to (priorities,number of dependencies)
+               nodes (`dict`): dictionary from nodes to (priorities,number of dependencies)
         """
         priority = dict()
         visited = set()
@@ -290,7 +291,7 @@ class Graph:
 
         return graph
 
-    def as_function(self, ord_inputs=None, ord_outputs=None, fn_name="compiled_graph"):
+    def as_function(self, ord_inputs=None, ord_outputs=None, fn_name="compiled_graph", as_tf_function=True):
         """ compiles the graph into a tensorflow callable compiled graph
 
         the idea is to use exec to create a function and then call tf.function
@@ -322,6 +323,9 @@ class Graph:
             function (`function`): an optimized TensorFlow static graph as a callable function
 
         """
+
+        clean = lambda name_str: re.sub(r"\W|^(?=\d)", "_", name_str)
+        fn_name = clean(fn_name)
 
         graph = self
 
@@ -361,12 +365,13 @@ class Graph:
 
         # requires outer access to layers var
         for x in other_inputs:
-            other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"]()")
+            other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"].compute()")
 
         other_str = "\n".join(other_str) + "\n" if other_str else ""
 
         # remove inputs
-        for _ in range(node_index[0]):
+        # node_map contains input_nodes at this point
+        for _ in range(len(node_map)):
             ord_nodes.pop(0)
 
         compute_str = []
@@ -380,7 +385,7 @@ class Graph:
             # next_nodes = dict.fromkeys(graph.edges_in[current_node])
             next_nodes = graph.edges_in[current_node]
             in_args = ", ".join([node_map[node] for node in next_nodes])
-            compute_str.append(f"\t{name} = layers[\"{name}\"]({in_args})")
+            compute_str.append(f"\t{name} = layers[\"{name}\"].compute({in_args})")
 
         compute_str = "\n".join(compute_str)
 
@@ -394,9 +399,12 @@ class Graph:
         layers = {v: k for k, v in node_map.items()}
         exec(full_fn_str, locals())
         fn = eval(fn_name)
-        out = tf.function(fn)
+        fn.__doc__ = f"""{fn_name}\n```python\n{full_fn_str}\n```"""
 
-        return out
+        if as_tf_function:
+            fn = tf.function(fn)
+
+        return fn
 
     def draw(self, path):
         try:

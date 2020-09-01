@@ -43,6 +43,12 @@ def test_input():
     assert tx.tensor_equal(dense_value, dense_value2)
 
 
+def test_input_compile():
+    inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
+    fn = tf.function()(inputs.__call__)
+    assert tx.tensor_equal(fn(), tf.zeros([1, 4], dtype=tf.int32))
+
+
 def test_input_3d():
     # we either create a 3d input or specify the shape
     data = np.ones([2, 2, 2], dtype=np.float32)
@@ -72,7 +78,6 @@ def test_dynamic_input_graph():
     x = tx.Input(tf.zeros([2, 2]), n_units=2, constant=False)
     y = tx.Linear(x, 2, add_bias=False)
     graph_function = y.as_function()
-
     out1 = graph_function()
 
     assert tx.tensor_equal(out1, tf.zeros([2, 2]))
@@ -109,6 +114,23 @@ def test_shared_state():
     assert l1.bias is l2.bias
     assert l1.weights is l3.weights
     assert l1.bias is l3.bias
+
+
+def test_mul():
+    # also tests graphs with constants
+    inputs = tx.Constant(tf.constant(2), dtype=tf.float64)
+    inputs2 = inputs * 2
+    assert tx.tensor_equal(inputs2(), inputs() * 2)
+
+    inputs2_fn = tf.function(inputs2.__call__)
+    assert inputs2_fn() == inputs2()
+
+
+def test_linear_function():
+    inputs = tx.Constant(tf.ones([2, 4]), dtype=tf.float64)
+    linear = tx.Linear(inputs, n_units=8, dtype=tf.float64)
+    fn = tf.function(linear.__call__)
+    assert tx.tensor_equal(fn(), linear())
 
 
 def test_linear():
@@ -170,12 +192,12 @@ def test_transpose_reshape():
     x2 = tx.Reshape(tf.range(9), [3, 3])
 
     assert tx.tensor_equal(x2(), x)
-    assert tx.tensor_equal(x2(tf.range(9)), x)
+    assert tx.tensor_equal(x2.compute(tf.range(9)), x)
 
     t = tf.transpose(x)
     y = tx.Transpose(t)
     assert tx.tensor_equal(y(), x)
-    assert tx.tensor_equal(y(x), t)
+    assert tx.tensor_equal(y.compute(x), t)
 
 
 def test_wrap_transpose():
@@ -337,9 +359,7 @@ def test_module_with_attention():
     rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
     att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
     m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
-    # m.graph.draw("test.pdf")
     g = tx.Graph.build(inputs=x1, outputs=m, add_missing_inputs=True)
-    # list(map(print, g.in_nodes))
     fn = g.as_function(ord_inputs=x1, ord_outputs=m)
     # this returns a tuple
     out1 = g.compute(tf.ones([1, 2, 3]))
@@ -715,16 +735,6 @@ def test_biRNN():
     assert tx.shape_equal(rnn0(), rnn1())
     assert tx.shape_equal(rnn0(), rnn0_())
     assert tx.shape_equal(rnn1(), rnn1_())
-
-    # print(tf.shape(rnn0()))
-    # r0 = rnn0()
-    # r1 = rnn1()
-    # c = tx.Concat(rnn0, rnn1, axis=-1)
-    # print(tf.shape(c()))
-
-    # concat = tx.Con
-    # print(tf.shape())
-    # self.assertArrayEqual()
 
 
 def test_stateful_rnn_layer():

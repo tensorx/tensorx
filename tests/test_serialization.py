@@ -2,21 +2,10 @@ import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-import unittest
 import tensorx as tx
 import tensorflow as tf
-from tensorflow.python.util import object_identity
-from tensorflow.python.training.tracking.tracking import AutoTrackable
-from tensorflow.python.training.tracking import util
-import shutil
 from tensorflow.python.training.tracking.tracking import AutoTrackable
 
-
-# checkpoint manager expects trackable
-
-# there are two trackable base classes
-# AutoTrackable which overrides setattr to add dependencies between trackable objects
-# and Trackable, where dependencies should be added manually
 
 def test_layer_save(tmp_path):
     class CustomLayer(tf.Module):
@@ -48,7 +37,6 @@ def test_layer_save(tmp_path):
             return dict({"__call__": concrete_function})
 
         def _list_functions_for_serialization(self, serialization_cache):
-            print("\nsuck my D")
             fns = self.functions_to_serialize(serialization_cache)
 
             # AutoTrackable class saves tf.functions
@@ -90,18 +78,10 @@ def test_keras_signatures(tmp_path):
     y = tf.keras.layers.Dense(units=4, input_dim=2)(x)
 
     model = tf.keras.models.Model(x, y)
-    print(type(model))
-    # call comes from base layer, how is the fucking model callable then
-    print(type(model.__call__))
     tf.saved_model.save(model, save_path)
 
     loaded = tf.saved_model.load(save_path)
-    print(loaded.__dict__)
-    # print(loaded.__call__)
-    # print(loaded.__call__.concrete_functions)
-    # print(loaded.__call__.__dict__)
     assert tx.tensor_equal(loaded(data), model(data))
-    # print(model.__call__)
 
 
 def test_constant_save(tmp_path):
@@ -142,6 +122,11 @@ def test_linear_save(tmp_path):
 
     x = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
     linear = tx.Linear(x, n_units=4)
+    graph = tx.Graph.build(inputs=None, outputs=linear)
+    assert len(graph.in_nodes) == 1
+
+    tf.saved_model.save(linear, save_path)
+    linear_loaded = tf.saved_model.load(save_path)
     module = tx.Module(x, linear)
 
     # I could build the graph for linear and export the function from

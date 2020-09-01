@@ -48,3 +48,6 @@ mkgendocs = "*"
 mkdocs = "*"
 mkdocs-material = "*"
 
+
+[tool.pytest.ini_options]
+filterwarnings = "ignore::DeprecationWarning:tensorflow"

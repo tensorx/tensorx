@@ -10,6 +10,30 @@ import numpy as np
 import functools
 
 
+def test_linear_graph_module_integration(tmp_path):
+    tmp_path = tmp_path.joinpath("linear")
+    save_path = str(tmp_path)
+
+    x = tx.Input(init_value=tf.ones([2, 2], dtype=tf.float32))
+    # x = tx.Constant(tf.constant([[32.]]), n_units=1)
+    x = tx.Linear(x, n_units=x.n_units)
+    linear = tx.Linear(x, n_units=4)
+    graph = tx.Graph.build(inputs=None, outputs=linear)
+    module = tx.Module(inputs=None, output=linear)
+
+    assert len(module.input_layers) == 1
+    assert module.input_layers == list(graph.in_nodes)
+    assert len(graph.in_nodes) == 1
+
+    tf.saved_model.save(module, save_path)
+    module_loaded = tf.saved_model.load(save_path)
+    assert tx.tensor_equal(module_loaded(), module())
+
+    tf.saved_model.save(linear, save_path)
+    linear_loaded = tf.saved_model.load(save_path)
+    assert tx.tensor_equal(module_loaded(), linear_loaded())
+
+
 def test_layer_graph():
     data = [[1., 2.]]
 
@@ -47,7 +71,7 @@ def test_graph_no_inputs():
     assert in1 in graph.nodes
     assert lin1 in graph.nodes
 
-    graph = tx.Graph.build(inputs=None,outputs=lin1,add_missing_inputs=True)
+    graph = tx.Graph.build(inputs=None, outputs=lin1, add_missing_inputs=True)
 
 
 def test_multi_output_graph():

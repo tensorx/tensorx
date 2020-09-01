@@ -9,7 +9,7 @@ import logging
 
 
 def test_model_run():
-    data1 = [[1., 1.]]
+    data1 = tf.constant([[1., 1.]])
 
     x = tx.Input(n_units=2, name="x", constant=False)
     labels = tx.Input(n_units=2, name="y_", constant=False)
@@ -97,10 +97,10 @@ def test_set_optimizer():
 
     assert isinstance(opt, tf.optimizers.Optimizer)
 
-    assert model.optimizer.lr == 0.5
+    assert model.optimizer.get_config()["learning_rate"] == 0.5
 
     data1 = [[1., 1.], [1., 1.]]
-    data2 = [[0., 1.], [0., 1.]]
+    data2 = tf.constant([[0., 1.], [0., 1.]])
     params = model.optimizer_params[model.optimizer]
     data_dict, params_dict = tx.Model.parse_input({x: data1,
                                                    "learning_rate": 0.2},
