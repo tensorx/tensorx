@@ -27,6 +27,7 @@ deploy:
     skip_cleanup: true # prevent Travis CI from resetting your working directory
     local_dir: site
     github_token: $GITHUB_TOKEN
+    target_branch: gh-pages
     keep_history: false
     on:
       branch: master
