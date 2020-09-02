@@ -7,6 +7,7 @@ Feel free to propose changes to this document in a pull request.
 ### Table of contents
 
 [How to contribute](#how-to-contribute)
+  
   * [Reporting bugs](#reporting-bugs)
   * [Suggesting enhancements](#suggesting-enhancements)
   * [Contributing to code](#contributing-to-code)
@@ -17,6 +18,7 @@ Feel free to propose changes to this document in a pull request.
 
 Bugs are tracked on the official [issue tracker](https://github.com/davidenunes/tensorx/issues).
 When you are creating a bug report, please include as many details as possible. 
+    
     * Use a clear and descriptive title for the issue to identify the problem.
     * Describe the exact steps which reproduce the problem in as many details as possible.
     * Provide specific examples to demonstrate the steps to reproduce the issue. Include links to files or GitHub projects, or snippets, which you use in those examples.
@@ -26,11 +28,13 @@ When you are creating a bug report, please include as many details as possible.
     * If you find a Closed issue that matches the problem you are experiencing, open a new issue and include a link to the original issue.
 
 Provide more **context** by answering these questions:
+    
     * Did the problem start happening recently (e.g. after updating to a new version of TensorX) or was this always a problem?
     * If the problem started happening recently, can you reproduce the problem in an older version of TensorX? What's the most recent version in which the problem does not happen?
     * Can you reliably reproduce the issue? If not, provide details about how often the problem happens and under which conditions it normally happens.
 
 Include details about your configuration and environment:
+
     * Which version of TensorX are you using? 
     * Which version of Tensorflow are you using
     * Which Python version TensorX has been installed for? 
