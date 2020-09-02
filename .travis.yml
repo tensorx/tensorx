@@ -8,6 +8,31 @@ before_install:
 install:
   - poetry install
   - poetry run pip install tensorflow
+  - poetry run pip install mkdocs
+  - poetry run pip install mkdocs-material
+  - poetry run pip install mkgendocs
 
-script: poetry run python -m unittest
+
+script:
+  - poetry run python -m unittest
+  - poetry run gendocs -c docs/gendocs.yaml
+  - poetry run mkdocs build
+
+
+before_deploy:
+  - poetry build # generate dist
+
+deploy:
+  - provider: pages
+    skip_cleanup: true # prevent Travis CI from resetting your working directory
+    local_dir: site
+    github_token: $GITHUB_TOKEN
+    keep_history: false
+    on:
+      branch: master
+  - provider: pypi
+    username: "__token__"
+    password: $PYPI_TOKEN
+    on:
+      tags: true
 
