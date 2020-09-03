@@ -29,6 +29,7 @@ deploy:
     github_token: $GITHUB_TOKEN
     target_branch: gh-pages
     keep_history: false
+    fqdn: tensorx.org
     on:
       branch: master
   - provider: pypi
