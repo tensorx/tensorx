@@ -1,8 +1,22 @@
 ## 
-![](docs/theme/assets/images/logo_full.svg)
+<img src="https://raw.githubusercontent.com/davidenunes/tensorx/master/docs/theme/assets/images/logo_full.svg" width="80%" alt="Tensor X Logo">
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
-[![build](https://travis-ci.org/davidenunes/tensorx.svg?branch=master)](https://travis-ci.org/davidenunes/tensorx)
+<p align="center">
+  <a href="http://www.apache.org/licenses/LICENSE-2.0.html">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache 2 Licence"/>
+  </a>
+  <a href="https://travis-ci.org/github/davidenunes/tensorx">
+    <img src="https://travis-ci.org/davidenunes/tensorx.svg" alt="Travis CI"/>
+  </a>
+  <a href="https://pypi.org/project/tensorx">
+    <img src="https://img.shields.io/pypi/v/tensorx.svg" alt="Python Package Index"/>
+  </a>
+  <a href="https://pypistats.org/packages/tensorx">
+    <img src="https://img.shields.io/pypi/dm/tensorx.svg" alt="Downloads"/>
+  </a>
+</p>
+
+
 <!--[![Docs](https://readthedocs.org/projects/tensorx/badge/?version=latest)](http://tensorx.readthedocs.io/en/latest/?badge=latest)-->
 
 **TensorX** is a high-level deep neural network library written in Python

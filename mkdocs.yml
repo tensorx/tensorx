@@ -24,9 +24,9 @@ theme:
   #theme_dir: 'docs/theme'
   custom_dir: 'docs/theme'
   palette:
-    primary: 'cyan'
-    accent: 'cyan'
-  logo: 'assets/images/icon.png'
+    primary: 'white'
+  #logo: 'assets/images/icon.png'
+  logo: 'assets/images/logo_full.svg'
 
 nav:
   - Home: index.md
