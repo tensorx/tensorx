@@ -1,5 +1,8 @@
 ## 
+
+<p align="center">
 <img src="https://raw.githubusercontent.com/davidenunes/tensorx/master/docs/theme/assets/images/logo_full.svg" width="80%" alt="Tensor X Logo">
+</p>
 
 <p align="center">
   <a href="http://www.apache.org/licenses/LICENSE-2.0.html">
