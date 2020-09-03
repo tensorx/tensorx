@@ -21,12 +21,12 @@ extra_javascript:
 
 theme:
   name: 'material'
-  #theme_dir: 'docs/theme'
   custom_dir: 'docs/theme'
   palette:
     primary: 'white'
   #logo: 'assets/images/icon.png'
   logo: 'assets/images/logo_full.svg'
+  favicon: 'assets/images/tx.png'
 
 nav:
   - Home: index.md
