@@ -30,23 +30,20 @@ components with a user-centric consistent API.
 
 ## Design Philosophy
 
-It's design philosophy is somewhere between functional **dataflow 
-computation graphs** and an **object-oriented** neural network **layers**. 
-TensorX provides a set of components that can be debugged eagerly in an 
-imperative fashion while taking full advantage of compiled computation 
-graphs. Stateful neural network functions can be composed into larger 
-layer graphs that can then be reused as new components in a "Monoidal" fashion.
+TensorX aims to be **simple but sophisticated** without a code base plagued by unnecessary abstractions and 
+over-engineering and **without sacrificing performance**. It uses Tensorflow without hiding it completely behind a new namespace, it's mean to be a complement
+instead of a complete abstraction. The design mixes functional **dataflow computation graphs** with **object-oriented** 
+neural network **layer** building blocks that are **easy to add to and extend**. 
 
-## Summary
+## Feature Summary
 
-* **Neural Network** layer building blocks
-* **Additional TensorFlow ops**  for tensor manipulation
-* **Model class**:
-    - simplified inference, training, and evaluation
-    - Customizable training loop with a ``Callback`` system
+* **Neural Network** layer building blocks like `Input`, `Linear`, `Lookup`;
+* **New TensorFlow ops**:  `gumbel_top`, `logit`, `sinkhorn`, etc;
+* **`Graph` Utils**: allow for validation and compilation of layer graphs;
+* **`Model` Class**: for easy _inference_, _training_, and _evaluation_;
+* **Training Loop**: easily customizable with a ``Callback`` system;
+
     
-
-<!--**Documentation** will be available at [tensorx.readthedocs.io](http://tensorx.readthedocs.io/en/latest/?badge=latest).-->
 ## Documentation
 Documentation will be available soon, I'm switching from sphinx to markdown files and mkdocs using my custom generator ([mkgendocs](https://pypi.org/project/mkgendocs/)) to create the API pages for Google style docstrings. I'll also make available guides for how to contribute documentation. For now, a tentative version of a contribution guide can be found in [CONTRIBUTING.md](https://github.com/davidenunes/tensorx/blob/master/CONTRIBUTING.md).
 

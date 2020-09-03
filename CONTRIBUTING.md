@@ -3,18 +3,8 @@ First off, thanks for taking the time to contribute!
 
 These are mostly contribution guidelines, not rules. 
 Feel free to propose changes to this document in a pull request.
-
-### Table of contents
-
-[How to contribute](#how-to-contribute)
   
-  * [Reporting bugs](#reporting-bugs)
-  * [Suggesting enhancements](#suggesting-enhancements)
-  * [Contributing to code](#contributing-to-code)
-  
-## How to contribute
-
-### Reporting bugs
+## Reporting bugs
 
 Bugs are tracked on the official [issue tracker](https://github.com/davidenunes/tensorx/issues).
 When you are creating a bug report, please include as many details as possible. 
@@ -40,7 +30,7 @@ Include details about your configuration and environment:
    * Which Python version TensorX has been installed for? 
    * What's the name and version of the OS you're using?
 
-### Suggesting enhancements
+## Suggesting enhancements
 
 Suggestions are also tracked on the official [issue tracker](https://github.com/davidenunes/tensorx/issues).
 
@@ -51,7 +41,7 @@ Suggestions are also tracked on the official [issue tracker](https://github.com/
 * Describe the current behavior and explain which behavior you expected to see instead and why.
 
 
-### Contributing to code
+## Contributing to code
 
 I recommend using [Poetry](https://python-poetry.org/docs/#introduction) to setup a local 
 environment where you can contribute to and test TensorX codebase. You will first need to clone the repository using git and place yourself in its directory:
@@ -68,7 +58,7 @@ poetry install
 poetry run pytest tests/
 ```
 
-#### Pull Requests
+### Pull Requests
 
 * Include unit tests when you change code or contribute new features, as they help to a) prove that your code works correctly, and b) guard against future breaking changes to lower the maintenance cost.
 * Bug fixes require unit tests. The presence of a bug usually indicates insufficient test coverage.

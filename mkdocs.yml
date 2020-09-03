@@ -1,6 +1,15 @@
 site_name: TensorX Documentation
 site_favicon: assets/images/icon.png
 
+
+# Repository
+repo_name: davidenunes/tensorx
+repo_url: https://github.com/davidenunes/tensorx
+edit_uri: ""
+
+# Copyright
+copyright: Copyright &copy; 2016 - 2020 Davide Nunes
+
 docs_dir: "docs/sources"
 
 markdown_extensions:
@@ -24,13 +33,15 @@ theme:
   custom_dir: 'docs/theme'
   palette:
     primary: 'white'
-  #logo: 'assets/images/icon.png'
   logo: 'assets/images/logo_full.svg'
   favicon: 'assets/images/tx.png'
-
+  features:
+    - tabs
+    - instant
 nav:
   - Home: index.md
-  - Getting Started: started
+  - Getting Started:
+      - Installation: started
   - Layers:
       - Core: layers/core.md
   - Train:
