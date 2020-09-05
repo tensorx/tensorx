@@ -41,7 +41,7 @@ theme:
 nav:
   - Home: index.md
   - Getting Started:
-      - Installation: started
+      - Installation: started/install.md
   - Layers:
       - Core: layers/core.md
   - Train:
