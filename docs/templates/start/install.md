@@ -53,8 +53,4 @@ poetry install
 # to install it without adding it as a dependency simple run
 poetry run pip install tensorflow
 ```
-`poetry run` will run a given command inside the project current `virtualenv` 
-
-And once again, running `poetry install` when a `poetry.lock file is present resolves and installs all 
-dependencies listed in `pyproject.toml`, but Poetry uses the exact versions listed in poetry.lock`
-
+`poetry run` will run a given command inside the project current `virtualenv`
