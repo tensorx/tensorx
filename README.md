@@ -20,7 +20,6 @@
 </p>
 
 
-<!--[![Docs](https://readthedocs.org/projects/tensorx/badge/?version=latest)](http://tensorx.readthedocs.io/en/latest/?badge=latest)-->
 
 **TensorX** is a high-level deep neural network library written in Python
 that simplifies model specification, training, and execution using 
@@ -43,25 +42,37 @@ neural network **layer** building blocks that are **easy to add to and extend**.
 * **`Model` Class**: for easy _inference_, _training_, and _evaluation_;
 * **Training Loop**: easily customizable with a ``Callback`` system;
 
-    
-## Documentation
-Documentation will be available soon, I'm switching from sphinx to markdown files and mkdocs using my custom generator ([mkgendocs](https://pypi.org/project/mkgendocs/)) to create the API pages for Google style docstrings. I'll also make available guides for how to contribute documentation. For now, a tentative version of a contribution guide can be found in [CONTRIBUTING.md](https://github.com/davidenunes/tensorx/blob/master/CONTRIBUTING.md).
-
 ## Installation
-TensorX is compatible with **Python 3.7+**. It depends on Tensorflow and pygraphviz but will not be shipping with tensorflow as a dependency. The reason for this is that tensorflow might come under different packages depending on whether or not the user is using GPU hardware. Moreover, you might want to use a custom tensorflow build. For these reasons Tensorflow should be installed separately from tensorx.
+TensorX is written in pure python but **depends on Tensorflow**, which needs to be installed from the `tensorflow` package.
+The reason for this is that you might want to install Tensorflow builds optimized for your machine (see 
+[these](https://github.com/davidenunes/tensorflow-wheels)). Additionally, TensorX has **optional
+dependencies** like `matplotlib` or `pygraphviz` for certain functionality.
 
-``` bash
+## Pip installation
+Install using `pip` with the following commands
+```shell
 pip install tensorflow 
 pip install tensorx
 ```
-The only reason I don't add Tensorflow to the dependencies of TensorX is because one might want to install custom TF wheels (optimized for
-certain hardware, etc)
 
-## Getting Started
-Documentation and tutorials will be coming soon
+## Test your installation
+```python
+import tensorflow as tf
+import tensorx as tx
+
+
+```
+
+
+## Documentation
+For details about TensorX API, tutorials, and other documentation, see [https://tensorx.org](https://tensorx.org).
+You can help by trying the project out, reporting bugs, suggest features, and by letting me know what you think. 
+If you want to help, please read the [contribution guide](https://tensorx.org/contributing/).
+
 
 ## Author
-* **[Davide Nunes](https://github.com/davidenunes)**: get in touch [@davidelnunes](https://twitter.com/davidelnunes) or by [e-mail](mailto:davidenunes@pm.me)
+* **[Davide Nunes](https://github.com/davidenunes)**: get in touch [@davidelnunes](https://twitter.com/davidelnunes) 
+or by [e-mail](mailto:davidenunes@pm.me)
 
 ## License
 
