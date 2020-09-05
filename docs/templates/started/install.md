@@ -17,26 +17,44 @@ You can install a [custom tensorflow wheel](https://github.com/davidenunes/tenso
 pip install https://github.com/davidenunes/tensorflow-wheels/releases/download/r2.3.cp38.gpu/tensorflow-2.3.0-cp38-cp38-linux_x86_64.whl
 ```
 
-## with Poetry
-poetry add myprivaterepo --git ssh://git@github.com/myorganization/myprivaterepo.git
+## with Poetry 
+TensorX is easy to install using [Poetry](https://python-poetry.org/) which manages the dependencies and a `virtualenv` 
+for you. See [Poetry documentation](https://python-poetry.org/docs/) for details on installation and usage. 
+Once Poetry is installed, you can use it to install TensorX either from _PyPI_, or directly from _git_.
+
+If you want to **create a new project** using poetry, simply run: 
+```bash
+poetry new myproject
+cd myproject
+```
+if you already have a project, move to it's directory and run the following commands:
+```bash
+poetry add tensorflow
+poetry add tensorx
+# or, if you want to have tensorx as a dependency from the git repository
+poetry add git+https://github.com/davidenunes/tensorx.git 
+```
 
 ## Developer Installation
-I made the project easy to install using 
-[Poetry](https://python-poetry.org/) which manages the `virtualenv` for you. 
-The git repository has a `pyproject.toml` and a `poetry.lock` files, which allows for the development installation 
-to be reproducible (meaning Poetry will install the exact same versions of dependencies I use when developing TensorX).
+For a developer installation of TensorX, simply clone the git repository and install it with Poetry.
+The git repository has a `pyproject.toml` and `poetry.lock` files. These allow for the 
+installation to be reproducible --meaning that Poetry will install the exact versions of dependencies that were being 
+used on a specific commit.
 
-See [Poetry documentation](https://python-poetry.org/docs/) for details on how to install it and run it. 
-One you install it you can clone the repository and run create a development environment installation as follows:
-
-````shell 
+```shell 
 # Clone TensorX git repository
 git clone https://github.com/davidenunes/tensorx.git
 cd tensorx
 
 # Install dependencies 
 poetry install
-````
 
-Again, running `install` when a `poetry.lock file is present resolves and installs all dependencies that you listed `
-in `pyproject.toml`, but Poetry uses the exact versions listed in poetry.lock`
+# You need Tensorflow which is not specified as a dependency
+# to install it without adding it as a dependency simple run
+poetry run pip install tensorflow
+```
+`poetry run` will run a given command inside the project current `virtualenv` 
+
+And once again, running `poetry install` when a `poetry.lock file is present resolves and installs all 
+dependencies listed in `pyproject.toml`, but Poetry uses the exact versions listed in poetry.lock`
+
