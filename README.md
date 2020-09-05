@@ -49,18 +49,19 @@ The reason for this is that you might want to install Tensorflow builds optimize
 dependencies** like `matplotlib` or `pygraphviz` for certain functionality.
 
 ## Pip installation
-Install using `pip` with the following commands
+Install using `pip` with the following commands:
+
 ```shell
 pip install tensorflow 
 pip install tensorx
 ```
 
+For more details about the installation, check the [documentation](https://tensorx.org/start/install/).
+
 ## Test your installation
 ```python
 import tensorflow as tf
 import tensorx as tx
-
-
 ```
 
 
