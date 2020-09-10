@@ -752,7 +752,8 @@ class Input(Layer):
                 self.sparse = True
 
         if self._value is None:
-            self._value = [[]]
+            # create an empty tensor with a len(self.shape) number of dimensions
+            self._value = tf.reshape(tf.constant([],dtype=self.dtype), [0] * len(self.shape))
 
         with layer_scope(self):
             if not self.constant and self._value is not None:

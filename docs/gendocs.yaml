@@ -11,7 +11,7 @@ pages:
       - Model:
           - train
           - set_optimizer
-  - page: "layers/core.md"
+  - page: "api/layers.md"
     source: 'tensorx/layers.py'
     classes:
       - Linear
