@@ -47,6 +47,8 @@ layer's computation.
 result is the computation of the entire network taking the current `Layer` as an endpoint or terminal node.
 * `reuse_with`: create a new layer object that **shares the state** with the current layer but is connected to different
 inputs. The new layer is the end-point node of a new layer graph.
+* `trainable_variables`: a `list` of `tf.Variable` objects that are _trainable_, this is, that are changed by an optimizer
+during training.
 
 ### Using existing Layers
 TensorX ships with a number of built in Layers that you can easily use to compose layer graphs that perform various computations.
@@ -159,4 +161,69 @@ You can take the two `Linear` layers and create a single module with a state sha
 other layer you can also call `reuse_with` on a module and in this case, the entire state of the two `Linear` layers 
 will again be shared with the newly created `Module`.
 
-## Training
+## Gradients
+Central to all neural network models in TensorFlow (and consequently in TensorX) is the notion of automatic differentiation, 
+to do this, TensorFlow needs to remember what operations happen and in what order during the forward pass, then, during the 
+backpropagation pass, TensorFlow traverses this list of operations in reverse order to compute gradients --usually with 
+respect to some input like a `tf.Variable`. The basic building block for automatic differentiation in Tensorflow is the
+[`tf.GradientTape`](https://www.tensorflow.org/guide/autodiff). Whatever is executed inside the `GradientTape` context, 
+gets tracked so that the gradients with respect to some variables can be computed:
+
+```python
+import tensorflow as tf
+x = tf.Variable(3.0)
+
+with tf.GradientTape() as tape:
+  y = x**2
+
+# dy = 2x * dx
+dy_dx = tape.gradient(y, x)
+```
+
+TensorX Layers describe operations over tensors in terms of tensorflow operations, and store their state in `tf.Variable`
+objects, so layers executed inside the `tf.GradientTape` context are tracked just like any other Tensorflow operation. 
+With this in mind, we can then compute the gradients of a particular value with respect to the `trainable_variables` 
+used in the computation. For example: 
+
+```python
+import tensorflow as tf
+import tensorx as tx
+
+x = tx.Input(n_units=3)
+# y = Wx + b
+y = tx.Linear(x, 3, add_bias=True)
+loss = tx.Lambda(y, fn=lambda v: tf.reduce_mean(v ** 2))
+x.value = [[1., 2., 3.]]
+
+with tf.GradientTape() as tape:  
+    loss_value = loss()
+    
+    # we could have done this as well
+    # v = y()
+    # loss_value = tf.reduce_mean(v ** 2)
+
+grads = tape.gradient(loss_value, y.trainable_variables)
+
+assert len(y.trainable_variables) == 2
+assert len(grads) == 2
+assert grads[0].shape == y.weights.shape
+assert grads[1].shape == y.bias.shape
+```
+In this case, only the `weights`, and `bias` of the `Linear` layer are trainable variables, so we can take the gradient 
+of `loss_value` with respect to these variables, the result is a list of tensors with the same shape as the variables 
+used as targets.
+
+!!! tip
+    In these examples we're still using an eager execution model from Tensorflow, as we will se this is not very 
+    efficient, next in this tutorial we will see how we can compile TensorX layer graphs into Tensorflow graphs using 
+    the [`tf.function`](https://www.tensorflow.org/api_docs/python/tf/function).  
+
+## Graph Compilation
+
+## Models
+
+## Callbacks
+
+## Serialization 
+
+

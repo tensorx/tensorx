@@ -42,7 +42,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Installation: start/install.md
-      - Basics: start/tutorial.md
+      - Tutorial: start/tutorial.md
   - API:
       - layers: api/layers.md
   - Train:
