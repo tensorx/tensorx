@@ -214,9 +214,9 @@ of `loss_value` with respect to these variables, the result is a list of tensors
 used as targets.
 
 !!! tip
-    In these examples we're still using an eager execution model from Tensorflow, as we will se this is not very 
-    efficient, next in this tutorial we will see how we can compile TensorX layer graphs into Tensorflow graphs using 
-    the [`tf.function`](https://www.tensorflow.org/api_docs/python/tf/function).  
+    In these examples we're still using an eager execution model from Tensorflow, as we will see, this is good for 
+    debugging, but not very efficient. Next in this tutorial, we will show how we can compile TensorX layer graphs 
+    into Tensorflow graphs using the [`tf.function`](https://www.tensorflow.org/api_docs/python/tf/function).  
 
 ## Graph Compilation
 

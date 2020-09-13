@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorx as tx
+from tensorx.layers import Lambda
 
 
 def binary_cross_entropy(labels, logits, name="binary_cross_entropy"):
@@ -219,3 +220,33 @@ def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
         distribution `y_true`.
     """
     return tx.sinkhorn(y_pred, y_true, epsilon=epsilon, n_iter=n_iter, cost_fn=cost_fn)
+
+
+class Loss(Lambda):
+    pass
+
+
+class BinaryCrossEntropy(Loss):
+    def __init__(self, labels, logits, name="BinaryCrossEntropy"):
+        super().__init__(labels, logits, fn=binary_cross_entropy, name=name)
+
+
+class CategoricalCrossEntropy(Loss):
+    def __init__(self, labels, logits, name="CategoricalCrossEntropy"):
+        super().__init__(labels, logits, fn=categorical_cross_entropy, name=name)
+
+
+class Sinkhorn(Loss):
+    # TODO default values for n_iter and epsilon
+    def __init__(self, y_pred, y_true, n_iter=1, epsilon=1e-1, cost_fn=None):
+        super().__init__(y_pred, y_true,
+                         fn=lambda pred, true: sinkhorn_loss(pred, true, epsilon=epsilon, n_iter=n_iter,
+                                                             cost_fn=cost_fn))
+
+
+__all__ = [
+    "binary_cross_entropy",
+    "categorical_cross_entropy",
+    "BinaryCrossEntropy",
+    "CategoricalCrossEntropy"
+]
