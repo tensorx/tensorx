@@ -154,7 +154,7 @@ class Layer(AutoTrackable):
     """ Layer base class
 
     Attributes:
-        input_layers: a list of input nodes for the current layer
+        inputs: a list of input nodes for the current layer
         n_units: the number of units for the current layer (last dim)
         name: name to be used for the layer scope
         scoped_name: layer full scope name
@@ -164,7 +164,7 @@ class Layer(AutoTrackable):
         to the layer taking the outer scopes into account.
 
     Args:
-        input_layers: a single layer,a list of input layers, or None if no inputs are required
+        inputs: a single layer,a list of input layers, or None if no inputs are required
         n_units: dimension of input vector (dimension of columns in case batch_size != None
         name: layer name (used to nam the placeholder)
 
@@ -172,7 +172,7 @@ class Layer(AutoTrackable):
     NAMES = Counter()
     NAME_LOCK = threading.RLock()
 
-    def __init__(self, input_layers, n_units, dtype=None, name="layer", **kwargs):
+    def __init__(self, inputs, n_units, dtype=None, name="layer", **kwargs):
         self.n_units = n_units
 
         with Layer.NAME_LOCK:
@@ -200,7 +200,7 @@ class Layer(AutoTrackable):
         new_args = proto.filter_args(**self.__dict__)
         proto.update(**new_args)
         self.proto = proto
-        self._input_layers = [as_layer(input_layer) for input_layer in as_list(input_layers)]
+        self._inputs = [as_layer(input_layer) for input_layer in as_list(inputs)]
 
         self.layer_state = self.init_state()
 
@@ -214,9 +214,9 @@ class Layer(AutoTrackable):
 
         # save this for __call__
         # TODO this should be built lazily for __call__ instead of storing a subgraph on each node
-        if self.input_layers:
+        if self.inputs:
             input_graph: Graph = Graph.build(inputs=None,
-                                             outputs=self.input_layers)
+                                             outputs=self.inputs)
             self.input_graph: Graph = track.NoDependency(input_graph)
 
     def init_state(self):
@@ -262,22 +262,22 @@ class Layer(AutoTrackable):
         return self.proto(*layers, **kwargs)
 
     @property
-    def input_layers(self):
-        return list(self._input_layers)
+    def inputs(self):
+        return list(self._inputs)
 
-    @input_layers.setter
-    def input_layers(self, input_layers):
-        raise ValueError("input_layers can't be set")
+    @inputs.setter
+    def inputs(self, input_layers):
+        raise ValueError("input layers can't be set")
 
     def compute(self, *args):
         raise NotImplementedError("computation not implemented for this layer")
 
     def __call__(self, *input_layers):
         if not input_layers:
-            if self.input_layers:
+            if self.inputs:
                 ord_inputs = {out: i for i, out in enumerate(self.input_graph.out_nodes)}
                 results = self.input_graph()
-                input_tensors = tuple([results[ord_inputs[out]] for out in self.input_layers])
+                input_tensors = tuple([results[ord_inputs[out]] for out in self.inputs])
             else:
                 input_tensors = tuple()
         else:
@@ -311,7 +311,7 @@ class Layer(AutoTrackable):
         Returns:
             A dictionary mapping attribute names to trackable objects.
         """
-        if self._input_layers:
+        if self._inputs:
             layers = self.input_graph.dependency_iter()
 
             dependencies = {
@@ -331,7 +331,7 @@ class Layer(AutoTrackable):
 
         """
         class_name = type(self).__name__
-        inputs = ",".join(map(lambda x: x.name, self.input_layers))
+        inputs = ",".join(map(lambda x: x.name, self.inputs))
         return f"{self.scoped_name}::{class_name}({self.n_units},{self.dtype})({inputs})"
 
     # def __repr__(self):
@@ -389,7 +389,7 @@ class Lambda(Layer):
         elif not hasattr(fn, "__call__"):
             raise TypeError("fn must be a callable function")
 
-        super().__init__(input_layers=layers,
+        super().__init__(inputs=layers,
                          n_units=n_units,
                          dtype=dtype,
                          name=name,
@@ -433,7 +433,7 @@ class ToSparse(Layer):
     """
 
     def __init__(self, input_layer):
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=input_layer.n_units,
                          dtype=input_layer.dtype,
                          name=input_layer.name + "_sparse")
@@ -458,7 +458,7 @@ class ToDense(Layer):
     """
 
     def __init__(self, input_layer):
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=input_layer.n_units,
                          dtype=input_layer.dtype,
                          name=input_layer.name + "_dense")
@@ -520,7 +520,7 @@ class Wrap(Layer):
             if hasattr(wrapped_layer, attr):
                 setattr(self, attr, getattr(wrapped_layer, attr))
 
-        super().__init__(input_layers=wrapped_layer.input_layers,
+        super().__init__(inputs=wrapped_layer.inputs,
                          n_units=n_units,
                          dtype=wrapped_layer.dtype,
                          name=f"wrap_{wrapped_layer.name}" if name is None else name,
@@ -535,7 +535,7 @@ class Wrap(Layer):
             state.wrapped = self.wrapped
             wrap = self.wrap_fn(self.wrapped)
             # to make sure compute applies to the whole function
-            state.wrap = Module(inputs=self.wrapped.input_layers,
+            state.wrap = Module(inputs=self.wrapped.inputs,
                                 output=wrap)
         return state
 
@@ -682,10 +682,15 @@ class Input(Layer):
         self.n_units = n_units
         # Check params =================================================================================================
 
-        if self.n_units is None and self._value is not None:  # and self.constant:
+        if self.n_units is None and self._value is not None and not self.shape:  # and self.constant:
             # if not constant assume the n_units of the first input it gets
             input_shape = self._value.shape
             self.n_units = input_shape[-1] if len(input_shape) > 0 else 0
+        if self.shape and self.n_units is None:
+            if len(self.shape) == 0:
+                self.n_units = 0
+            elif self.shape[-1]:
+                self.n_units = self.shape[-1]
 
         # n_units is None and self._value is not None and not self.constant:
         # in this case we know nothing about the input shape
@@ -695,7 +700,16 @@ class Input(Layer):
                 # shape is none and value is None, we have no way to determine the shape of the tensor so we assume 2D
                 expected_shape = [None, self.n_units]
             else:
-                if self.n_units is not None and self.shape[-1] and self.n_units != self.shape[-1]:
+                if self.n_units is not None and len(self.shape) == 0:
+                    raise ValueError(f"n_units and shape don't match:\n"
+                                     f"\tn_units: {self.n_units}\n"
+                                     f"\tshape: {self.shape}")
+                # elif self.n_units is not None and len(self.shape) == 1:
+                #     raise ValueError(f"n_units and shape don't match:\n"
+                #                      f"\tn_units: {self.n_units}\n"
+                #                      f"\tshape: {self.shape}\n"
+                #                      f"len(shape) needs to be at least 2 if n_units > 0")
+                elif self.n_units is not None and self.shape[-1] and self.n_units != self.shape[-1]:
                     raise ValueError(f"n_units and shape[-1] don't match:\n"
                                      f"\t  n_units: {self.n_units}\n\tshape[-1]: {self.shape[-1]}")
                 expected_shape = self.shape
@@ -753,7 +767,7 @@ class Input(Layer):
 
         if self._value is None:
             # create an empty tensor with a len(self.shape) number of dimensions
-            self._value = tf.reshape(tf.constant([],dtype=self.dtype), [0] * len(self.shape))
+            self._value = tf.reshape(tf.constant([], dtype=self.dtype), [0] * len(self.shape))
 
         with layer_scope(self):
             if not self.constant and self._value is not None:
@@ -800,16 +814,14 @@ class Input(Layer):
             raise ValueError(f"Invalid shape:\n"
                              f"\texpected: {self.shape}\n"
                              f"\t current: {x.shape.as_list()}")
-        # shape = [d if d is not None else -1 for d in self.shape]
-        # x = tf.reshape(x, shape)
-        last_dim = x.shape[-1] if len(x.shape) > 0 else 0
-        if self.n_active is None and (self.n_units is None or self.n_units != last_dim):
-            if len(x.shape) > 1:
-                self.n_units = x.shape[-1]
-            else:
-                raise ValueError("cannot set a layer to a value {} with 0 or 1 dimensions: "
-
-                                 "\n\tsupply a value with dim with at least 2 dimensions (e.g. [[{}]])".format(x, x))
+        # last_dim = x.shape[-1] if len(x.shape) > 0 else 0
+        # if self.n_active is None and (self.n_units is None or self.n_units != last_dim):
+        #    if len(x.shape) >= 1:
+        #       self.n_units = x.shape[-1]
+        #    else:
+        #        raise ValueError("cannot set a layer to a value {} with 0 or 1 dimensions: "
+        #
+        #                         "\n\tsupply a value with dim with at least 2 dimensions (e.g. [[{}]])".format(x, x))
 
         # validate value
         if self.n_active is not None:
@@ -823,7 +835,7 @@ class Input(Layer):
                 if len(self.shape) == 0:
                     expected = []
                 else:
-                    expected = [None] * len(x.shape[:-1].as_list()) + [self.n_units]
+                    expected = [None] * len(tf.TensorShape(self.shape)[:-1].as_list()) + [self.n_units]
                 if not x.shape.is_compatible_with(expected):
                     raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
                                      " current: {invalid}".format(shape=expected, invalid=x.shape.as_list()))
@@ -950,7 +962,7 @@ class VariableLayer(Layer):
     def init_state(self):
         state = super().init_state()
 
-        input_layer = self.input_layers[-1] if len(self.input_layers) > 0 else None
+        input_layer = self.inputs[-1] if len(self.inputs) > 0 else None
 
         if input_layer is not None:
             if self.n_units is not None and self.n_units != input_layer.n_units:
@@ -1029,7 +1041,7 @@ class VariableLayer(Layer):
             self.layer_state.counter.assign(0)
 
     def reuse_with(self, input_layer=None, init_from_input=None, name=None):
-        input_layer = self.input_layers[0] if input_layer is None else input_layer
+        input_layer = self.inputs[0] if input_layer is None else input_layer
         name = self.name if name is None else name
         init_from_input = self.update_once if init_from_input is None else init_from_input
 
@@ -1056,7 +1068,7 @@ class Transpose(Layer):
 
         n_units = n_units if perm is None or perm[-1] != len(perm) - 1 else input_layer.n_units
 
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=n_units,
                          dtype=input_layer.dtype,
                          name=name,
@@ -1102,7 +1114,7 @@ class Reshape(Layer):
         self.target_shape = [d if d is not None else -1 for d in shape]
         n_units = self.target_shape[-1] if self.target_shape[-1] > 0 else None
 
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=n_units,
                          dtype=input_layer.dtype,
                          name=name)
@@ -1206,7 +1218,7 @@ class Linear(Layer):
         self.weight_norm = weight_norm
         self.share_state_with = share_state_with
 
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=n_units,
                          dtype=dtype,
                          name=name
@@ -1214,7 +1226,7 @@ class Linear(Layer):
 
     def init_state(self):
         with layer_scope(self):
-            input_layer = self.input_layers[0]
+            input_layer = self.inputs[0]
 
             # weights_shape = [input_layer.n_units, self.n_units]
 
@@ -1419,12 +1431,12 @@ class Module(Layer):
     """
 
     def __init__(self, inputs, output=None, dependencies=[], name="module"):
-        self.inputs = as_list(inputs)
+        inputs = as_list(inputs)
         self.output = output
         self.dependencies = as_list(dependencies)
 
         try:
-            inputs = self.inputs + self.dependencies
+            inputs = inputs + self.dependencies
             self.graph = Graph.build(inputs=inputs, outputs=self.output, add_missing_inputs=True)
 
             # required for Modules built with inputs=None
@@ -1439,11 +1451,10 @@ class Module(Layer):
             raise ValueError(f"Could not build a module with the given "
                              f"endpoints: \n\t{str(e)}")
 
-        super().__init__(input_layers=self.graph.in_nodes,
+        super().__init__(inputs=self.graph.in_nodes,
                          n_units=output.n_units,
                          dtype=output.dtype,
                          name=name,
-                         inputs=self.inputs,
                          dependencies=self.dependencies)
 
     def init_state(self):
@@ -1458,40 +1469,39 @@ class Module(Layer):
         input_tensors = map(as_tensor, input_tensors)
         return self.module_fn(*input_tensors)
 
-    def reuse_with(self, *input_layers, name=None):
+    def reuse_with(self, *inputs, name=None):
         if name is None:
             name = self.name
 
-        nl = len(input_layers)
-        # nm = len(self.input_layers)
+        nl = len(inputs)
         nm = len(self.inputs)
 
         if nl > nm:
             raise ValueError(f"Module has {nm} input layers, {nl} provided")
 
-        input_layers = [as_layer(lr) for lr in input_layers]
+        inputs = [as_layer(lr) for lr in inputs]
         # we only match reuse_with input_layers with module inputs, although other dependencies might exist
         matching_inputs = self.inputs[:nl]
         other_inputs = self.inputs[nl:]
-        mismatch_dtype = list(map(lambda x: x[0].dtype != x[1].dtype, zip(input_layers, matching_inputs)))
-        input_layers = input_layers + other_inputs
+        mismatch_dtype = list(map(lambda x: x[0].dtype != x[1].dtype, zip(inputs, matching_inputs)))
+        inputs = inputs + other_inputs
         if any(mismatch_dtype):
             raise ValueError(f"dtype mismatch in reuse_with:\n"
-                             f"\t     expected types: {[lr.dtype for lr in self.input_layers]}\n"
-                             f"\t calling reuse with: {[lr.dtype for lr in input_layers]}")
+                             f"\t     expected types: {[lr.dtype for lr in self.inputs]}\n"
+                             f"\t calling reuse with: {[lr.dtype for lr in inputs]}")
 
-        # map from self.input_layers[0] -> new_input_layers[0] ...
-        layer_map = dict(zip(self.input_layers, input_layers + self.dependencies))
+        # map from self.inputs[0] -> new_input_layers[0] ...
+        layer_map = dict(zip(self.inputs, inputs + self.dependencies))
 
         dep_iter = self.graph.dependency_iter()
         for node in dep_iter:
             if node not in self.graph.in_nodes:
-                new_inputs = [layer_map[lr] for lr in node.input_layers]  # if lr not in other_inputs]
+                new_inputs = [layer_map[lr] for lr in node.inputs]  # if lr not in other_inputs]
                 layer_map[node] = node.reuse_with(*new_inputs)
 
         new_output = layer_map[self.output]
 
-        return Module(inputs=input_layers, output=new_output, dependencies=self.dependencies, name=name)
+        return Module(inputs=inputs, output=new_output, dependencies=self.dependencies, name=name)
 
 
 class ViewLayer(Layer):
@@ -1507,7 +1517,7 @@ class ViewLayer(Layer):
     def __init__(self, layer, dtype=None, forward_attributes=None, name=None, **kwargs):
         self.inner_layer = layer
 
-        super().__init__(input_layers=layer.input_layers,
+        super().__init__(inputs=layer.inputs,
                          n_units=layer.n_units,
                          dtype=layer.dtype if dtype is None else dtype,
                          name=f"view_{layer.name}" if name is None else name,
@@ -1628,7 +1638,7 @@ class LayerNorm(Layer):
     """
 
     def __init__(self, input_layer, share_state_with=None):
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=input_layer.n_units,
                          dtype=tf.float32,
                          name="layer_normalization",
@@ -1710,14 +1720,14 @@ class Dropout(Layer):
         self.share_state_with = share_state_with
         self.alpha = alpha
 
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=input_layer.n_units,
                          dtype=input_layer.dtype,
                          name=name
                          )
 
     def init_state(self):
-        input_layer = self.input_layers[0]
+        input_layer = self.inputs[0]
         mask = as_layer(self.mask) if self.mask is not None else None
 
         # random mask layer
@@ -1747,9 +1757,9 @@ class Dropout(Layer):
         else:
             layer_state = self.share_state_with.layer_state
 
-        # note usually we don't manipulate input_layers directly, but the random mask is a new dependency
+        # note usually we don't manipulate _inputs directly, but the random mask is a new dependency
         if hasattr(layer_state, "mask"):
-            self._input_layers.append(layer_state.mask)
+            self._inputs.append(layer_state.mask)
 
         return layer_state
 
@@ -1849,11 +1859,11 @@ class DropLookup(Layer):
         # DropLookup gets the input layer of the lookup layer to get it's indices
         # because it's a lookup layer, it must have indices
         if indices is None:
-            indices = lookup_layer.input_layers[0]
+            indices = lookup_layer.inputs[0]
 
         self.scale = scale
         self.probability = probability
-        super().__init__(input_layers=[lookup_layer, indices], n_units=lookup_layer.n_units, name=name)
+        super().__init__(inputs=[lookup_layer, indices], n_units=lookup_layer.n_units, name=name)
 
     def compute(self, input_value, indices):
         if self.probability == 1:
@@ -2045,7 +2055,7 @@ class BaseRNNCell(Layer, ABC):
         # the default state is the current cell which gives access to its  output tensor
         # self.layer_state =self
 
-        super().__init__(input_layers=[input_layer] + self.previous_state,
+        super().__init__(inputs=[input_layer] + self.previous_state,
                          n_units=n_units,
                          dtype=dtype,
                          name=name)
@@ -2126,7 +2136,7 @@ class RNN(Layer):
         # self.share_state_with = share_state_with
 
         # n_units and shape are set after the first cell is created
-        super().__init__(input_layers=[input_seq] + as_list(previous_state),
+        super().__init__(inputs=[input_seq] + as_list(previous_state),
                          n_units=cell_proto.arg_dict["n_units"],
                          dtype=tf.float32,
                          name=name,
@@ -2139,7 +2149,7 @@ class RNN(Layer):
 
     def init_state(self):
         layer_state = super().init_state()
-        input_seq = self.input_layers[0]
+        input_seq = self.inputs[0]
 
         with layer_scope(self):
             # TODO add input_dim to RNNCells for syntax sugar
@@ -2164,7 +2174,7 @@ class RNN(Layer):
             if self.previous_state is None:
                 self.previous_state = cell.previous_state
                 # if no previous state is provided we need to add it from current cell
-                self._input_layers += as_list(self.previous_state)
+                self._inputs += as_list(self.previous_state)
             self.n_units = cell.n_units
 
         return layer_state
@@ -2308,7 +2318,7 @@ class RNNCell(BaseRNNCell):
 
     def init_state(self):
         layer_state = super().init_state()
-        input_layer = self.input_layers[0]
+        input_layer = self.inputs[0]
         previous_state = self.previous_state[0]
 
         with layer_scope(self):
@@ -2408,7 +2418,7 @@ class Gate(Layer):
 
     def __init__(self, input_layer, gate_input, gate_fn=tf.sigmoid, name="gate"):
         self.gate_fn = gate_fn
-        super().__init__(input_layers=[input_layer, gate_input],
+        super().__init__(inputs=[input_layer, gate_input],
                          n_units=input_layer.n_units,
                          dtype=tf.float32,
                          name=name)
@@ -2495,7 +2505,7 @@ class Lookup(Layer):
         self.weights = weights
         self.share_state_with = share_state_with
 
-        super().__init__(input_layers=input_layer, n_units=n_units, dtype=dtype, name=name)
+        super().__init__(inputs=input_layer, n_units=n_units, dtype=dtype, name=name)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -2698,7 +2708,7 @@ class Lookup(Layer):
 
         def concat_fn(x):
             if self.seq_size is None:
-                seq_size = tf.shape(self.input_layers[-1]())[-1]
+                seq_size = tf.shape(self.inputs[-1]())[-1]
             else:
                 seq_size = self.seq_size
 
@@ -2773,7 +2783,7 @@ class SeqConcat(Layer):
         else:
             n_units = None
 
-        super().__init__(input_layers=input_seq,
+        super().__init__(inputs=input_seq,
                          n_units=n_units,
                          name=name,
                          time_major=time_major,
@@ -2819,7 +2829,7 @@ class CoupledGate(Layer):
         self.gate_fn = gate_fn
         self.gate_input = gate_input
 
-        super().__init__(input_layers=[layer1, layer2, gate_input],
+        super().__init__(inputs=[layer1, layer2, gate_input],
                          n_units=layer1.n_units,
                          dtype=tf.float32,
                          name=name)
@@ -2899,7 +2909,7 @@ class GRUCell(BaseRNNCell):
 
     def init_state(self):
         layer_state = super().init_state()
-        input_layer, previous_h = self.input_layers
+        input_layer, previous_h = self.inputs
 
         with layer_scope(self):
             if self.regularized:
@@ -3097,7 +3107,7 @@ class LSTMCell(BaseRNNCell):
     def init_state(self):
         layer_state = super().init_state()
 
-        input_layer = self.input_layers[0]
+        input_layer = self.inputs[0]
         previous_h, previous_memory = self.previous_state
 
         with layer_scope(self):
@@ -3254,7 +3264,7 @@ class Activation(Layer):
     def __init__(self, input_layer, fn=tf.identity, name="activation", **kwargs):
         self.fn = partial(fn, **kwargs)
         self.kw = kwargs
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=input_layer.n_units,
                          dtype=input_layer.dtype,
                          name=name)
@@ -3281,7 +3291,7 @@ class Merge(Layer):
     and applies a merging function.
 
     Args:
-            input_layers: a list of layers with the same number of units to be merged
+            inputs: a list of layers with the same number of units to be merged
             weights: a list of weights
             merge_fn: must operate on a list of tensors
             name: name for layer which creates a named-scope
@@ -3297,7 +3307,7 @@ class Merge(Layer):
     """
 
     def __init__(self,
-                 *input_layers,
+                 *inputs,
                  n_units=None,
                  dtype=None,
                  weights=None,
@@ -3305,16 +3315,16 @@ class Merge(Layer):
                  name="merge",
                  **kwargs):
 
-        if len(input_layers) < 1:
+        if len(inputs) < 1:
             raise Exception("You must provide at least one layer")
 
-        if weights is not None and len(weights) != len(input_layers):
+        if weights is not None and len(weights) != len(inputs):
             raise Exception("len(weights) must be equals to len(layers)")
 
         self.weights = weights
         self.merge_fn = merge_fn
 
-        super().__init__(input_layers=input_layers, n_units=n_units, dtype=dtype, name=name, **kwargs)
+        super().__init__(inputs=inputs, n_units=n_units, dtype=dtype, name=name, **kwargs)
 
     def compute(self, *input_tensors):
         outputs = [as_tensor(ts) for ts in input_tensors]
@@ -3354,17 +3364,17 @@ class Add(Merge):
     """ Adds the outputs of multiple layers with the same shape
 
     Args:
-            input_layers: a list of layers with the same number of units to be merged
+            inputs: a list of layers with the same number of units to be merged
             weights: a list of weights
             name: name for layer scope
     """
 
-    def __init__(self, *input_layers, weights=None, name="add"):
-        input_layers = list(map(lambda l: as_layer(l), input_layers))
+    def __init__(self, *inputs, weights=None, name="add"):
+        inputs = list(map(lambda l: as_layer(l), inputs))
 
-        n_units = input_layers[0].n_units
-        dtype = input_layers[0].dtype
-        for lr in input_layers[1:]:
+        n_units = inputs[0].n_units
+        dtype = inputs[0].dtype
+        for lr in inputs[1:]:
             if lr.n_units is not None:
                 if lr.n_units != n_units:
                     raise ValueError("Found layers with different sizes of n_units {}!={} in an Add Layer".format(
@@ -3386,7 +3396,7 @@ class Add(Merge):
 
         # merge_add = tf.add_n
 
-        super().__init__(*input_layers, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
+        super().__init__(*inputs, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
 
 
 class Concat(Merge):
@@ -3395,18 +3405,18 @@ class Concat(Merge):
     Concatenates input layers on the last dimension
 
     Args:
-        input_layers: a :obj:`list` of :class:`Layer`
+        inputs: a :obj:`list` of :class:`Layer`
         name: name for the layer scope
     """
 
-    def __init__(self, *input_layers, axis=-1, name="concat"):
-        input_layers = list(map(lambda lr: as_layer(lr) if not isinstance(lr, Layer) else lr, input_layers))
-        first, *rest = input_layers
+    def __init__(self, *inputs, axis=-1, name="concat"):
+        inputs = list(map(lambda lr: as_layer(lr) if not isinstance(lr, Layer) else lr, inputs))
+        first, *rest = inputs
         if not all(lr.dtype == first.dtype for lr in rest):
             raise ValueError("Layers must have the same type to be concatenated")
 
-        n_units = sum([lr.n_units for lr in input_layers])
-        super().__init__(*input_layers,
+        n_units = sum([lr.n_units for lr in inputs])
+        super().__init__(*inputs,
                          n_units=n_units,
                          merge_fn=partial(tf.concat, axis=axis),
                          dtype=first.dtype,
@@ -3433,7 +3443,7 @@ class Residual(Layer):
         # if one is not connected to the other, this fails
         self.module = Module(x_layer, h_layer)
 
-        super().__init__(input_layers=[x_layer, h_layer],
+        super().__init__(inputs=[x_layer, h_layer],
                          n_units=h_layer.n_units,
                          dtype=h_layer.dtype,
                          name=name,
@@ -3441,7 +3451,7 @@ class Residual(Layer):
                          weight_init=weight_init)
 
     def init_state(self):
-        x, h = self.input_layers
+        x, h = self.inputs
         state = super().init_state()
         with layer_scope(self):
             if x.n_units != h.n_units:
@@ -3549,14 +3559,14 @@ class Conv1D(Layer):
         # output_shape = _conv_out_shape(input_tensor_shape, self.filter_shape, self.padding, stride, dilation_rate)
         # self.output_shape = tf.TensorShape(output_shape).as_list()
 
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=n_units,
                          dtype=tf.float32,
                          name=name
                          )
 
     def init_state(self):
-        input_layer = self.input_layers[0]
+        input_layer = self.inputs[0]
         filter_shape = [self.filter_size, input_layer.n_units, self.n_units]
 
         if self.share_state_with is not None:
@@ -3673,7 +3683,7 @@ class MHAttention(Layer):
                 "heads {}".format(self.n_units, n_heads))
 
         self.head_units = n_units // n_heads
-        super().__init__(input_layers=[query, key, value], n_units=n_units, name=name)
+        super().__init__(inputs=[query, key, value], n_units=n_units, name=name)
 
     def init_state(self):
         if self.share_state_with is not None:
@@ -3685,7 +3695,7 @@ class MHAttention(Layer):
         else:
             layer_state = super().init_state()
 
-        query, key, value = self.input_layers
+        query, key, value = self.inputs
         h_dim = self.n_units
 
         with layer_scope(self):
@@ -3789,7 +3799,7 @@ class FC(Layer):
         self.linear = None
         self.activation = None
 
-        super().__init__(input_layers=input_layer,
+        super().__init__(inputs=input_layer,
                          n_units=n_units,
                          dtype=dtype,
                          name=name,
@@ -3805,7 +3815,7 @@ class FC(Layer):
                          )
 
     def init_state(self):
-        input_layer = self.input_layers[0]
+        input_layer = self.inputs[0]
         state = super().init_state()
 
         with layer_scope(self, name=self.name):
@@ -3862,7 +3872,7 @@ class SeqMap(Layer):
                              f"\t got: {n_units}")
 
         # n_units and shape are set after the first cell is created
-        super().__init__(input_layers=input_seq,
+        super().__init__(inputs=input_seq,
                          n_units=layer_proto.arg_dict.get('n_units', n_units),
                          dtype=tf.float32,
                          name=name,
@@ -3872,7 +3882,7 @@ class SeqMap(Layer):
 
     def init_state(self):
         state = super().init_state()
-        input_seq = self.input_layers[-1]
+        input_seq = self.inputs[-1]
         x0 = input_seq[0]
 
         # TODO we could pass the layer directly but since right now we only allow to build layers from

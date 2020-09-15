@@ -34,17 +34,22 @@ pip install tensorx
 for more details see the [installation documentation](https://tensorx.org/start/install/).
 
 ## Layers
-In TensorX, a `Layer` is the basic building block of a neural network. A layer performs computations on its inputs and
-can have some state. An `Input` layer is a layer without inputs. 
+<img align="right" width="20%" src="/img/layer_graph.png"> 
+
+In TensorX, a **`Layer`** is the basic building block of a **neural network**. A layer can have a series of **inputs**, a 
+**state**, and performs a certain **computation** on its inputs. Connecting a series of layers results in a 
+**layer graph**. We can interpret layer either as a function that performs computations on inputs, or as a node
+in a computation graph. In TensorX, we see a layer as the end-node of a subgraph, and executing it will result in 
+the execution of all layers until that node is reached.
 
 ### Common Layer properties and methods
 
-* `input_layers`: `list` of `Layer` inputs for the current layer.
-* `n_units`: number of output units or neurons, this is the last dimension of the output tensor resulting from this 
+* **`inputs`**: list of input layers for the current layer.
+* **`n_units`**: number of output units or neurons, this is the last dimension of the output tensor resulting from this 
 layer's computation.
-* `compute(*input_tensors)`: applies the layer transformation to a list of inputs with the same length as `input_layers`.
-* `__call__`: all layers are [`Callable`](https://docs.python.org/3/reference/datamodel.html#object.__call__) and the 
-result is the computation of the entire network taking the current `Layer` as an endpoint or terminal node.
+* **`compute(*tensors)`**: layer computation applied to its input layers or input tensors if any is given. 
+* **`__call__`**: all layers are [Callable](https://docs.python.org/3/reference/datamodel.html#object.__call__) and the 
+result is the computation of the entire layer graph taking the current layer as the terminal node.
 * `reuse_with`: create a new layer object that **shares the state** with the current layer but is connected to different
 inputs. The new layer is the end-point node of a new layer graph.
 * `trainable_variables`: a `list` of `tf.Variable` objects that are _trainable_, this is, that are changed by an optimizer

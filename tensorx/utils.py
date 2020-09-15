@@ -148,7 +148,7 @@ class Graph:
         """
         out_nodes = dict.fromkeys(self.out_nodes)
 
-        in_nodes = layer.input_layers
+        in_nodes = layer.inputs
         for in_node in in_nodes:
             self.add_edge(in_node, layer)
 
@@ -249,7 +249,7 @@ class Graph:
         while node_queue:
             current_node, target_output = node_queue.pop(0)
             if current_node not in visited:
-                next_nodes = current_node.input_layers
+                next_nodes = current_node.inputs
                 if not next_nodes:
                     add_dep(target_output, current_node, dependencies)
                     if len(inputs) > 0 and current_node not in inputs and not add_missing_inputs:

@@ -153,15 +153,15 @@ def test_model_var_inputs():
 
     # y_ = tx.Linear(tx.SeqConcat(lookup, seq_size=seq_size), n_units=out_size)
 
-    @tx.layer(n_units=2, dtype=tf.float32, name="loss")
-    def loss(pred, labels):
-        return tx.mse(pred, labels)
+    # @tx.layer(n_units=2, dtype=tf.float32, name="loss")
+    # def loss(pred, labels):
+    #    return tx.mse(pred, labels)
 
     model = tx.Model(run_inputs=x,
                      run_outputs=y_,
                      train_inputs=[x, y],
                      train_outputs=y_,
-                     train_loss=loss(y_, y)
+                     train_loss=tx.MSE(y_, y)
                      )
 
     # model.draw("test.pdf")

@@ -10,7 +10,70 @@ import pytest
 import tensorflow as tf
 
 
-def test_input():
+def test_input_spec():
+    x = tx.Input()
+    assert x.shape.as_list() == [None, None]
+    x = tx.Input(n_units=1, shape=None)
+    assert x.shape.as_list() == [None, 1]
+
+    # n_units does not match shape
+    with pytest.raises(ValueError):
+        tx.Input(n_units=1, shape=[])
+
+    x = tx.Input(n_units=1, shape=[1])
+    assert x.shape.as_list() == [1]
+    assert tx.tensor_equal(x(), tf.zeros([1]))
+
+    with pytest.raises(ValueError):
+        tx.Input(n_units=1, shape=[None, 2])
+    with pytest.raises(ValueError):
+        tx.Input(n_units=0, shape=[None, 1])
+
+    x = tx.Input(n_units=2, shape=[None, None, 2])
+    assert x.n_units == 2
+    assert x.shape.as_list() == [None, None, 2]
+    assert tx.tensor_equal(x(), tf.zeros([1, 1, 2]))
+
+    value = tf.ones([2, 2])
+
+    x = tx.Input(value)
+    assert x.shape.as_list() == [None, 2]
+
+    with pytest.raises(ValueError):
+        tx.Input(value, n_units=3)
+
+    with pytest.raises(ValueError):
+        tx.Input(value, shape=[None])
+    with pytest.raises(ValueError):
+        tx.Input(value, shape=[None, 3])
+    with pytest.raises(ValueError):
+        tx.Input(value, shape=[None, None, 2])
+
+    x = tx.Input(value, shape=[None, 2])
+    assert x.shape.as_list() == [None, 2]
+
+    x = tx.Input(value)
+    assert x.dtype == value.dtype
+    assert x.dtype == tf.float32
+
+    x = tx.Input(value, dtype=tf.int32)
+    assert x.dtype == tf.int32
+    assert x().dtype == tf.int32
+
+    x = tx.Input(value, dtype=tf.int32, cast=False)
+    with pytest.raises(TypeError):
+        x.value = value
+
+    x = tx.Input(value, n_active=2, n_units=10)
+    assert x.dtype == tf.int64
+    assert isinstance(x(), tf.SparseTensor)
+
+    with pytest.raises(ValueError):
+        # [2,2] not compatible with [None,3]
+        tx.Input(value, n_active=3, n_units=10)
+
+
+def test_input_value():
     inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
     assert tx.tensor_equal(inputs.value, tf.zeros([1, 4], dtype=tf.int32))
 
@@ -151,7 +214,7 @@ def test_linear():
 
     assert tx.tensor_equal(t1, t2)
 
-    linear2 = tx.Linear(linear.input_layers[0], 8, share_state_with=linear, dtype=tf.float64)
+    linear2 = tx.Linear(linear.inputs[0], 8, share_state_with=linear, dtype=tf.float64)
     t3 = linear2()
     assert tx.tensor_equal(t1, t3)
 
@@ -716,7 +779,7 @@ def test_biRNN():
     rnn0 = tx.RNN(seq, cell_proto=rnn_proto, stateful=False, return_state=True)
 
     # because a stateful rnn0 has a variable layer as input as well
-    rnn_m0 = tx.Module(inputs=rnn0.input_layers, output=rnn0)
+    rnn_m0 = tx.Module(inputs=rnn0.inputs, output=rnn0)
 
     rnn1 = rnn0.reuse_with(seq, reverse=True, stateful=False, return_state=True)
     # this solves rnn output multiple tensors
@@ -1027,17 +1090,17 @@ def test_reuse_dropout():
     x2 = tx.Activation(x1)
     drop1 = tx.Dropout(x2, probability=0.5, locked=True)
 
-    assert len(drop1.input_layers) == 2
-    assert drop1.input_layers[0] is x2
-    assert drop1.input_layers[-1] is drop1.layer_state.mask
+    assert len(drop1.inputs) == 2
+    assert drop1.inputs[0] is x2
+    assert drop1.inputs[-1] is drop1.layer_state.mask
 
     # shared state overrides mask?
     _, mask = tx.dropout(x2, return_mask=True)
     drop2 = drop1.reuse_with(x2, mask)
 
-    assert len(drop2.input_layers) == 2
-    assert drop2.input_layers[0] is x2
-    assert drop2.input_layers[-1] is drop2.layer_state.mask
+    assert len(drop2.inputs) == 2
+    assert drop2.inputs[0] is x2
+    assert drop2.inputs[-1] is drop2.layer_state.mask
 
     assert not tx.tensor_equal(drop1(), drop2())
 
@@ -1196,7 +1259,7 @@ def test_multihead_attention():
                                attention_dropout=0.1,
                                regularized=False)
 
-    assert len(attention.input_layers) == 3
+    assert len(attention.inputs) == 3
 
     # 3 "kernels" + bias
     assert len(attention.variables) == 3

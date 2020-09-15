@@ -21,8 +21,8 @@ def test_linear_graph_module_integration(tmp_path):
     graph = tx.Graph.build(inputs=None, outputs=linear)
     module = tx.Module(inputs=None, output=linear)
 
-    assert len(module.input_layers) == 1
-    assert module.input_layers == list(graph.in_nodes)
+    assert len(module.inputs) == 1
+    assert module.inputs == list(graph.in_nodes)
     assert len(graph.in_nodes) == 1
 
     tf.saved_model.save(module, save_path)

@@ -188,7 +188,7 @@ def kld(target, predicted):
     return tf.losses.kullback_leibler_divergence(target, predicted)
 
 
-def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
+def sinkhorn_loss(target, predicted, epsilon, n_iter, cost_fn=None):
     """ Sinkhorn Loss
 
     Alias:
@@ -209,8 +209,8 @@ def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
         2. [Sinkhorn Distances:Lightspeed Computation of Optimal Transport](https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf)
 
     Args:
-        y_pred (`Tensor`): model distribution
-        y_true (`Tensor`): ground_truth, empirical distribution
+        predicted (`Tensor`): model distribution
+        target (`Tensor`): ground_truth, empirical distribution
         epsilon (float): regularization term >0
         n_iter (int): number of sinkhorn iterations
         cost_fn (Callable): function that returns the cost matrix between y_pred and y_true, defaults to $|x_i-y_j|^p$.
@@ -219,7 +219,7 @@ def sinkhorn_loss(y_pred, y_true, epsilon, n_iter, cost_fn=None):
         cost (`Tensor`): sinkhorn cost of moving from the mass from the model distribution `y_pred` to the empirical
         distribution `y_true`.
     """
-    return tx.sinkhorn(y_pred, y_true, epsilon=epsilon, n_iter=n_iter, cost_fn=cost_fn)
+    return tx.sinkhorn(target, predicted, epsilon=epsilon, n_iter=n_iter, cost_fn=cost_fn)
 
 
 class Loss(Lambda):
@@ -238,15 +238,23 @@ class CategoricalCrossEntropy(Loss):
 
 class Sinkhorn(Loss):
     # TODO default values for n_iter and epsilon
-    def __init__(self, y_pred, y_true, n_iter=1, epsilon=1e-1, cost_fn=None):
+    def __init__(self, y_pred, y_true, n_iter=1, epsilon=1e-1, cost_fn=None, name="Sinkhorn"):
         super().__init__(y_pred, y_true,
                          fn=lambda pred, true: sinkhorn_loss(pred, true, epsilon=epsilon, n_iter=n_iter,
-                                                             cost_fn=cost_fn))
+                                                             cost_fn=cost_fn),
+                         name=name)
+
+
+class MSE(Loss):
+    def __init__(self, target, predicted, name="MSE"):
+        super().__init__(target, predicted, fn=mse, name=name)
 
 
 __all__ = [
     "binary_cross_entropy",
     "categorical_cross_entropy",
     "BinaryCrossEntropy",
-    "CategoricalCrossEntropy"
+    "CategoricalCrossEntropy",
+    "mse",
+    "MSE"
 ]
