@@ -24,6 +24,9 @@ markdown_extensions:
 plugins:
   - search
 
+extra_css:
+  - 'assets/css/extra.css'
+
 # for mathjax
 extra_javascript:
   - 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML'
@@ -45,6 +48,7 @@ nav:
       - Tutorial: start/tutorial.md
   - API:
       - layers: api/layers.md
+      - ops: api/ops.md
   - Train:
       - Model: train/model.md
   - Contributing: contributing.md

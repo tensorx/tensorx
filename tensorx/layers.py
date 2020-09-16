@@ -1,76 +1,85 @@
 from abc import ABC
-import tensorflow as tf
-from tensorx.utils import as_tensor, as_list, Graph
-from typing import Union, Type, Callable, Optional, List
-import inspect
-from contextlib import ExitStack
-import tensorx.ops as txf
-from tensorx.train.callbacks import OnValueChange
+from collections import Counter
 from functools import partial
-from tensorx.ops import embedding_lookup_sparse
+import threading
+
+import tensorflow as tf
 from tensorflow.python.training.tracking.tracking import AutoTrackable
-from tensorflow.python.training.tracking.base import TrackableReference
 from tensorflow.python.training.tracking import data_structures as track
 
+import typing
+from typing import Union, Type, Callable, Optional, List, Hashable, Dict, Set, Any
+
+import inspect
+from contextlib import ExitStack
+
 import tensorx as tx
-import threading
-from collections import Counter
-import re
+from tensorx.utils import as_tensor, as_list, Graph
+from tensorx.ops import embedding_lookup_sparse
+from tensorx.train.callbacks import OnValueChange
 
 
 class LayerState(AutoTrackable):
-    """ Layer state is used as a namespace to store either ``tf.Variable`` or ``Layer`` instances
-    that contain ``tf.Variables`` that define the state of a ``Layer``.
+    """ LayerState
 
-    !!! note ""
-        ``LayerState`` objects contain both `tf.Variable` and `Layer` objects.
+    A `LayerState` is a container to store ``tf.Variable``, ``Layer``, or other tensors to be shared between layers.
     """
 
     def __init__(self):
         pass
-        # don't repeat tracking on layer
-        # self.layer = track.NoDependency(origin_layer)
 
     def variables(self):
-        """ returns a list of all variables contained in the layer state object
+        """ variables
+
+        returns a list of **all** variables in the layer state
 
         Returns:
-            list: a list of all variables in the layer state
-
+            variables (`List[tf.Variable]`): a list of all variables in the layer state
         """
         return list(self.var_dict().values())
 
-    def var_dict(self):
-        """ returns a dictionary where the keys are the var refs
+    def var_dict(self) -> Dict[Hashable, tf.Variable]:
+        """ var_dict
+
+        gets all variables in the layer state as a `dict` from a hashable
+        [reference](https://www.tensorflow.org/api_docs/python/tf/Variable?hl=en#ref) (`variable.ref()`) object to
+        `tf.Variable`.
 
         Returns:
-            dict: a dictionary from attribute names to variable instances with all
-            the variables in the current layer state
-
+            var_dict (`Dict[Hashable,Variable]`): a dictionary with all the variables in the current layer state.
         """
-        all_vars = dict()
+        all_vars: Dict[Hashable, tf.Variable] = dict()
         for attr, obj in self.__dict__.items():
-            # TODO added this to test layer states that have a None
-            # if obj is None:
-            #    raise ValueError(f"object for {attr} has None value")
-            if isinstance(obj, Layer):  # and not obj == self.layer:
+            if isinstance(obj, Layer):
                 v = obj.layer_state.var_dict()
                 all_vars.update(v)
             elif isinstance(obj, tf.Variable):
-                # Tensors are not hashable but this gets the object id
-                all_vars[obj.ref()] = obj
-                # all_vars[attr] = obj
+                ref: Hashable = obj.ref()
+                all_vars[ref] = obj
         return all_vars
 
     def __str__(self):
+        """ returns a string representation of the object. This is called on `print()` or `str()`
+
+        Returns:
+            string (`str`): a string representation of the object
+        """
         return "State{\n %s \n}" % ("\n".join(["\t{}: {}".format(k, str(i)) for k, i in self.__dict__.items()]))
 
 
 class LayerScope:
-    """ LayerScope creates a unique name for the scope if not executing eagerly
+    """ LayerScope
+
+    context that uses the current layer `name` as the scope for all the ops defined in the layer computation.
+
+    !!! note
+        previously used to create a unique name for the scope if not executing eagerly, since TensorX is now only
+        compatible with the new TensorFlow, it's just the same as `tf.name_scope`. But I will keep it here in the case
+        we want to add a unique name registry later. Inside a `tf.function` the name will be bade unique by appending
+        `_n` to an existing name.
 
     Args:
-        current_layer: layer to be used in this scope, the layer name is used as scope name for tensorflow tf.name_scope
+        current_layer (`Layer`): layer to be used in this scope, the layer name is used as scope name in `tf.name_scope`
     """
 
     def __init__(self, current_layer, name=None):
@@ -97,71 +106,15 @@ class LayerScope:
         self._stack.__exit__(exc_type, exc_val, exc_tb)
 
 
-layer_scope: Type[LayerScope] = LayerScope
-
-
-# TODO order arguments while accepting kwargs IF the classes in question allow kwargs in the constructors
-#  check if the args order themselves in case I present something that does is not named
-class LayerProto:
-    """ Layer Proto
-
-    Creates a Layer prototype. A callable that allows us to delay calling the constructor a Layer
-    object and validates constructor arguments.
-
-    """
-
-    def __init__(self, layer_cls, **kwargs):
-        self.layer_cls = layer_cls
-        self.arg_spec = inspect.getfullargspec(layer_cls.__init__)
-        self.arg_names = set(self.arg_spec.args[1:] + self.arg_spec.kwonlyargs)
-        self._validate_args(**kwargs)
-        self.arg_dict = kwargs
-
-    def filter_args(self, **kwargs):
-        new_kwargs = dict(kwargs)
-        for key in kwargs:
-            if key not in self.arg_names and not self.arg_spec.varkw:
-                del new_kwargs[key]
-        return new_kwargs
-
-    def _validate_args(self, **kwargs):
-        for key in kwargs:
-            if key not in self.arg_names and not self.arg_spec.varkw:
-                raise TypeError(f"{self.layer_cls.__name__} prototype got an unexpected argument {key}\n")
-
-    def __repr__(self):
-        kw = ', '.join([f'{k}={repr(v)}' for k, v in self.arg_dict.items()])
-        return f"{type(self).__name__}({self.layer_cls.__name__},{kw})"
-
-    def __call__(self, *args, **kwargs):
-        new_args = dict(self.arg_dict)
-        new_args.update(kwargs)
-        return self.layer_cls(*args, **new_args)
-
-    def update(self, **kwargs):
-        """ update.
-
-        Updates the prototype constructor argument dictionary and validates those parameters.
-
-        Args:
-            **kwargs: new values for constructor named arguments to be updated
-        """
-        self._validate_args(**kwargs)
-        self.arg_dict.update(kwargs)
-
-
-class Layer(AutoTrackable):
+class Layer(AutoTrackable, ABC):
     """ Layer base class
 
     Attributes:
         inputs: a list of input nodes for the current layer
         n_units: the number of units for the current layer (last dim)
         name: name to be used for the layer scope
+        proto (`LayerProto`): a layer prototype with the arguments used in the current layer instance
         scoped_name: layer full scope name
-
-    Notes:
-        * If a layer is created inside the scope of another layer, its scoped_name is the final name attributed
-        to the layer taking the outer scopes into account.
 
     Args:
         inputs: a single layer,a list of input layers, or None if no inputs are required
@@ -217,25 +170,22 @@ class Layer(AutoTrackable):
         if self.inputs:
             input_graph: Graph = Graph.build(inputs=None,
                                              outputs=self.inputs)
-            self.input_graph: Graph = track.NoDependency(input_graph)
+            self.input_graph: Graph = typing.cast(Graph, track.NoDependency(input_graph))
 
     def init_state(self):
         self.layer_state = LayerState()
         return self.layer_state
 
     def __setattr__(self, key, value):
-        """ if key is in layer_state, changes layer state as well
-        Note:
-            During debugging I noticed that changing an instance member shared with the layer state would not
+        """ Overrides __setattr__ to change a layer_state if a mutable member is there as well
+
+        TODO consider making layer state members immutable, can just throw an exception here
+
+        !!! note
+            During debugging I noticed that changing an instance attribute shared with the layer state would not
             change the layer state, this could be problematic if users are trying to debug something using
-            member names as a shortcut to layer_state.member, so this method checks if the attribute we're
-            trying to change is in a layer_state of an initialized Layer.
-
-        Args:
-            key:
-            value:
-
-        Returns:
+            member names as a shortcut to layer_state.attribute, so this method checks if the attribute we're
+            trying to change is in a layer_state of an initialized Layer, ir it is, change its value there.
 
         """
         if hasattr(self, "layer_state") and self.layer_state is not None:
@@ -364,6 +314,91 @@ class Layer(AutoTrackable):
         return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, name="Mul")
 
 
+class LayerProto:
+    """ LayerProto
+
+    A `Layer` prototype is a `Callable` that captures all the arguments of a layer construction **except** input layers.
+    This allows us to delay calling the constructor a Layer, thus delaying the creation of it's state. `LayerProto`
+    object also validate the constructor arguments of its target Layer type.
+
+    !!! note
+        `Layer` **subtypes** have a class method `proto()` you can use as an alternative to importing `LayerProto` as:
+        ```python
+        import tensorx as tx
+        proto = tx.Linear.proto(n_units=3)
+        ```
+
+        `Layer` **instances** have a proto field that returns a prototype with the current object configuration
+        ```python
+        import tensorx as tx
+        y = tx.Linear(tf.ones([2,2]))
+        proto = y.proto
+        assert "n_units" in proto.arg_dict
+        ```
+
+    Properties:
+        layer_cls (`Type[Layer]`): the current `Layer` subtype for this prototype
+        arg_spec (`inspect.FullArgSpec`): argspec (args, var args, defaults, etc) of the constructor of the target class
+        arg_names (`Set[str]`): a set of name for the constructor arguments
+        arg_dict (`Dict[str,Any]`): dictionary with current argument values for the prototype
+
+    Args:
+        layer_cls (`Type[Layer]`): a `Layer` subtype for which we're trying to build a prototype
+        kwargs (`Dict[str,Any]`): a `dict` mapping arg names to values
+    """
+
+    def __init__(self, layer_cls, **kwargs):
+        self.layer_cls = layer_cls
+        self.arg_spec: inspect.FullArgSpec = inspect.getfullargspec(layer_cls.__init__)
+        self.arg_names: Set[str] = set(self.arg_spec.args[1:] + self.arg_spec.kwonlyargs)
+        self._validate_args(**kwargs)
+        self.arg_dict: Dict[str, Any] = kwargs
+
+    def filter_args(self, **kwargs):
+        """ filter_args
+
+        filters a given keyword argument dictionary removing any argument
+        that is not present in the constructor for the current Layer type.
+
+        Args:
+            **kwargs (`Dict['str',Any]`): keyword arguments to be filtered
+
+        Returns:
+            new_kwargs (`(Dict['str',Any])`): new filtered kwargs
+
+        """
+        new_kwargs = dict(kwargs)
+        for key in kwargs:
+            if key not in self.arg_names and not self.arg_spec.varkw:
+                del new_kwargs[key]
+        return new_kwargs
+
+    def _validate_args(self, **kwargs):
+        for key in kwargs:
+            if key not in self.arg_names and not self.arg_spec.varkw:
+                raise TypeError(f"{self.layer_cls.__name__} prototype got an unexpected argument {key}\n")
+
+    def __repr__(self):
+        kw = ', '.join([f'{k}={repr(v)}' for k, v in self.arg_dict.items()])
+        return f"{type(self).__name__}({self.layer_cls.__name__},{kw})"
+
+    def __call__(self, *args, **kwargs):
+        new_args = dict(self.arg_dict)
+        new_args.update(kwargs)
+        return self.layer_cls(*args, **new_args)
+
+    def update(self, **kwargs):
+        """ update
+
+        Updates the prototype constructor argument dictionary and validates those parameters.
+
+        Args:
+            **kwargs (`(Dict['str',Any])`): new values for constructor named arguments to be updated
+        """
+        self._validate_args(**kwargs)
+        self.arg_dict.update(kwargs)
+
+
 class Lambda(Layer):
     """ Custom Function Layer
     Attributes:
@@ -388,6 +423,11 @@ class Lambda(Layer):
             raise TypeError("cannot pass a LayerProto to Lambda Layer, pass a callable function instead")
         elif not hasattr(fn, "__call__"):
             raise TypeError("fn must be a callable function")
+
+        # Layer will overwrite these properties but I want to be explicit here
+        self.var_list = var_list
+        self.fn = fn
+        self.apply_to_layer = apply_to_layer
 
         super().__init__(inputs=layers,
                          n_units=n_units,
@@ -443,7 +483,7 @@ class ToSparse(Layer):
             if isinstance(input_tensor, tf.SparseTensor):
                 return input_tensor
             else:
-                return txf.to_sparse(input_tensor)
+                return tx.to_sparse(input_tensor)
 
     def reuse_with(self, input_layer):
         return ToSparse(input_layer)
@@ -513,12 +553,14 @@ class Wrap(Layer):
                  wrapped_layer,
                  wrap_fn,
                  n_units=None,
-                 forward_attributes=None,
+                 fwd_attr=None,
                  name=None):
-        forward_attributes = as_list(forward_attributes)
-        for attr in forward_attributes:
-            if hasattr(wrapped_layer, attr):
-                setattr(self, attr, getattr(wrapped_layer, attr))
+        fwd_attr = as_list(fwd_attr)
+        attr_dict = {attr: getattr(wrapped_layer, attr) for attr in fwd_attr if hasattr(wrapped_layer, attr)}
+
+        self.wrapped = wrapped_layer
+        self.wrap_fn = wrap_fn
+        self.fwd_attr = fwd_attr
 
         super().__init__(inputs=wrapped_layer.inputs,
                          n_units=n_units,
@@ -526,7 +568,8 @@ class Wrap(Layer):
                          name=f"wrap_{wrapped_layer.name}" if name is None else name,
                          wrap_fn=wrap_fn,
                          wrapped=wrapped_layer,
-                         forward_attributes=forward_attributes
+                         fwd_attr=fwd_attr,
+                         **attr_dict
                          )
 
     def init_state(self):
@@ -569,9 +612,9 @@ class Wrap(Layer):
         new_wrapped = self.wrapped.reuse_with(*layers)
 
         # forward any previous attributes if we're wrapping over other WrapLayer instances
-        attr_fwd = self.forward_attributes
+        attr_fwd = self.fwd_attr
         if isinstance(new_wrapped, Wrap):
-            attr_fwd += new_wrapped.forward_attributes
+            attr_fwd += new_wrapped.fwd_attr
 
         if name is None:
             name = self.name
@@ -579,7 +622,7 @@ class Wrap(Layer):
         return Wrap(wrapped_layer=new_wrapped,
                     n_units=self.n_units,
                     wrap_fn=self.wrap_fn,
-                    forward_attributes=attr_fwd,
+                    fwd_attr=attr_fwd,
                     name=name)
 
 
@@ -755,7 +798,7 @@ class Input(Layer):
             if self.n_active is None:
                 if self.sparse:
                     dense_shape = [1] * len(self.shape[:-1]) + [self.shape[-1]]
-                    self._value = txf.empty_sparse_tensor(dense_shape=dense_shape, dtype=self.dtype)
+                    self._value = tx.empty_sparse_tensor(dense_shape=dense_shape, dtype=self.dtype)
                 else:
                     self._value = tf.zeros([1] * len(self.shape[:-1]) + [self.shape[-1]], dtype=self.dtype)
             else:
@@ -772,10 +815,10 @@ class Input(Layer):
         with layer_scope(self):
             if not self.constant and self._value is not None:
                 if isinstance(self._value, tf.SparseTensor):
-                    layer_state.slot = txf.SparseVariable(initial_value=self._value,
-                                                          validate_shape=False,
-                                                          trainable=False,
-                                                          name=f"{self.name}_slot")
+                    layer_state.slot = tx.SparseVariable(initial_value=self._value,
+                                                         validate_shape=False,
+                                                         trainable=False,
+                                                         name=f"{self.name}_slot")
                 else:
                     layer_state.slot = tf.Variable(initial_value=self._value,
                                                    shape=tf.TensorShape(self.shape),
@@ -1152,20 +1195,20 @@ class Linear(Layer):
 
     Args:
         input_layer (`Layer`): input layer or a value convertible to Layer
-        n_units (Optional[int]): number of output units
-        shape (Optional[Iterable[int]]): shape for the layer weights (not the output). Needed if n_units and
-            input_layer.n_units is not known. If add_bias then the bias variable has shape [shape[-1]]
-        weight_init: weights (W) initializer function
-        weights: variable to be used as linear weights
-        bias: variable to be used as a bias
-        transpose_weights: if True, transposes the weights of this layer (must match n_units)
-        sparse_weights: if True indicates we are using a sparse tensor instead of a tf.Variable for weights
-        add_bias: if True, this layers becomes an affine transformation layer xW+b
-        bias_init: bias initializer function
-        weight_norm (bool): if True weights are normalised
-        dtype (``tf.DType``): type for layer variables
-        name (str): layer name
-        share_state_with: Linear layer with which we wish to share the state
+        n_units (`Optional[int]`): output dim
+        shape (`Optional[Iterable[int]]`): weights shape, needed if `n_units` and
+            `input_layer.n_units` is not known.
+        weight_init (`Callable`): weights (W) initializer function
+        bias_init (`Callable`): bias initializer function
+        weights (`tf.Variable`): variable to be used as linear weights
+        bias (`tf.Variable`): variable to be used as a bias
+        add_bias (`bool): if True, this layers becomes an affine transformation layer xW+b
+        transpose_weights (`bool`): if `True`, transposes the weights
+        sparse_weights (`bool`): if True indicates we are using a sparse tensor instead of a tf.Variable for weights
+        weight_norm (`bool`): if True weights are normalised
+        dtype (`tf.DType`): type for layer variables
+        name (`str`): layer name
+        share_state_with (`Linear`): Linear layer with which we wish to share the state
 
     """
 
@@ -1330,7 +1373,7 @@ class Linear(Layer):
                                                        transpose_b=True)
                 else:
 
-                    sp_indices = txf.sparse_indices(sp_values)
+                    sp_indices = tx.sparse_indices(sp_values)
                     # TODO I complained before about this being optimized for distributed TF because
                     #  gradients cannot propagate through gather
                     #  CHECK IF this is still the case in TF2
@@ -1511,7 +1554,7 @@ class ViewLayer(Layer):
     This means ViewLayer can substitute Layer where layer would be used
 
     Properties:
-        inner_layer (Layer) wrapped by a view
+        inner_layer (`Layer`) wrapped by a view
     """
 
     def __init__(self, layer, dtype=None, forward_attributes=None, name=None, **kwargs):
@@ -1574,9 +1617,9 @@ class DropConnect(ViewLayer):
             layer_state = self.share_state_with.layer_state
         else:
             layer_state = super().init_state()
-            layer_state.weight_mask = txf.binary_mask(self.inner_layer.weights, self.probability)
+            layer_state.weight_mask = tx.binary_mask(self.inner_layer.weights, self.probability)
             if self.inner_layer.bias is not None:
-                layer_state.bias_mask = txf.binary_mask(self.inner_layer.bias)
+                layer_state.bias_mask = tx.binary_mask(self.inner_layer.bias)
 
         return layer_state
 
@@ -1585,19 +1628,19 @@ class DropConnect(ViewLayer):
             weights = self.inner_layer.weights
             bias = self.inner_layer.bias
 
-            drop_w, w_mask = txf.dropout(weights, probability=self.probability,
-                                         random_mask=self.layer_state.weight_mask,
-                                         scale=False,
-                                         return_mask=True)
+            drop_w, w_mask = tx.dropout(weights, probability=self.probability,
+                                        random_mask=self.layer_state.weight_mask,
+                                        scale=False,
+                                        return_mask=True)
             # self.layer_state.weight_mask = w_mask
             drop_bias = None
             add_bias = bias is not None
             if add_bias:
-                drop_bias, b_mask = txf.dropout(bias,
-                                                probability=self.probability,
-                                                random_mask=self.layer_state.bias_mask,
-                                                scale=False,
-                                                return_mask=True)
+                drop_bias, b_mask = tx.dropout(bias,
+                                               probability=self.probability,
+                                               random_mask=self.layer_state.bias_mask,
+                                               scale=False,
+                                               return_mask=True)
                 # self.layer_state.bias_mask = b_mask
 
             new_linear = Linear(input_tensor,
@@ -1788,30 +1831,30 @@ class Dropout(Layer):
         with layer_scope(self):
             if isinstance(input_value, tf.SparseTensor):
                 # if input is sparse, noise_shape is not used
-                tensor, mask = txf.sparse_dropout(sp_tensor=input_value,
-                                                  mask=mask_value,
-                                                  probability=self.probability,
-                                                  scale=self.scale,
-                                                  return_mask=True,
-                                                  alpha=self.alpha,
-                                                  seed=self.seed)
+                tensor, mask = tx.sparse_dropout(sp_tensor=input_value,
+                                                 mask=mask_value,
+                                                 probability=self.probability,
+                                                 scale=self.scale,
+                                                 return_mask=True,
+                                                 alpha=self.alpha,
+                                                 seed=self.seed)
 
             else:
                 if self.alpha:
-                    tensor, mask = txf.alpha_dropout(tensor=input_value,
-                                                     noise_shape=self.noise_shape,
-                                                     random_mask=mask_value,
-                                                     probability=self.probability,
-                                                     return_mask=True,
-                                                     seed=self.seed)
+                    tensor, mask = tx.alpha_dropout(tensor=input_value,
+                                                    noise_shape=self.noise_shape,
+                                                    random_mask=mask_value,
+                                                    probability=self.probability,
+                                                    return_mask=True,
+                                                    seed=self.seed)
                 else:
-                    tensor, mask = txf.dropout(tensor=input_value,
-                                               noise_shape=self.noise_shape,
-                                               random_mask=mask_value,
-                                               probability=self.probability,
-                                               scale=self.scale,
-                                               return_mask=True,
-                                               seed=self.seed)
+                    tensor, mask = tx.dropout(tensor=input_value,
+                                              noise_shape=self.noise_shape,
+                                              random_mask=mask_value,
+                                              probability=self.probability,
+                                              scale=self.scale,
+                                              return_mask=True,
+                                              seed=self.seed)
 
             return tensor
 
@@ -2432,7 +2475,7 @@ class Gate(Layer):
 
         with layer_scope(self):
             gate = self.gate_fn(gate_tensor)
-            output = txf.apply_gate(input_tensor, gate)
+            output = tx.apply_gate(input_tensor, gate)
 
             return output
 
@@ -2595,12 +2638,12 @@ class Lookup(Layer):
                 # similar to the semantics of 1D dense tensor lookups
                 if len(input_tensor.get_shape().as_list()) == 1:
                     sp_batch_size = tf.shape(input_tensor.values)[0]
-                    sp_indices = txf.matrix_indices(input_tensor.indices)
+                    sp_indices = tx.matrix_indices(input_tensor.indices)
                     sp_batch_dim = tf.cast(tf.stack([sp_batch_size, sp_dim]), tf.int64)
                     input_tensor = tf.SparseTensor(sp_indices, input_tensor.values, sp_batch_dim)
 
                 sp_values = input_tensor
-                sp_indices = txf.sparse_indices(sp_values)
+                sp_indices = tx.sparse_indices(sp_values)
 
                 # sums the lookups for the same row
                 # TODO check if this code has corrected the sparse gradient problem or if I need to add my own version
@@ -2724,14 +2767,14 @@ class Lookup(Layer):
         return Wrap(self,
                     n_units=n_units,
                     wrap_fn=lambda current_layer: Lambda(current_layer, fn=concat_fn),
-                    forward_attributes=["weights", "bias", "seq_size"],
+                    fwd_attr=["weights", "bias", "seq_size"],
                     name="concat")
 
     def permute_batch_time(self):
         return Wrap(wrapped_layer=self,
                     n_units=self.n_units,
                     wrap_fn=lambda current_layer: Lambda(current_layer, fn=lambda x: tf.transpose(x, [1, 0, 2])),
-                    forward_attributes=["weights", "bias", "seq_size"],
+                    fwd_attr=["weights", "bias", "seq_size"],
                     name="permute_batch_time")
 
     def reuse_with(self, input_layer, name=None):
@@ -2839,8 +2882,8 @@ class CoupledGate(Layer):
             gate1 = self.gate_fn(gate_input)
             gate2 = 1 - gate1
 
-            output1 = txf.apply_gate(tensor1, gate1)
-            output2 = txf.apply_gate(tensor2, gate2)
+            output1 = tx.apply_gate(tensor1, gate1)
+            output2 = tx.apply_gate(tensor2, gate2)
             output = tf.math.add(output1, output2)
 
             return output
@@ -3749,10 +3792,10 @@ class MHAttention(Layer):
             scores = self.attention_fn(output)
 
             if self.attention_dropout > 0 and self.regularized:
-                scores = txf.dropout(tensor=scores,
-                                     probability=self.attention_dropout,
-                                     scale=True,
-                                     name="dropout")
+                scores = tx.dropout(tensor=scores,
+                                    probability=self.attention_dropout,
+                                    scale=True,
+                                    name="dropout")
 
             # weighted sum (context vectors) weighted by attention scores
             context_vectors = tf.matmul(scores, vh)
@@ -3999,6 +4042,12 @@ def layer(n_units=None, name="layer", dtype=None, var_list=None):
 
     return function_to_proto
 
+
+"""
+ALIAS definitions
+"""
+
+layer_scope: Type[LayerScope] = LayerScope
 
 __all__ = [
     "DropConnect",

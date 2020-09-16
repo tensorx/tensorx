@@ -13,20 +13,29 @@ pages:
           - set_optimizer
   - page: "api/layers.md"
     source: 'tensorx/layers.py'
+    methods:
+      - LayerState:
+          - variables
+          - var_dict
+      - LayerProto:
+          - update
     classes:
       - Linear
       - Input
       - Module
-  - page: "math.md"
+
+
+
+  - page: "api/math.md"
     source: 'tensorx/math.py'
     functions:
       - sparse_multiply_dense
       - rms
-  - page: "ops.md"
+  - page: "api/ops.md"
     source: 'tensorx/ops.py'
     functions:
       - matrix_indices
-  - page: "init.md"
+  - page: "api/init.md"
     source: 'tensorx/init.py'
     functions:
       - zeros_init
@@ -38,7 +47,7 @@ pages:
       - orthogonal_init
       - identity_init
       - he_uniform_init
-  - page: "activation.md"
+  - page: "api/activation.md"
     source: 'tensorx/activation.py'
     functions:
       - identity
@@ -49,7 +58,7 @@ pages:
       - gelu
       - softmax
       - sparsemax
-  - page: "loss.md"
+  - page: "api/loss.md"
     source: 'tensorx/loss.py'
     functions:
       - binary_cross_entropy
@@ -59,7 +68,7 @@ pages:
       - sinkhorn_loss
       - sparsemax_loss
       - binary_hinge
-  - page: "metrics.md"
+  - page: "api/metrics.md"
     source: 'tensorx/metrics.py'
     functions:
       - euclidean_distance

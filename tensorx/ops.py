@@ -58,7 +58,7 @@ def repeat(x, n, name="repeat"):
 
 def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix_indices"):
     """ transforms a batch of column indices to a batch of matrix indices, if the indices are out of order and sorted is
-     `True`, it returns, the resulting indices are sorted in canonical row-major order.
+     `True`, the resulting indices are sorted in canonical row-major order.
 
     Args:
         index_tensor (Tensor): a tensor with shape `[b,n]` with a batch of `n` column indices.
@@ -67,9 +67,8 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
         name (str): name for this op.
 
     Returns:
-         tensor (Tensor): tensor with shape `[b,2]` for each index in the input tensor with the corresponding matrix
-         indices.
-
+        tensor (Tensor): tensor with shape `[b,2]` for each index in the input tensor with the corresponding matrix
+        indices
     """
     with tf.name_scope(name):
         index_tensor = as_tensor(index_tensor, dtype)

@@ -44,10 +44,9 @@ graphviz = ["graphviz"]
 [tool.poetry.dev-dependencies]
 pytest = "*"
 pytest-cov = "*"
-mkgendocs = "*"
 mkdocs = "*"
+mkgendocs = "0.6"
 mkdocs-material = "*"
-
 
 [tool.pytest.ini_options]
 filterwarnings = "ignore::DeprecationWarning:tensorflow"
