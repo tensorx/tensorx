@@ -39,7 +39,7 @@ theme:
   logo: 'assets/images/logo_full.svg'
   favicon: 'assets/images/tx.png'
   features:
-    - tabs
+    - navigation.tabs
     - instant
 nav:
   - Home: index.md

@@ -2,13 +2,19 @@
 name = "tensorx"
 version = "2.0.0"
 repository = "https://github.com/davidenunes/tensorx"
-homepage = "https://github.com/davidenunes/tensorx"
+homepage = "https://tensorx.org"
 readme = 'README.md'
-description = "TensorX is an open source library to build deep neural network models in TensorFlow"
+description = "TensorX is an open source library to build deep neural network models"
 license = "Apache-2.0"
-keywords = ["tensorx", "tensorflow", "tensor", "network", "machine learning", "neural networks", "artificial intelligence"]
 authors = ["Davide Nunes <davidenunes@pm.me>"]
-
+keywords = [
+    "tensorx",
+    "tensorflow",
+    "tensor",
+    "machine learning",
+    "neural networks",
+    "artificial/intelligence"
+]
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.7",
@@ -42,10 +48,10 @@ tensornetwork = ["tensornetwork"]
 graphviz = ["graphviz"]
 
 [tool.poetry.dev-dependencies]
+mkdocs = "*"
+mkgendocs = "*"
 pytest = "*"
 pytest-cov = "*"
-mkdocs = "*"
-mkgendocs = "0.6"
 mkdocs-material = "*"
 
 [tool.pytest.ini_options]

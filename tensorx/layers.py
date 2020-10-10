@@ -107,20 +107,37 @@ class LayerScope:
 
 
 class Layer(AutoTrackable, ABC):
-    """ Layer base class
+    """ Layer Base Class
+
+    !!! example "Passing Attributes"
+        All **keyword attributes** passed to this **constructor** will be set as instance attributes
+        so a common case for the implementing class might be:
+
+            class CustomLayer(Layer):
+                def __init__(layer, n_units, param=1):
+                    # for the linter
+                    self.param = param
+                    # ...
+                    super().__init__(inputs=layer, n_units=n_units, param=value)
+
+            in = tx.Input(10)
+            y = CustomLayer(in, 4, param=2)
+            assert y.param == 2
+
 
     Attributes:
-        inputs: a list of input nodes for the current layer
-        n_units: the number of units for the current layer (last dim)
-        name: name to be used for the layer scope
+        inputs (`List[Layer]`): a list of input nodes for the current layer
+        n_units (`int`): the number of units for the current layer (last dim)
+        name (`str`): name to be used for the layer scope
         proto (`LayerProto`): a layer prototype with the arguments used in the current layer instance
-        scoped_name: layer full scope name
+        scoped_name (`str`): layer full scope name
 
     Args:
-        inputs: a single layer,a list of input layers, or None if no inputs are required
-        n_units: dimension of input vector (dimension of columns in case batch_size != None
-        name: layer name (used to nam the placeholder)
-
+        inputs (`List[Layer]`): a single layer,a list of input layers, or None if no inputs are required
+        n_units (`int`): dimension of input vector (dimension of columns in case batch_size != None
+        dtype (`DType`): dtype for the current layer output
+        name (`str`): layer name (used to nam the placeholder)
+        kwargs (`dict`): other keyword args to be set as instance attributes
     """
     NAMES = Counter()
     NAME_LOCK = threading.RLock()
@@ -136,15 +153,11 @@ class Layer(AutoTrackable, ABC):
                 Layer.NAMES[name] = 1
                 self.name = name
         with tf.name_scope(self.name) as scope:
-            # scoped_name = stack.enter_context(layer_name_scope)
-            # scoped_name = layer_name_scope
             self.scoped_name = scope[:-1]
-
-        # self.scoped_name = name
 
         self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
 
-        # a cleaner way to set attributes is to add kwargs to the super().__init__(...attr=value)
+        # set kwargs from implementing class to attributes
         for key in kwargs:
             setattr(self, key, kwargs[key])
 
@@ -157,10 +170,6 @@ class Layer(AutoTrackable, ABC):
 
         self.layer_state = self.init_state()
 
-        # TODO I think referring to state explicitly should be the preferred way to
-        #   access it but this is only a problem if a shared state changes somehow
-        #   e.g. two linear layers one has bias the second does not, if we add a bias
-        #       to one that shares a state, it has to reuse the bias from the second layer
         # forward attributes from state to avoid layer.layer_state.variable
         if self.layer_state is not None:
             self.__dict__.update(self.layer_state.__dict__)
@@ -173,20 +182,37 @@ class Layer(AutoTrackable, ABC):
             self.input_graph: Graph = typing.cast(Graph, track.NoDependency(input_graph))
 
     def init_state(self):
-        self.layer_state = LayerState()
-        return self.layer_state
+        """ init_state meant to be overriden in subclasses
+
+        Creates an empty [`LayerState`](#layerstate) object
+
+        !!! example "Overriding `init_state()`"
+            Classes implementing `Layer` should override this method
+
+                def init_state(self):
+                    state = super().init_state()
+                    # or state = LayerState()
+                    state.var1 = var1
+                    state.var2 = var2
+                    return state
+
+            `Layer` will take this state object and add `var1` and `var2` to attributes.
+
+        Returns:
+            state (`LayerState`): current layer state object
+        """
+        return LayerState()
 
     def __setattr__(self, key, value):
         """ Overrides __setattr__ to change a layer_state if a mutable member is there as well
 
         TODO consider making layer state members immutable, can just throw an exception here
 
-        !!! note
+        !!! bug "Dev Note"
             During debugging I noticed that changing an instance attribute shared with the layer state would not
             change the layer state, this could be problematic if users are trying to debug something using
             member names as a shortcut to layer_state.attribute, so this method checks if the attribute we're
             trying to change is in a layer_state of an initialized Layer, ir it is, change its value there.
-
         """
         if hasattr(self, "layer_state") and self.layer_state is not None:
             if hasattr(self.layer_state, key):
@@ -196,11 +222,21 @@ class Layer(AutoTrackable, ABC):
 
     @property
     def trainable_variables(self):
+        """ get trainable variables in layer
+
+        Returns:
+            vars (`List[Variable]`): list of trainable variables in this layer
+        """
         variables = self.layer_state.variables()
         return [var for var in variables if var.trainable]
 
     @property
     def variables(self):
+        """ get all variables in layer
+
+        Returns:
+            vars (`List[Variable]`): list of all variables in this layer
+        """
         return self.layer_state.variables()
 
     @classmethod
@@ -3638,8 +3674,8 @@ class Conv1D(Layer):
                     bias = tf.Variable(initial_value=self.bias_init([self.n_units], self.dtype),
                                        name="bias", trainable=True)
 
-            if not hasattr(self.layer_state, "bias"):
-                self.layer_state.bias = bias
+            if not hasattr(layer_state, "bias"):
+                layer_state.bias = bias
 
         return layer_state
 
