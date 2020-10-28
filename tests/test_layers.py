@@ -482,6 +482,30 @@ def test_rnn_cell():
     assert not tx.tensor_equal(res1, res2)
 
 
+def test_gru_cell_module():
+    n_inputs = 4
+    n_hidden = 2
+    batch_size = 2
+    data = tf.ones([batch_size, 4])
+
+    inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
+    rnn_1 = tx.GRUCell(inputs, n_hidden)
+    fn = rnn_1.as_function(compile=True)
+    fn()
+
+    # rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
+    #
+    # rnn_3 = rnn_1.reuse_with(inputs, tx.GRUCell.zero_state(rnn_1.n_units))
+    #
+    # res1 = rnn_1()
+    # res2 = rnn_2()
+    # res3 = rnn_3()
+    #
+    # assert (batch_size, n_hidden) == np.shape(res1)
+    # assert tx.tensor_equal(res1, res3)
+    # assert not tx.tensor_equal(res1, res2)
+
+
 def test_rnn_cell_graph():
     n_inputs = 4
     n_hidden = 2
@@ -570,7 +594,6 @@ def test_gru_cell():
     data = tf.ones([batch_size, 4])
 
     inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
-
     rnn_1 = tx.GRUCell(inputs, n_hidden)
 
     rnn_2 = rnn_1.reuse_with(inputs, rnn_1)

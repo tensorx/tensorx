@@ -9,40 +9,6 @@ logger.setLevel(logging.DEBUG)
 import re
 
 
-def vizstyle(layer):
-    # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
-
-    dtype = layer.dtype.name if layer.dtype is not None else None
-
-    label = f"<<TABLE BORDER=\"0\"" \
-            f"        CELLPADDING=\"2\"" \
-            f"        CELLSPACING=\"0\">" \
-            f"<TR><TD BGCOLOR=\"BLACK\"" \
-            f"        BORDER=\"1\"" \
-            f"        COLOR=\"BLACK\"" \
-            f"        VALIGN=\"BOTTOM\">" \
-            f"<FONT COLOR=\"WHITE\"><B>{type(layer).__name__}</B></FONT>" \
-            f"</TD><TD BORDER=\"1\">{layer.name}</TD></TR>" \
-            f"<TR>" \
-            f"<TD BORDER=\"1\"" \
-            f"    BGCOLOR=\"#aec4c7\"" \
-            f"    COLOR=\"BLACK\"" \
-            f"    ALIGN=\"RIGHT\">" \
-            f"units" \
-            f"</TD><TD BORDER=\"1\"" \
-            f"         COLOR=\"BLACK\"" \
-            f"         ALIGN=\"LEFT\">" \
-            f"{layer.n_units}</TD></TR>" \
-            f"<TR>" \
-            f"<TD BORDER=\"1\" " \
-            f"    BGCOLOR=\"#aec4c7\"" \
-            f"    ALIGN=\"RIGHT\">dtype</TD>" \
-            f"<TD BORDER=\"1\"" \
-            f"    ALIGN=\"LEFT\">{dtype}</TD></TR>" \
-            f"</TABLE>>"
-    return label
-
-
 class Graph:
     """ Graph
 
@@ -61,8 +27,43 @@ class Graph:
     """
 
     def graphviz(self):
+
         try:
             from pygraphviz import AGraph
+
+            def vizstyle(layer):
+                # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
+
+                dtype = layer.dtype.name if layer.dtype is not None else None
+
+                label = f"<<TABLE BORDER=\"0\"" \
+                        f"        CELLPADDING=\"2\"" \
+                        f"        CELLSPACING=\"0\">" \
+                        f"<TR><TD BGCOLOR=\"BLACK\"" \
+                        f"        BORDER=\"1\"" \
+                        f"        COLOR=\"BLACK\"" \
+                        f"        VALIGN=\"BOTTOM\">" \
+                        f"<FONT COLOR=\"WHITE\"><B>{type(layer).__name__}</B></FONT>" \
+                        f"</TD><TD BORDER=\"1\">{layer.name}</TD></TR>" \
+                        f"<TR>" \
+                        f"<TD BORDER=\"1\"" \
+                        f"    BGCOLOR=\"#aec4c7\"" \
+                        f"    COLOR=\"BLACK\"" \
+                        f"    ALIGN=\"RIGHT\">" \
+                        f"units" \
+                        f"</TD><TD BORDER=\"1\"" \
+                        f"         COLOR=\"BLACK\"" \
+                        f"         ALIGN=\"LEFT\">" \
+                        f"{layer.n_units}</TD></TR>" \
+                        f"<TR>" \
+                        f"<TD BORDER=\"1\" " \
+                        f"    BGCOLOR=\"#aec4c7\"" \
+                        f"    ALIGN=\"RIGHT\">dtype</TD>" \
+                        f"<TD BORDER=\"1\"" \
+                        f"    ALIGN=\"LEFT\">{dtype}</TD></TR>" \
+                        f"</TABLE>>"
+                return label
+
             dg = AGraph(directed=True)
 
             for node in self.nodes:
@@ -73,32 +74,12 @@ class Graph:
                     dg.add_edge(node.name, other_node.name)
             return dg
         except ImportError:
-            raise ImportError("Could't find required pygraphviz module")
-
-    @staticmethod
-    def merge(graph1, graph2):
-        new_graph = Graph()
-
-        new_graph.nodes.update(graph1.nodes)
-        new_graph.in_nodes.update(graph1.in_nodes)
-        new_graph.out_nodes.update(graph1.out_nodes)
-        new_graph.edges_in.update(graph1.edges_in)
-        new_graph.edges_out.update(graph1.edges_out)
-
-        new_graph.nodes.update(graph2.nodes)
-        new_graph.in_nodes.update(graph2.in_nodes)
-        new_graph.out_nodes.update(graph2.out_nodes)
-        new_graph.edges_in.update(graph2.edges_in)
-        new_graph.edges_out.update(graph2.edges_out)
-
-        return new_graph
+            raise ImportError("Couldn't find required pygraphviz module")
 
     def __init__(self):
         self.nodes = set()
-
         self.in_nodes = dict()
         self.out_nodes = dict()
-
         self.edges_in = dict()
         self.edges_out = dict()
 
@@ -136,29 +117,10 @@ class Graph:
         if node2 in self.in_nodes:
             del self.in_nodes[node2]
 
-    def append_layer(self, layer):
-        """ Appends a layer to the current graph
-
-        Adds input edges from the given layer input_layers attribute
-        and updates the output nodes with the new layer
-
-        Args:
-            layer (`tx.Layer`): a layer to be appended to the layer graph
-
-        """
-        out_nodes = dict.fromkeys(self.out_nodes)
-
-        in_nodes = layer.inputs
-        for in_node in in_nodes:
-            self.add_edge(in_node, layer)
-
-        out_nodes.update(self.out_nodes)
-        self.out_nodes = out_nodes
-
     def dependency_iter(self):
         """ returns a dictionary with a map from nodes to dependency priorities
-               with lower values having higher priority. Keys are ordered by priority from
-               lower to higher and number of dependencies from lower to higher
+            with lower values having higher priority. Keys are ordered by priority from
+            lower to higher and number of dependencies from lower to higher
 
             Notes:
                Transversing a graph by priority guarantees that when we visit a node
@@ -243,6 +205,8 @@ class Graph:
                 target[out] = set()
             target[out].add(dep)
 
+        # arg order in a path to the output
+        arg_ord = {out: (0,) for out in outputs}
         visited = set()
         node_queue = list(zip(outputs, outputs))
 
@@ -258,9 +222,13 @@ class Graph:
                     if current_node in inputs:
                         add_dep(target_output, current_node, dependencies)
                     else:
-                        for input_node in next_nodes:
+                        for i, input_node in enumerate(next_nodes):
                             graph.add_edge(input_node, current_node)
                             node_queue.append((input_node, target_output))
+
+                            # record arg order
+                            if input_node not in arg_ord:
+                                arg_ord[input_node] = arg_ord[current_node] + (i + 1,)
 
                 visited.add(current_node)
 
@@ -282,16 +250,22 @@ class Graph:
                 raise ValueError(f"no path between the output layers:\n\t {output_str} \n and input layers: \n\t"
                                  f"{input_str}")
 
-        # re-order inputs and outputs according to the specification
         inputs.update(graph.in_nodes)
         outputs.update(graph.out_nodes)
+
+        # if no ordered input is given
+        # re-order by argument ordering
+        if not inputs:
+            # sort according to argument ordering from the outputs
+            sorted_inputs = sorted(inputs, key=lambda in_layer: arg_ord[in_layer], reverse=False)
+            inputs = dict.fromkeys(sorted_inputs)
 
         graph.in_nodes = inputs
         graph.out_nodes = outputs
 
         return graph
 
-    def as_function(self, ord_inputs=None, ord_outputs=None, fn_name="compiled_graph", as_tf_function=True):
+    def as_function(self, ord_inputs=None, ord_outputs=None, name="compiled_graph", compile=True):
         """ compiles the graph into a tensorflow callable compiled graph
 
         the idea is to use exec to create a function and then call tf.function
@@ -308,24 +282,32 @@ class Graph:
 
         !!! note
             Another way to feed inputs to a graph is to use input layers
-            ```python
-            input_layer.value = in0
-            input_Layer.value = in1
-            outputs = graph()
-            ```
+
+                ```python
+                input_layer.value = in0
+                input_Layer.value = in1
+                outputs = graph()
+                ```
+
             this adds a bit of a overhead since we have to write to the variable
+
+        !!! bug "Dev Note"
+            adding indices to the variables in the created function is necessary to avoid users
+            naming layers like built-in identifiers.
 
         Args:
             ord_inputs: list of input that determines the order of resulting function arguments
             ord_outputs: list of outputs used to determine the return order
+            name (`str`): function name, must be a valid python function name
+            compile (`bool`): if True, returns a tensorflow graph else returns a python function
 
         Returns:
-            function (`function`): an optimized TensorFlow static graph as a callable function
+            function (`function`): an optimized TensorFlow static graph as a callable function or a python function
 
         """
 
         clean = lambda name_str: re.sub(r"\W|^(?=\d)", "_", name_str)
-        fn_name = clean(fn_name)
+        name = clean(name)
 
         graph = self
 
@@ -353,10 +335,128 @@ class Graph:
         node_index = list(range(len(graph.nodes)))
 
         feedable_inputs = list(inputs)
-        node_map = {in_layer: f"{in_layer.name.replace('/', '__')}_{node_index.pop(0)}" for in_layer in
-                    feedable_inputs}
+        node_map = {}
+        for in_layer in feedable_inputs:
+            layer_i = node_index.pop(0)
+            in_name = in_layer.name.replace('/', '__')
+            layer_name = f"{in_name}_{layer_i}"
+            node_map[in_layer] = layer_name
+
         args_str = ", ".join(node_map.values())
+        def_str = f"def {name}({args_str}):\n"
+        other_str = []
+
+        # all other inputs that are not feedable
+        other_inputs = list(input_set.difference(feedable_inputs))
+        node_map.update({in_layer: f"{in_layer.name}_{node_index.pop(0)}" for in_layer in other_inputs})
+
+        # requires outer access to layers var
+        for x in other_inputs:
+            other_str.append(f"\t{node_map[x]} = layers[\"{node_map[x]}\"].compute()")
+
+        other_str = "\n".join(other_str) + "\n" if other_str else ""
+
+        # remove inputs
+        # node_map contains input_nodes at this point
+        for _ in range(len(node_map)):
+            ord_nodes.pop(0)
+
+        compute_str = []
+        for current_node in ord_nodes:
+            node_name = current_node.name.replace('/', '__')
+            node_map[current_node] = f"{node_name}_{node_index.pop(0)}"
+            node_name = node_map[current_node]
+            # when layers have the same layer repeated as input, this causes problems
+            # it's better to use the same input_layers as declared in the graph
+            # dict from keys creates an ordered set which is not what we want
+            # next_nodes = dict.fromkeys(graph.edges_in[current_node])
+            next_nodes = graph.edges_in[current_node]
+            in_args = ", ".join([node_map[node] for node in next_nodes])
+            compute_str.append(f"\t{node_name} = layers[\"{node_name}\"].compute({in_args})")
+
+        compute_str = "\n".join(compute_str)
+
+        return_str = "\n\treturn {output_str}\n".format(output_str=", ".join([node_map[out] for out in outputs]))
+
+        full_fn_str = def_str + other_str + compute_str + return_str
+        logger.log(logging.DEBUG, f"converted function:\n {'-' * 10}\n\n {full_fn_str} \n{'-' * 10}")
+        # layer map (for the closure above)
+        # we feed the locals so that layers gets available in the above function
+        layers = {v: k for k, v in node_map.items()}
+        exec(full_fn_str, locals())
+        fn = eval(name)
+        fn.__doc__ = f"""{name}\n```python\n{full_fn_str}\n```"""
+
+        if compile:
+            fn = tf.function(fn)
+
+        return fn
+
+    def as_function_v2(self,
+                       ord_inputs=None,
+                       ord_outputs=None,
+                       fn_name="compiled_graph",
+                       stateful_inputs=False,
+                       compile=True):
+        # this could be static
+        graph = self
+        fn_name = re.sub(r"\W|^(?=\d)", "_", fn_name)
+
+        if not graph.out_nodes:
+            raise ValueError("can't compile an empty graph")
+        ord_inputs = as_list(ord_inputs)
+        ord_outputs = as_list(ord_outputs)
+        ord_nodes = list(self.dependency_iter())
+
+        input_set: set = set(graph.in_nodes)
+        if ord_inputs and not input_set.issuperset(ord_inputs):
+            raise ValueError("all feedable_inputs must be part of the graph inputs")
+        output_set: set = set(graph.out_nodes)
+        if ord_outputs and len(output_set.difference(ord_outputs)) > 0:
+            raise ValueError("all outputs must be part of the graph outputs")
+
+        # if no input order is specified use the graph endpoint order
+        outputs = dict.fromkeys(ord_outputs) if ord_outputs else graph.out_nodes
+
+        # if we don't provide inputs it will just treat them as callables
+        inputs = dict.fromkeys(ord_inputs) if ord_inputs else []  # graph.in_nodes
+
+        # check if they are all dynamic inputs
+        # in py3.7 the dict is an ordered set if we convert it back to a list
+        node_index = list(range(len(graph.nodes)))
+
+        feedable_inputs = list(inputs)
+        node_map = {}
+        for in_layer in feedable_inputs:
+            layer_i = node_index.pop(0)
+            in_name = in_layer.name.replace('/', '__')
+            layer_name = f"{in_name}_{layer_i}"
+            node_map[in_layer] = layer_name
+
+        # TODO check if these can be inputs that are not Input layers?
+        # if using stateful inputs, we need to be able to pass no args
+        fn_args = []
+        update_inputs = []
+        for layer, layer_name in node_map.items():
+            if stateful_inputs and feedable_inputs:
+                fn_args.append(f"{layer_name}=None")
+                if not layer.constant:
+                    update_inputs.append(f"\tif {layer_name}:\n\t\tlayers[\"{layer_name}\"].value = {layer_name}"
+                                         f"\n\telse:\n"
+                                         f"\t\t{layer_name} = layers[\"{layer_name}\"].compute()")
+                else:
+                    update_inputs.append(f"\tif not {layer_name}:\n"
+                                         f"\t\t{layer_name} = layers[\"{layer_name}\"].compute()")
+
+            else:
+                fn_args.append(f"{layer_name}")
+
+        args_str = ", ".join(fn_args)
+        # args_str = ", ".join(node_map.values())
         def_str = f"def {fn_name}({args_str}):\n"
+
+        update_str = "\n".join(update_inputs) + "\n"
+
         other_str = []
 
         # all other inputs that are not feedable
@@ -391,17 +491,18 @@ class Graph:
 
         return_str = "\n\treturn {output_str}\n".format(output_str=", ".join([node_map[out] for out in outputs]))
 
-        full_fn_str = def_str + other_str + compute_str + return_str
+        full_fn_str = def_str + update_str + other_str + compute_str + return_str
         logger.log(logging.DEBUG, f"converted function:\n {'-' * 10}\n\n {full_fn_str} \n{'-' * 10}")
 
         # layer map (for the closure above)
         # we feed the locals so that layers gets available in the above function
         layers = {v: k for k, v in node_map.items()}
+        print("\n", full_fn_str)
         exec(full_fn_str, locals())
         fn = eval(fn_name)
         fn.__doc__ = f"""{fn_name}\n```python\n{full_fn_str}\n```"""
 
-        if as_tf_function:
+        if compile:
             fn = tf.function(fn)
 
         return fn

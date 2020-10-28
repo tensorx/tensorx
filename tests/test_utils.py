@@ -10,6 +10,40 @@ import numpy as np
 import functools
 
 
+def test_graph_as_function():
+    data = [[1., 2.]]
+
+    in1 = tx.Input(n_units=1, name="in1", dtype=tf.float32, constant=False)
+    in2 = tx.Input(n_units=1, name="in1", dtype=tf.float32, constant=False)
+    in3 = tx.Constant(tf.ones(shape=[1], dtype=tf.float32))
+    in12 = tx.Add(in1, in2, in3)
+    graph = tx.Graph.build(inputs=[in1, in2, in3], outputs=in12)
+
+    fn = graph.as_function_v2(ord_inputs=[in1, in2, in3], stateful_inputs=True, compile=False, fn_name="add")
+    # fn = graph.as_function_v2(stateful_inputs=True, compile=False)
+
+    assert fn([[1.]], [[1.]]) == [[3]]
+    assert fn() == [[3]]
+    assert fn([[1.]], [[2.]]) == [[4]]
+    assert fn() == [[4]]
+    assert fn([[2.]]) == [[5]]
+
+
+def test_graph_input_order():
+    in1 = tx.Input(n_units=1, name="in1", dtype=tf.float32, constant=False)
+    in2 = tx.Input(n_units=1, name="in2", dtype=tf.float32, constant=False)
+    in12 = tx.Add(in1, in2)
+    in3 = tx.Constant(tf.ones(shape=[1], dtype=tf.float32))
+    in123 = tx.Add(in12, in3)
+    graph = tx.Graph.build(inputs=None, outputs=in123)
+
+    # print("\n")
+    # for layer,p in graph.dependency_iter().items():
+    #     print(layer.name)
+    #     print(p)
+    print(list(map(lambda x: x.name, graph.in_nodes)))
+
+
 def test_linear_graph_module_integration(tmp_path):
     tmp_path = tmp_path.joinpath("linear")
     save_path = str(tmp_path)
@@ -130,23 +164,6 @@ def test_graph_build():
     assert x == g.edges_in[l2][0]
 
 
-def test_graph_merge():
-    x = tx.Input([[1]])
-    l1 = tx.Linear(x, n_units=2)
-    l2 = tx.Linear(x, n_units=2)
-    l3 = tx.Linear(l2, n_units=2)
-
-    g1 = Graph.build(None, l1)
-    g2 = Graph.build(None, l3)
-
-    assert len(set.difference(set(g1.in_nodes), g2.in_nodes)) == 0
-    assert len(set.difference(set(g1.out_nodes), g2.out_nodes)) != 0
-
-    g3 = Graph.merge(g1, g2)
-    assert set.intersection(set(g1.in_nodes), g3.in_nodes) == set(g1.in_nodes)
-    assert set.intersection(set(g1.out_nodes), g3.out_nodes) == set(g1.out_nodes)
-
-
 def test_graph_repeated():
     x = tx.Input([[1]])
     l1 = tx.Linear(x, 2, name="l1")
@@ -183,10 +200,6 @@ def test_override_out_nodes():
     graph = Graph.build(inputs=x, outputs=out1)
     assert out1 in graph.out_nodes
     assert out2 not in graph.out_nodes
-
-    graph.append_layer(out2)
-    assert out1 in graph.out_nodes
-    assert out2 in graph.out_nodes
 
 
 def test_dependency_iter():

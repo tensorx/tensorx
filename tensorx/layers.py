@@ -106,250 +106,6 @@ class LayerScope:
         self._stack.__exit__(exc_type, exc_val, exc_tb)
 
 
-class Layer(AutoTrackable, ABC):
-    """ Layer Base Class
-
-    !!! example "Passing Attributes"
-        All **keyword attributes** passed to this **constructor** will be set as instance attributes
-        so a common case for the implementing class might be:
-
-            class CustomLayer(Layer):
-                def __init__(layer, n_units, param=1):
-                    # for the linter
-                    self.param = param
-                    # ...
-                    super().__init__(inputs=layer, n_units=n_units, param=value)
-
-            in = tx.Input(10)
-            y = CustomLayer(in, 4, param=2)
-            assert y.param == 2
-
-
-    Attributes:
-        inputs (`List[Layer]`): a list of input nodes for the current layer
-        n_units (`int`): the number of units for the current layer (last dim)
-        name (`str`): name to be used for the layer scope
-        proto (`LayerProto`): a layer prototype with the arguments used in the current layer instance
-        scoped_name (`str`): layer full scope name
-
-    Args:
-        inputs (`List[Layer]`): a single layer,a list of input layers, or None if no inputs are required
-        n_units (`int`): dimension of input vector (dimension of columns in case batch_size != None
-        dtype (`DType`): dtype for the current layer output
-        name (`str`): layer name (used to nam the placeholder)
-        kwargs (`dict`): other keyword args to be set as instance attributes
-    """
-    NAMES = Counter()
-    NAME_LOCK = threading.RLock()
-
-    def __init__(self, inputs, n_units, dtype=None, name="layer", **kwargs):
-        self.n_units = n_units
-
-        with Layer.NAME_LOCK:
-            if name in Layer.NAMES:
-                Layer.NAMES[name] += 1
-                self.name = name + f"_{Layer.NAMES[name]}"
-            else:
-                Layer.NAMES[name] = 1
-                self.name = name
-        with tf.name_scope(self.name) as scope:
-            self.scoped_name = scope[:-1]
-
-        self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
-
-        # set kwargs from implementing class to attributes
-        for key in kwargs:
-            setattr(self, key, kwargs[key])
-
-        # proto is built from all __dict__ and constructor argspec
-        proto = type(self).proto()
-        new_args = proto.filter_args(**self.__dict__)
-        proto.update(**new_args)
-        self.proto = proto
-        self._inputs = [as_layer(input_layer) for input_layer in as_list(inputs)]
-
-        self.layer_state = self.init_state()
-
-        # forward attributes from state to avoid layer.layer_state.variable
-        if self.layer_state is not None:
-            self.__dict__.update(self.layer_state.__dict__)
-
-        # save this for __call__
-        # TODO this should be built lazily for __call__ instead of storing a subgraph on each node
-        if self.inputs:
-            input_graph: Graph = Graph.build(inputs=None,
-                                             outputs=self.inputs)
-            self.input_graph: Graph = typing.cast(Graph, track.NoDependency(input_graph))
-
-    def init_state(self):
-        """ init_state meant to be overriden in subclasses
-
-        Creates an empty [`LayerState`](#layerstate) object
-
-        !!! example "Overriding `init_state()`"
-            Classes implementing `Layer` should override this method
-
-                def init_state(self):
-                    state = super().init_state()
-                    # or state = LayerState()
-                    state.var1 = var1
-                    state.var2 = var2
-                    return state
-
-            `Layer` will take this state object and add `var1` and `var2` to attributes.
-
-        Returns:
-            state (`LayerState`): current layer state object
-        """
-        return LayerState()
-
-    def __setattr__(self, key, value):
-        """ Overrides __setattr__ to change a layer_state if a mutable member is there as well
-
-        TODO consider making layer state members immutable, can just throw an exception here
-
-        !!! bug "Dev Note"
-            During debugging I noticed that changing an instance attribute shared with the layer state would not
-            change the layer state, this could be problematic if users are trying to debug something using
-            member names as a shortcut to layer_state.attribute, so this method checks if the attribute we're
-            trying to change is in a layer_state of an initialized Layer, ir it is, change its value there.
-        """
-        if hasattr(self, "layer_state") and self.layer_state is not None:
-            if hasattr(self.layer_state, key):
-                setattr(self.layer_state, key, value)
-
-        super(Layer, self).__setattr__(key, value)
-
-    @property
-    def trainable_variables(self):
-        """ get trainable variables in layer
-
-        Returns:
-            vars (`List[Variable]`): list of trainable variables in this layer
-        """
-        variables = self.layer_state.variables()
-        return [var for var in variables if var.trainable]
-
-    @property
-    def variables(self):
-        """ get all variables in layer
-
-        Returns:
-            vars (`List[Variable]`): list of all variables in this layer
-        """
-        return self.layer_state.variables()
-
-    @classmethod
-    def proto(cls, **kwargs):
-        return LayerProto(cls, **kwargs)
-
-    def reuse_with(self, *layers, **kwargs):
-        kwargs["share_state_with"] = self
-        return self.proto(*layers, **kwargs)
-
-    @property
-    def inputs(self):
-        return list(self._inputs)
-
-    @inputs.setter
-    def inputs(self, input_layers):
-        raise ValueError("input layers can't be set")
-
-    def compute(self, *args):
-        raise NotImplementedError("computation not implemented for this layer")
-
-    def __call__(self, *input_layers):
-        if not input_layers:
-            if self.inputs:
-                ord_inputs = {out: i for i, out in enumerate(self.input_graph.out_nodes)}
-                results = self.input_graph()
-                input_tensors = tuple([results[ord_inputs[out]] for out in self.inputs])
-            else:
-                input_tensors = tuple()
-        else:
-            input_layers = map(as_layer, input_layers)
-            input_tensors = Graph.eval(*input_layers)
-
-            # return {f"{self.scoped_name}_output": self.compute(*input_tensors)}
-        return self.compute(*input_tensors)
-
-    def as_function(self, name="layer_function"):
-        graph = Graph.build(inputs=None, outputs=self)
-        return graph.as_function(fn_name=name, as_tf_function=False)
-
-    def _list_functions_for_serialization(self, serialization_cache):
-        concrete_call = tf.function(self.as_function()).get_concrete_function()
-        fns = dict({"__call__": concrete_call})
-        fns.update(super()._list_functions_for_serialization(serialization_cache))
-        return fns
-
-    def _list_extra_dependencies_for_serialization(self, serialization_cache):
-        """ Lists extra dependencies to serialize.
-
-        Internal sub-classes can override this method to return extra dependencies
-
-        Args:
-             serialization_cache: A dictionary shared between all objects in the same
-                object graph. This object is passed to both
-                `_list_extra_dependencies_for_serialization` and
-                `_list_functions_for_serialization`.
-
-        Returns:
-            A dictionary mapping attribute names to trackable objects.
-        """
-        if self._inputs:
-            layers = self.input_graph.dependency_iter()
-
-            dependencies = {
-                f"input_layer_{index}": dep_layer
-                for index, dep_layer in enumerate(layers)
-            }
-        else:
-            dependencies = {}
-        return dependencies
-
-    def __str__(self):
-        """ Informal string representation for a layer consists of Layer Class name, number of units and if its
-        Sparse or Dense.
-
-        Returns:
-            :obj:`str`: a :obj:`str` with the informal representation for a layer instance.
-
-        """
-        class_name = type(self).__name__
-        inputs = ",".join(map(lambda x: x.name, self.inputs))
-        return f"{self.scoped_name}::{class_name}({self.n_units},{self.dtype})({inputs})"
-
-    # def __repr__(self):
-    #     """ returns
-    #
-    #     Returns:
-    #
-    #     """
-    #     proto = self.proto
-    #     kw = ', '.join([f'{k}={repr(v)}' for k, v in proto.arg_dict.items()])
-    #     return f"{proto.layer_cls.__name__}({kw})"
-
-    def __getitem__(self, item):
-        if isinstance(item, tf.Tensor):
-            item_name = item.op.name
-        else:
-            item_name = str(item)
-        return Lambda(self,
-                      fn=lambda output_tensor: output_tensor[item],
-                      n_units=self.n_units,
-                      dtype=self.dtype,
-                      name=f"get_item_{item_name.replace('-', 'minus')}")
-
-    # def __add__(self, other):
-    #    other = as_layer(other, dtype=self.dtype)
-    #    return Add(self, other)
-
-    def __mul__(self, other):
-        other = as_layer(other, dtype=self.dtype)
-        return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, name="Mul")
-
-
 class LayerProto:
     """ LayerProto
 
@@ -429,10 +185,289 @@ class LayerProto:
         Updates the prototype constructor argument dictionary and validates those parameters.
 
         Args:
-            **kwargs (`(Dict['str',Any])`): new values for constructor named arguments to be updated
+            **kwargs (`Dict['str',Any]`): new values for constructor named arguments to be updated
         """
         self._validate_args(**kwargs)
         self.arg_dict.update(kwargs)
+
+
+class Layer(AutoTrackable, ABC):
+    """ Layer Base Class
+
+    !!! example "Passing Attributes"
+        All **keyword attributes** passed to this **constructor** will be set as instance attributes
+        so a common case for the implementing class might be:
+
+            class CustomLayer(Layer):
+                def __init__(layer, n_units, param=1):
+                    # for the linter
+                    self.param = param
+                    # ...
+                    super().__init__(inputs=layer, n_units=n_units, param=value)
+
+            in = tx.Input(10)
+            y = CustomLayer(in, 4, param=2)
+            assert y.param == 2
+
+
+    Attributes:
+        inputs (`Sequence[Layer]`): a list of input nodes for the current layer
+        n_units (`int`): the number of units for the current layer (last dim)
+        name (`str`): name to be used for the layer scope
+        proto (`LayerProto`): a layer prototype with the arguments used in the current layer instance
+        scoped_name (`str`): layer full scope name
+
+    Args:
+        inputs (`Sequence[Layer]`): a single layer,a list of input layers, or None if no inputs are required
+        n_units (`int`): dimension of input vector (dimension of columns in case batch_size != None
+        dtype (`DType`): dtype for the current layer output
+        name (`str`): layer name (used to nam the placeholder)
+        kwargs (`Any`): other keyword args to be set as instance attributes
+    """
+    NAMES = Counter()
+    NAME_LOCK = threading.RLock()
+
+    def __init__(self, inputs, n_units, dtype=None, name="layer", **kwargs):
+        self.n_units = n_units
+
+        with Layer.NAME_LOCK:
+            if name in Layer.NAMES:
+                Layer.NAMES[name] += 1
+                self.name = name + f"_{Layer.NAMES[name]}"
+            else:
+                Layer.NAMES[name] = 1
+                self.name = name
+        with tf.name_scope(self.name) as scope:
+            self.scoped_name = scope[:-1]
+
+        self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
+
+        # set kwargs from implementing class to attributes
+        for key in kwargs:
+            setattr(self, key, kwargs[key])
+
+        # proto is built from all __dict__ and constructor argspec
+        proto = type(self).proto()
+        new_args = proto.filter_args(**self.__dict__)
+        proto.update(**new_args)
+        self.proto = proto
+        self._inputs = [as_layer(input_layer) for input_layer in as_list(inputs)]
+
+        self.layer_state = self.init_state()
+
+        # forward attributes from state to avoid layer.layer_state.variable
+        if self.layer_state is not None:
+            self.__dict__.update(self.layer_state.__dict__)
+
+        # save this for __call__
+        self._input_graph: Optional[Graph] = None
+
+    @property
+    def input_graph(self):
+        """ Lazy initialization for input_graph
+
+        Returns:
+            input_graph (`Graph`): a graph where the output nodes are the input layers to the current layer
+
+        """
+        if self._input_graph is None and self.inputs:
+            input_graph: Graph = Graph.build(inputs=None,
+                                             outputs=self.inputs)
+            input_graph = typing.cast(Graph, track.NoDependency(input_graph))
+            self._input_graph = input_graph
+        return self._input_graph
+
+    @input_graph.setter
+    def input_graph(self, value):
+        raise AttributeError("input_graph cannot be set")
+
+    def init_state(self):
+        """ init_state meant to be overriden in subclasses
+
+        Creates an empty [`LayerState`](#layerstate) object
+
+        !!! example "Overriding `init_state()`"
+            Classes implementing `Layer` should override this method
+
+                def init_state(self):
+                    state = super().init_state()
+                    # or state = LayerState()
+                    state.var1 = var1
+                    state.var2 = var2
+                    return state
+
+            `Layer` will take this state object and add `var1` and `var2` to attributes.
+
+        Returns:
+            state (`LayerState`): current layer state object
+        """
+        return LayerState()
+
+    def __setattr__(self, key, value):
+        """ Overrides __setattr__ to change a layer_state if a mutable member is there as well
+
+        TODO consider making layer state members immutable, can just throw an exception here
+
+        !!! bug "Dev Note"
+            During debugging I noticed that changing an instance attribute shared with the layer state would not
+            change the layer state, this could be problematic if users are trying to debug something using
+            member names as a shortcut to layer_state.attribute, so this method checks if the attribute we're
+            trying to change is in a layer_state of an initialized Layer, ir it is, change its value there.
+        """
+        if hasattr(self, "layer_state") and self.layer_state is not None:
+            if hasattr(self.layer_state, key):
+                setattr(self.layer_state, key, value)
+
+        super(Layer, self).__setattr__(key, value)
+
+    @property
+    def trainable_variables(self):
+        """ get trainable variables in layer
+
+        Returns:
+            vars (`List[Variable]`): list of trainable variables in this layer
+        """
+        variables = self.layer_state.variables()
+        return [var for var in variables if var.trainable]
+
+    @property
+    def variables(self):
+        """ get all variables in layer
+
+        Returns:
+            vars (`List[Variable]`): list of all variables in this layer
+        """
+        return self.layer_state.variables()
+
+    @classmethod
+    def proto(cls, **kwargs) -> LayerProto:
+        return LayerProto(cls, **kwargs)
+
+    def reuse_with(self, *layers, **kwargs):
+        kwargs["share_state_with"] = self
+        return self.proto(*layers, **kwargs)
+
+    @property
+    def inputs(self):
+        return list(self._inputs)
+
+    @inputs.setter
+    def inputs(self, input_layers):
+        raise ValueError("input layers can't be set")
+
+    def compute(self, *args):
+        raise NotImplementedError("computation not implemented for this layer")
+
+    def __call__(self, *input_layers):
+        if not input_layers:
+            if self.inputs:
+                ord_inputs = {out: i for i, out in enumerate(self.input_graph.out_nodes)}
+                results = self.input_graph()
+                input_tensors = tuple([results[ord_inputs[out]] for out in self.inputs])
+            else:
+                input_tensors = tuple()
+        else:
+            input_layers = map(as_layer, input_layers)
+            input_tensors = Graph.eval(*input_layers)
+
+            # return {f"{self.scoped_name}_output": self.compute(*input_tensors)}
+        return self.compute(*input_tensors)
+
+    def as_function(self, name="layer_function", compile=False):
+        """ returns a python function of a Tensorflow compiled graph as a callable
+
+        !!! note
+            This returns the entire graph as a function that terminates on
+            this layer. If you want the function for this layer alone just
+            get the `tf.function(layer.compute)`
+
+        Args:
+            name (`str`): function name to be returned
+            compile (`bool`): if True, returns a `Tensorflow` compile graph as a callable
+            else, returns a python function.
+
+        Returns:
+            fn (`Callable`): either a Tensorflow static graph or a python callable function.
+
+        """
+        graph = Graph.build(inputs=None, outputs=self)
+        return graph.as_function(name=name, compile=compile)
+
+    def _list_functions_for_serialization(self, serialization_cache):
+        concrete_call = tf.function(self.as_function()).get_concrete_function()
+        fns = dict({"__call__": concrete_call})
+        fns.update(super()._list_functions_for_serialization(serialization_cache))
+        return fns
+
+    def _list_extra_dependencies_for_serialization(self, serialization_cache):
+        """ Lists extra dependencies to serialize.
+
+        Internal sub-classes can override this method to return extra dependencies
+
+        Args:
+             serialization_cache: A dictionary shared between all objects in the same
+                object graph. This object is passed to both
+                `_list_extra_dependencies_for_serialization` and
+                `_list_functions_for_serialization`.
+
+        Returns:
+            A dictionary mapping attribute names to trackable objects.
+        """
+        dependencies = {}
+        if self.inputs:
+            if self.input_graph is not None:
+                layers = self.input_graph.dependency_iter()
+
+                dependencies = {
+                    f"{dep_layer.name}": dep_layer
+                    for dep_layer in layers
+                }
+        return dependencies
+
+    def __str__(self):
+        """ Informal string representation for a layer consists of Layer Class name, number of units and if its
+        Sparse or Dense.
+
+        Returns:
+            :obj:`str`: a :obj:`str` with the informal representation for a layer instance.
+
+        """
+        class_name = type(self).__name__
+        inputs = ",".join(map(lambda x: x.name, self.inputs))
+        return f"{self.scoped_name}::{class_name}({self.n_units},{self.dtype})({inputs})"
+
+    # def __repr__(self):
+    #     """ returns
+    #
+    #     Returns:
+    #
+    #     """
+    #     proto = self.proto
+    #     kw = ', '.join([f'{k}={repr(v)}' for k, v in proto.arg_dict.items()])
+    #     return f"{proto.layer_cls.__name__}({kw})"
+
+    def __getitem__(self, item):
+        if isinstance(item, tf.Tensor):
+            item_name = item.op.name
+        else:
+            item_name = str(item)
+        return Lambda(self,
+                      fn=lambda output_tensor: output_tensor[item],
+                      n_units=self.n_units,
+                      dtype=self.dtype,
+                      name=f"get_item_{item_name.replace('-', 'minus')}")
+
+    def __add__(self, other):
+        other = as_layer(other, dtype=self.dtype)
+        return Add(self, other)
+
+    def __sub__(self, other):
+        other = as_layer(other, dtype=self.dtype)
+        return Lambda(self, other, fn=tf.subtract, n_units=self.n_units, name="Sub")
+
+    def __mul__(self, other):
+        other = as_layer(other, dtype=self.dtype)
+        return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, name="Mul")
 
 
 class Lambda(Layer):
@@ -443,8 +478,17 @@ class Lambda(Layer):
         and will be listed in variables
         n_units: number of units for this layer,
         batch_size: Optional batch size for this layer
-        apply_to_layer: if False applies the function to the tensors otherwise applies to the layer
+        apply_to_layer (`bool`): if False applies the function to the tensors otherwise applies to the layer
     Creates a layer from a given tensor that one can then integrate with other layers
+
+    Args:
+        layers (`Sequence[Layer]`): sequence of input layers
+        n_units (`int`): number of output units (outer dimension)
+        var_list (`List[tf.Variable]`): list of variables used by this `Layer`
+        dtype (`tf.Dtype`): tensor data type
+        name (`str`): layer name
+        apply_to_layer (`bool`): if True applies function to a layer object else applies the function to the output
+        of previous `layer.compute`
     """
 
     def __init__(self, *layers,
@@ -452,7 +496,7 @@ class Lambda(Layer):
                  n_units=None,
                  var_list=None,
                  dtype=None,
-                 name="fn_layer",
+                 name="lambda",
                  apply_to_layer=False):
 
         if isinstance(fn, LayerProto):
@@ -573,9 +617,15 @@ class Wrap(Layer):
                  | +-------------------------+        |
                  +------------------------------------+
 
+    TODO state.var cannot be inferred so a good alternative to do this
+    would be to overwrite the __setattr__ method temporarily before calling init_state
+    to add things to state so that it adds Var or Layer objects to the state container
+    automatically when you do self.something.
+
 
     Attributes:
-        wrap_fn
+        wrap_fn:
+        wrap:
 
 
     Args:
@@ -705,7 +755,7 @@ class Input(Layer):
         init_value (`Tensor`/`np.ndarray`): initial value for `Input` layer, if given, it determines `n_units`
         n_units (int): number of output units for this layer. Should match last dimension of `init_value` shape and
             `shape` if either is provided.
-        n_active (int): number of active units <= n_units. If given, `Input` expects a `Tensor` with indices and
+        n_active (`Optional[int]`): number of active units <= n_units. If given, `Input` expects a `Tensor` with indices and
             outputs a sparse array.
         sparse (bool): if true, expects the input value to be a `SparseTensor`.
         shape (List): expected input shape
@@ -715,7 +765,7 @@ class Input(Layer):
         cast (bool): if True tries to cast the input to the given dtype on value set
 
     Attributes:
-        value (`Tensor`/`SparseTensor`): if `constant=False` this attribute can be set to store a new value in `Input`,
+        value (`Union[Tensor`,`SparseTensor`]): if `constant=False` this attribute can be set to store a new value in `Input`,
         else, setting `value` will throw an exception.
 
     """
@@ -725,7 +775,7 @@ class Input(Layer):
                  n_units=None,
                  constant=False,
                  sparse=False,
-                 n_active=None,
+                 n_active: Optional[int] = None,
                  shape=None,
                  dtype=None,
                  cast=True,
@@ -1525,7 +1575,7 @@ class Module(Layer):
             # to that we don't need to call reuse on compute with params
             self.module_fn = self.graph.as_function(ord_inputs=inputs,
                                                     ord_outputs=output,
-                                                    fn_name=f"{name}_fn")
+                                                    name=f"{name}_fn")
         except ValueError as e:
             raise ValueError(f"Could not build a module with the given "
                              f"endpoints: \n\t{str(e)}")
