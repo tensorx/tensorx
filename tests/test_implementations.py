@@ -306,14 +306,14 @@ def test_attention():
     assert len(attention2.variables) == 3
 
     attention2.wq = tx.Linear(emb, n_units=None,
-                              weights=tf.linalg.eye(embed_size, embed_size),
-                              add_bias=False)
+                                          weights=tf.linalg.eye(embed_size, embed_size),
+                                          add_bias=False)
     attention2.wk = tx.Linear(emb, n_units=None,
-                              weights=tf.linalg.eye(embed_size, embed_size),
-                              add_bias=False)
+                                          weights=tf.linalg.eye(embed_size, embed_size),
+                                          add_bias=False)
     attention2.wv = tx.Linear(emb, n_units=None,
-                              weights=tf.linalg.eye(embed_size, embed_size),
-                              add_bias=False)
+                                          weights=tf.linalg.eye(embed_size, embed_size),
+                                          add_bias=False)
 
     assert tx.tensor_equal(attention2.wq(seq), seq)
 

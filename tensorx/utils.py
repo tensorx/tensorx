@@ -1,7 +1,6 @@
 import tensorflow as tf
 import logging
 from collections import Counter
-from typing import List
 
 logging.captureWarnings(True)  # captures into py.warnings
 logger = logging.getLogger('tensorx')
@@ -25,56 +24,6 @@ class Graph:
         in_nodes(dict): key-only dictionary (ordered set) with input nodes (nodes without input edges).
         out_nodes(dict): key-only dictionary (ordered set) with output nodes of the graph (nodes without output edges)
     """
-
-    def graphviz(self):
-
-        try:
-            from pygraphviz import AGraph
-
-            def vizstyle(layer):
-                # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
-
-                dtype = layer.dtype.name if layer.dtype is not None else None
-
-                label = f"<<TABLE BORDER=\"0\"" \
-                        f"        CELLPADDING=\"2\"" \
-                        f"        CELLSPACING=\"0\">" \
-                        f"<TR><TD BGCOLOR=\"BLACK\"" \
-                        f"        BORDER=\"1\"" \
-                        f"        COLOR=\"BLACK\"" \
-                        f"        VALIGN=\"BOTTOM\">" \
-                        f"<FONT COLOR=\"WHITE\"><B>{type(layer).__name__}</B></FONT>" \
-                        f"</TD><TD BORDER=\"1\">{layer.name}</TD></TR>" \
-                        f"<TR>" \
-                        f"<TD BORDER=\"1\"" \
-                        f"    BGCOLOR=\"#aec4c7\"" \
-                        f"    COLOR=\"BLACK\"" \
-                        f"    ALIGN=\"RIGHT\">" \
-                        f"units" \
-                        f"</TD><TD BORDER=\"1\"" \
-                        f"         COLOR=\"BLACK\"" \
-                        f"         ALIGN=\"LEFT\">" \
-                        f"{layer.n_units}</TD></TR>" \
-                        f"<TR>" \
-                        f"<TD BORDER=\"1\" " \
-                        f"    BGCOLOR=\"#aec4c7\"" \
-                        f"    ALIGN=\"RIGHT\">dtype</TD>" \
-                        f"<TD BORDER=\"1\"" \
-                        f"    ALIGN=\"LEFT\">{dtype}</TD></TR>" \
-                        f"</TABLE>>"
-                return label
-
-            dg = AGraph(directed=True)
-
-            for node in self.nodes:
-                # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
-                dg.add_node(node.name, shape="none", margin=0, label=vizstyle(node))
-            for node in self.nodes:
-                for other_node in self.edges_out[node]:
-                    dg.add_edge(node.name, other_node.name)
-            return dg
-        except ImportError:
-            raise ImportError("Couldn't find required pygraphviz module")
 
     def __init__(self):
         self.nodes = set()
@@ -171,8 +120,8 @@ class Graph:
 
         !!! note
             use `add_missing_inputs` if you have graph inputs but might have other dependencies that might not have
-            been created explicitely. Example: in an RNN layer, if a previous state is not passed explicitly, a default one
-            is created by the layer and stored in input layers. You might be aware of this input node to a graph but
+            been created explicitly. Example: in an RNN layer, if a previous state is not passed explicitly, a default
+            one is created by the layer and stored in input layers. You might be aware of this input node to a graph but
             not want to pass it explicitly to inputs.
 
         Args:
@@ -510,54 +459,68 @@ class Graph:
     def draw(self, path):
         try:
             from pygraphviz import AGraph
-            names = Counter()
-            named_nodes = dict()  # nodes to names
-            g = AGraph(directed=True)
-            for node in self.dependency_iter():
-                name = node.name
-                names[name] += 1
-                if name not in names:
-                    named_nodes[node] = name
-                else:
-                    if node not in named_nodes:
-                        new_name = f"{node.name}_{names[name]}"
-                        named_nodes[node] = new_name
 
-                g.add_node(named_nodes[node], shape="none", margin=0, label=vizstyle(node))
+            def vizstyle(layer_obj):
+                # HTML for record nodes https://graphviz.org/doc/info/shapes.html#top
+
+                dtype = layer_obj.dtype.name if layer_obj.dtype is not None else None
+
+                label = f"<<TABLE BORDER=\"0\"" \
+                        f"        CELLPADDING=\"2\"" \
+                        f"        CELLSPACING=\"0\">" \
+                        f"<TR><TD BGCOLOR=\"BLACK\"" \
+                        f"        BORDER=\"1\"" \
+                        f"        COLOR=\"BLACK\"" \
+                        f"        VALIGN=\"BOTTOM\">" \
+                        f"<FONT COLOR=\"WHITE\"><B>{type(layer_obj).__name__}</B></FONT>" \
+                        f"</TD><TD BORDER=\"1\">{layer_obj.name}</TD></TR>" \
+                        f"<TR>" \
+                        f"<TD BORDER=\"1\"" \
+                        f"    BGCOLOR=\"#aec4c7\"" \
+                        f"    COLOR=\"BLACK\"" \
+                        f"    ALIGN=\"RIGHT\">" \
+                        f"units" \
+                        f"</TD><TD BORDER=\"1\"" \
+                        f"         COLOR=\"BLACK\"" \
+                        f"         ALIGN=\"LEFT\">" \
+                        f"{layer_obj.n_units}</TD></TR>" \
+                        f"<TR>" \
+                        f"<TD BORDER=\"1\" " \
+                        f"    BGCOLOR=\"#aec4c7\"" \
+                        f"    ALIGN=\"RIGHT\">dtype</TD>" \
+                        f"<TD BORDER=\"1\"" \
+                        f"    ALIGN=\"LEFT\">{dtype}</TD></TR>" \
+                        f"</TABLE>>"
+                return label
+
+            viz_graph = AGraph(directed=True)
+
+            for node in self.dependency_iter():
+                if node not in viz_graph:
+                    viz_graph.add_node(node.name, shape="none", margin=0, label=vizstyle(node))  # , label=vizstyle(node))
+                for other_node in self.edges_out[node]:
+                    viz_graph.add_edge(node.name, other_node.name)
 
             dependencies = dependency_graph(self.nodes)
             state_deps = [node for node in dependencies.nodes if not dependencies.edges_in[node] and
                           len(dependencies.edges_out[node]) > 1]
             for node in state_deps:
-                if node not in named_nodes:
-                    if hasattr(node, "name"):
-                        name = node.name
-                    else:
-                        try:
-                            name = node.deref().name
-                        except Exception:
-                            name = str(type(node))
+                if hasattr(node, "name"):
+                    name = node.name
+                else:
+                    # might be a tf.Variable
+                    try:
+                        name = node.deref().name
+                    except AttributeError as e:
+                        name = str(type(node).__name__)
 
-                    # todo unique names scope system
-                    names[name] += 1
-                    if name not in names:
-                        named_nodes[node] = name
-                    else:
-                        if node not in named_nodes:
-                            new_name = f"{name}_{names[name]}"
-                            named_nodes[node] = new_name
+                viz_graph.add_node(name, color="red", shape="box")
+                layers = dependencies.edges_out[node]
+                for layer in layers:
+                    viz_graph.add_edge(name, layer.name, color="red")
 
-                    g.add_node(named_nodes[node], color="red", shape="box")
-                    layers = dependencies.edges_out[node]
-                    for layer in layers:
-                        g.add_edge(named_nodes[node], named_nodes[layer], color="red")
-
-            for node in self.dependency_iter():
-                for other_node in self.edges_out[node]:
-                    g.add_edge(named_nodes[node], named_nodes[other_node])
-
-            g.layout(prog="dot")
-            g.draw(path=path)
+            viz_graph.layout(prog="dot")
+            viz_graph.draw(path=path)
 
         except ImportError:
             raise ImportError("Could't find required pygraphviz module")
@@ -642,7 +605,7 @@ def dependency_graph(layers):
         state = layer.layer_state
         layer_vars = layer.variables
 
-        g.add_edge(state, layer)
+        # g.add_edge(state, layer)
         for var in layer_vars:
             ref = var.ref()
             g.add_edge(ref, layer)
@@ -711,6 +674,4 @@ def cast_like(x, y):
             x_name = x.name
         except AttributeError:
             pass
-        tf.logging.warning("Cast for %s may induce copy from '%s' to '%s'", x_name,
-                           x.device, cast_x.device)
     return cast_x

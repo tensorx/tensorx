@@ -164,6 +164,23 @@ def test_graph_build():
     assert x == g.edges_in[l2][0]
 
 
+def test_graph_draw(tmpdir):
+    x = tx.Input([[1]])
+    x2 = tx.Input([[1]])
+    l1 = tx.Linear(x, 2, name="l1")
+    l2 = tx.Linear(x, 2, name="l2")
+    l3 = tx.layer(n_units=2, name="l3")(lambda a, b: tf.add(a, b))(l1, l2)
+    l4 = l2.reuse_with(x2)
+
+    graph = Graph.build(inputs=[x, x2], outputs=[l3, l4])
+    str_path = str(tmpdir.join("test.pdf"))
+    graph.draw(path=str_path)
+
+    assert os.path.exists(str_path)
+    # import webbrowser
+    # webbrowser.open(str_path)
+
+
 def test_graph_repeated():
     x = tx.Input([[1]])
     l1 = tx.Linear(x, 2, name="l1")
