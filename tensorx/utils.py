@@ -497,7 +497,8 @@ class Graph:
 
             for node in self.dependency_iter():
                 if node not in viz_graph:
-                    viz_graph.add_node(node.name, shape="none", margin=0, label=vizstyle(node))  # , label=vizstyle(node))
+                    viz_graph.add_node(node.name, shape="none", margin=0,
+                                       label=vizstyle(node))  # , label=vizstyle(node))
                 for other_node in self.edges_out[node]:
                     viz_graph.add_edge(node.name, other_node.name)
 
@@ -610,6 +611,10 @@ def dependency_graph(layers):
             ref = var.ref()
             g.add_edge(ref, layer)
     return g
+
+
+def as_numerical_shape(shape: tf.TensorShape):
+    return [-1 if dim is None else dim for dim in shape]
 
 
 def as_tensor(x, dtype=None):

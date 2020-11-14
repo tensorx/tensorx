@@ -233,7 +233,7 @@ def test_linear_rank3():
     x1_flat = tx.Reshape(x1, [-1, 1])
     linear1 = tx.Linear(x1, n_units=2)
     linear2 = tx.Linear(x2,
-                        shape=[2, 1],
+                        weights_shape=[2, 1],
                         weights=linear1.weights,
                         transpose_weights=True)
 

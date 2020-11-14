@@ -230,6 +230,10 @@ class Layer(AutoTrackable, ABC):
     NAME_LOCK = threading.RLock()
 
     def __init__(self, inputs, n_units, dtype=None, name="layer", **kwargs):
+        # save this for __call__
+        self._input_graph: Optional[Graph] = None
+        self.layer_state = None
+
         self.n_units = n_units
 
         with Layer.NAME_LOCK:
@@ -255,14 +259,13 @@ class Layer(AutoTrackable, ABC):
         self.proto = proto
         self._inputs = [as_layer(input_layer) for input_layer in as_list(inputs)]
 
-        self.layer_state = self.init_state()
+        self.shape = self.compute_shape()
+        if self.layer_state is None:
+            self.layer_state = self.init_state()
 
         # forward attributes from state to avoid layer.layer_state.variable
         if self.layer_state is not None:
             self.__dict__.update(self.layer_state.__dict__)
-
-        # save this for __call__
-        self._input_graph: Optional[Graph] = None
 
     @property
     def input_graph(self):
@@ -357,6 +360,27 @@ class Layer(AutoTrackable, ABC):
     @inputs.setter
     def inputs(self, input_layers):
         raise ValueError("input layers can't be set")
+
+    def compute_shape(self):
+        """ called before init_state
+
+        Returns:
+            shape (`tf.TensorShape`): best guess for the output shape of the layer
+        """
+        # TODO what they do is get the input shapes for this layer and then create placeholder like
+        #  layers that take this shapes (in our case they could be inputs)
+        # they then call the current layer on outputs
+        # https://github.com/tensorflow/tensorflow/blob/fcc4b966f1265f466e82617020af93670141b009/tensorflow/python/keras/engine/base_layer.py#L715
+        # and get the shape for each output nest.map_structure(lambda t: t.shape, outputs)
+        # raise NotImplementedError("shape inference not implemented for this layer")
+        input_shapes = [lr.shape for lr in self.inputs]
+        input_layers = [Input(shape=input_shape) for input_shape in input_shapes]
+        # since init_state is already called for current layer
+        self.layer_state = self.init_state()
+        outputs = self(*input_layers)
+        output_shapes = [output.shape for output in outputs]
+        if len(output_shapes) == 1:
+            return output_shapes[0]
 
     def compute(self, *args):
         raise NotImplementedError("computation not implemented for this layer")
@@ -466,11 +490,11 @@ class Layer(AutoTrackable, ABC):
 
     def __sub__(self, other):
         other = as_layer(other, dtype=self.dtype)
-        return Lambda(self, other, fn=tf.subtract, n_units=self.n_units, name="Sub")
+        return Lambda(self, other, fn=tf.subtract, n_units=self.n_units, dtype=self.dtype, name="Sub")
 
     def __mul__(self, other):
         other = as_layer(other, dtype=self.dtype)
-        return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, name="Mul")
+        return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, dtype=self.dtype, name="Mul")
 
 
 class Lambda(Layer):
@@ -499,6 +523,7 @@ class Lambda(Layer):
                  n_units=None,
                  var_list=None,
                  dtype=None,
+                 shape=None,
                  name="lambda",
                  apply_to_layer=False):
 
@@ -511,6 +536,7 @@ class Lambda(Layer):
         self.var_list = var_list
         self.fn = fn
         self.apply_to_layer = apply_to_layer
+        self.shape = shape
 
         super().__init__(inputs=layers,
                          n_units=n_units,
@@ -518,13 +544,26 @@ class Lambda(Layer):
                          name=name,
                          fn=fn,
                          var_list=as_list(var_list),
-                         apply_to_layer=apply_to_layer)
+                         apply_to_layer=apply_to_layer,
+                         shape=shape)
 
     def init_state(self):
         layer_state = super().init_state()
         for i, var in enumerate(self.var_list):
             setattr(layer_state, f"var_{i}", var)
         return layer_state
+
+    def compute_shape(self):
+        if self.shape is not None:
+            shape = tf.TensorShape(self.shape)
+        else:
+            try:
+                shape = super().compute_shape()
+            except NotImplementedError:
+                raise NotImplementedError(
+                    "We could not automatically infer the shape of this Lambda\' "
+                    "layer. Please specify `shape` for this Lambda.")
+        return shape
 
     def compute(self, *input_tensors):
         with layer_scope(self):
@@ -820,18 +859,32 @@ class Input(Layer):
             elif self.shape[-1]:
                 self.n_units = self.shape[-1]
 
+        # ==============================================================================================================
+        self.cast = cast
+        super().__init__(None,
+                         n_units=self.n_units,
+                         dtype=self.dtype,
+                         name=name,
+                         cast=cast,
+                         shape=self.shape)
+
+    def compute_shape(self):
         # n_units is None and self._value is not None and not self.constant:
         # in this case we know nothing about the input shape
+
         if self._value is None:
             if self.shape is None:
                 # shape is none and value is None, we have no way to determine the shape of the tensor so we assume 2D
                 expected_shape = (None, self.n_units)
             else:
-                if self.n_units is not None and len(self.shape) == 0:
+                if self.n_units and len(self.shape) == 0:
                     raise ValueError(f"n_units and shape don't match:\n"
                                      f"\tn_units: {self.n_units}\n"
                                      f"\tshape: {self.shape}")
-                elif self.n_units is not None and self.shape[-1] and self.n_units != self.shape[-1]:
+                elif self.n_units is not None and \
+                        len(self.shape) > 0 and \
+                        self.shape[-1] and \
+                        self.n_units != self.shape[-1]:
                     raise ValueError(f"n_units and shape[-1] don't match:\n"
                                      f"\t  n_units: {self.n_units}\n\tshape[-1]: {self.shape[-1]}")
                 expected_shape = self.shape
@@ -851,29 +904,21 @@ class Input(Layer):
             # expecting a sparse 2D Tensor using a dense 2D tensor with indices
             expected_shape = (None, self.n_active)
 
-        expected_shape = tf.TensorShape(expected_shape)
-
         # verify shape
         if self.shape is not None:
             if not self.shape.is_compatible_with(expected_shape):
                 raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
                                  " current: {invalid}".format(shape=expected_shape, invalid=self.shape))
+            else:
+                expected_shape = self.shape
         else:
-            self.shape = expected_shape
+            expected_shape
 
-        # ==============================================================================================================
-        self.cast = cast
-        super().__init__(None,
-                         n_units=self.n_units,
-                         dtype=self.dtype,
-                         name=name,
-                         cast=cast,
-                         shape=self.shape)
+        return tf.TensorShape(expected_shape)
 
     def init_state(self):
         layer_state = super().init_state()
-
-        if self._value is None and self.shape[-1] is not None:
+        if self._value is None and len(self.shape) > 0 and self.shape[-1] is not None:
             # set the value based on shape
             if self.n_active is None:
                 if self.sparse:
@@ -890,7 +935,10 @@ class Input(Layer):
 
         if self._value is None:
             # create an empty tensor with a len(self.shape) number of dimensions
-            self._value = tf.reshape(tf.constant([], dtype=self.dtype), [0] * len(self.shape))
+            if len(self.shape) > 0:
+                self._value = tf.reshape(tf.constant([], dtype=self.dtype), [0] * len(self.shape))
+            else:
+                self._value = tf.constant(0., dtype=self.dtype)
 
         with layer_scope(self):
             if not self.constant and self._value is not None:
@@ -901,7 +949,7 @@ class Input(Layer):
                                                          name=f"{self.name}_slot")
                 else:
                     layer_state.slot = tf.Variable(initial_value=self._value,
-                                                   shape=tf.TensorShape(self.shape),
+                                                   shape=self.shape,
                                                    dtype=self.dtype,
                                                    validate_shape=False,
                                                    trainable=False,
@@ -1246,6 +1294,58 @@ class Reshape(Layer):
                          dtype=input_layer.dtype,
                          name=name)
 
+    def _fix_unknown_dimension(self, input_shape, output_shape):
+        """Find and replace a missing dimension in an output shape.
+        This is a near direct port of the internal Numpy function
+        `_fix_unknown_dimension` in `numpy/core/src/multiarray/shape.c`
+        Arguments:
+          input_shape: Shape of array being reshaped
+          output_shape: Desired shape of the array with at most
+            a single -1 which indicates a dimension that should be
+            derived from the input shape.
+        Returns:
+          The new output shape with a -1 replaced with its computed value.
+        Raises:
+          ValueError: If the total array size of the output_shape is
+          different than the input_shape, or more than one unknown dimension
+          is specified.
+        """
+        output_shape = list(output_shape)
+        msg = ('total size of new array must be unchanged, '
+               'input_shape = {}, output_shape = {}'
+               .format(input_shape, output_shape))
+
+        known, unknown = 1, None
+        for index, dim in enumerate(output_shape):
+            if dim < 0:
+                if unknown is None:
+                    unknown = index
+                else:
+                    raise ValueError('Can only specify one unknown dimension.')
+            else:
+                known *= dim
+
+        original = tf.reduce_prod(input_shape, dtype=int)
+        if unknown is not None:
+            if known == 0 or original % known != 0:
+                raise ValueError(msg)
+            output_shape[unknown] = original // known
+        elif original != known:
+            raise ValueError(msg)
+        return output_shape
+
+    def compute_shape(self):
+        input_shape = self.inputs[0].shape
+        if None in input_shape[1:]:
+            output_shape = [input_shape[0]]
+            # input shape (partially) unknown? replace -1's with None's
+            output_shape += tuple(s if s != -1 else None for s in self.target_shape)
+        else:
+            output_shape = [input_shape[0]]
+            output_shape += self._fix_unknown_dimension(input_shape[1:],
+                                                        self.target_shape)
+        return tf.TensorShape(output_shape)
+
     def compute(self, *input_tensors):
         input_tensor = input_tensors[0]
 
@@ -1301,7 +1401,7 @@ class Linear(Layer):
     def __init__(self,
                  input_layer: Layer,
                  n_units=None,
-                 shape=None,
+                 weights_shape=None,
                  weight_init=tf.initializers.glorot_uniform(),
                  weights=None,
                  add_bias=True,
@@ -1314,29 +1414,29 @@ class Linear(Layer):
                  name="linear",
                  share_state_with=None):
 
-        shape = tuple(as_list(shape)) if shape else None
+        weights_shape = tuple(as_list(weights_shape)) if weights_shape else None
 
         if not isinstance(input_layer, Layer):
             input_layer = Input(input_layer, constant=True, dtype=dtype)
 
         if input_layer.n_units is None or isinstance(input_layer.n_units, tf.Tensor):
-            if shape is None:
+            if weights_shape is None:
                 raise ValueError("Cannot create Linear layer from unknown previous n_units")
 
-        if shape is not None:
+        if weights_shape is not None:
             if n_units is None:
-                n_units = shape[-1]
-            if shape[-1] != n_units:
+                n_units = weights_shape[-1]
+            if weights_shape[-1] != n_units:
                 raise ValueError("shape[-1] does not match n_units:\n\tshape[-1]: {}"
-                                 "\n\tn_units: {}".format(shape[-1], n_units))
+                                 "\n\tn_units: {}".format(weights_shape[-1], n_units))
             if input_layer.n_units is not None:
-                if shape[0] != input_layer.n_units:
+                if weights_shape[0] != input_layer.n_units:
                     raise ValueError("shape[0] does not match input.n_units:\n\tshape[0]: {}"
-                                     "\n\tinput.n_units: {}".format(shape[0], input_layer.n_units))
+                                     "\n\tinput.n_units: {}".format(weights_shape[0], input_layer.n_units))
         else:
-            shape = [input_layer.n_units, n_units]
+            weights_shape = [input_layer.n_units, n_units]
 
-        self.shape = tf.TensorShape(shape)
+        self.weights_shape = tf.TensorShape(weights_shape)
         self.weight_init = weight_init
         self.weights = weights
         self.add_bias = add_bias
@@ -1353,6 +1453,11 @@ class Linear(Layer):
                          name=name
                          )
 
+    def compute_shape(self):
+        input_shape = self.inputs[0].shape
+        output_shape = input_shape[:-1].concatenate(self.n_units)
+        return output_shape
+
     def init_state(self):
         with layer_scope(self):
             input_layer = self.inputs[0]
@@ -1365,37 +1470,38 @@ class Linear(Layer):
 
                 layer_state = self.share_state_with.layer_state
 
-                shape = [input_layer.n_units, self.n_units]
+                weights_shape = [input_layer.n_units, self.n_units]
                 shared_shape = layer_state.weights.get_shape().as_list()
                 if self.transpose_weights:
                     shared_shape = shared_shape[::-1]
 
-                if shape != shared_shape:
+                if weights_shape != shared_shape:
                     raise ValueError("Can only share variables with layers with the same dimensions: "
                                      "share_state_with is provided but \n"
                                      "self shape: {s0} different from "
-                                     "other shape: {s1}".format(s0=shape, s1=shared_shape))
+                                     "other shape: {s1}".format(s0=weights_shape, s1=shared_shape))
             else:
                 layer_state = super().init_state()
 
             # if weights are passed, check that their shape matches the layer shape
             if self.weights is not None:
-                weight_shape = self.weights.shape
+                weights_shape = self.weights.shape
 
                 if self.transpose_weights:
-                    if not tf.TensorShape([input_layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[-1]])):
+                    if not tf.TensorShape([input_layer.n_units]).is_compatible_with(
+                            tf.TensorShape([weights_shape[-1]])):
                         raise ValueError(
                             "weight shape mismatch: \n\tinput_layer.n_units: {}\n\tself.n_units:{}\n\t"
                             "with transpose_weights=True".format(
                                 input_layer.n_units,
-                                weight_shape[-1]))
+                                weights_shape[-1]))
                 else:
-                    if not tf.TensorShape([input_layer.n_units]).is_compatible_with(tf.TensorShape([weight_shape[0]])):
+                    if not tf.TensorShape([input_layer.n_units]).is_compatible_with(tf.TensorShape([weights_shape[0]])):
                         raise ValueError(
                             "weight shape mismatch: input_layer shape {} :: weights shape {} "
                             "with transpose_weights=False".format(
                                 input_layer.shape,
-                                weight_shape))
+                                weights_shape))
 
             if self.bias is not None:
                 bias_shape = self.bias.get_shape().as_list()
@@ -1410,7 +1516,7 @@ class Linear(Layer):
             #   but this changes the semantics
             weights = getattr(layer_state, "weights", self.weights)
             if weights is None:
-                init_value = self.weight_init(self.shape, dtype=self.dtype)
+                init_value = self.weight_init(self.weights_shape, dtype=self.dtype)
                 weights = tf.Variable(initial_value=init_value,
                                       trainable=True,
                                       dtype=self.dtype,
@@ -2622,10 +2728,10 @@ class Lookup(Layer):
 
         # validate shared state
         if self.weights is not None:
-            weight_shape = self.weights.get_shape().as_list()
-            if self.embedding_shape != weight_shape:
+            weights_shape = self.weights.get_shape().as_list()
+            if self.embedding_shape != weights_shape:
                 raise ValueError(
-                    "shared weight shape {} and feature shape {} mismatch".format(weight_shape, self.embedding_shape))
+                    "shared weight shape {} and feature shape {} mismatch".format(weights_shape, self.embedding_shape))
 
         if self.bias is not None:
             num_bias = self.bias.get_shape().as_list()[-1]
