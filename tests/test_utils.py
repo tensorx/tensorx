@@ -22,7 +22,9 @@ def test_graph_as_function():
     fn = graph.as_function_v2(ord_inputs=[in1, in2, in3], stateful_inputs=True, compile=False, fn_name="add")
     # fn = graph.as_function_v2(stateful_inputs=True, compile=False)
 
-    assert fn([[1.]], [[1.]]) == [[3]]
+    # TODO I should make sure the function converts the inputs to tensors
+    # to make sure I don't pass lists around
+    assert fn(np.array([[1.]], dtype=np.float), np.array([[1.]], dtype=np.float)) == [[3]]
     assert fn() == [[3]]
     assert fn([[1.]], [[2.]]) == [[4]]
     assert fn() == [[4]]

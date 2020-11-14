@@ -73,6 +73,14 @@ def test_input_spec():
         tx.Input(value, n_active=3, n_units=10)
 
 
+def test_input_config():
+    in1 = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
+    cfg1 = in1.config
+    in2 = cfg1()
+
+    assert tx.tensor_equal(in1(), in2())
+
+
 def test_input_value():
     inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
     assert tx.tensor_equal(inputs.value, tf.zeros([1, 4], dtype=tf.int32))
@@ -152,25 +160,17 @@ def test_dynamic_input_graph():
     assert not tx.tensor_equal(out1, out2)
 
 
-def test_rnn_layer_proto():
+def test_activation():
     inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
-    inputs_proto = inputs.proto
-    inputs2 = inputs_proto()
-    assert tx.tensor_equal(inputs(), inputs2())
-
-    rnn_cell = tx.RNNCell(input_layer=inputs, n_units=3)
-    rnn_proto = rnn_cell.proto
-    rnn_cell2 = rnn_proto(inputs)
-
-    assert tx.shape_equal(rnn_cell(), rnn_cell2())
-    assert not tx.tensor_equal(rnn_cell(), rnn_cell2())
+    output = tx.Activation(inputs, tf.sigmoid)
+    assert tx.shape_equal(inputs.shape, output.shape)
 
 
 def test_shared_state():
     inputs = tf.ones([2, 4])
     l1 = tx.Linear(inputs, 8)
     l2 = tx.Linear(inputs, 8, share_state_with=l1)
-    proto = tx.Linear.proto(n_units=8, share_state_with=l1)
+    proto = tx.Linear.config(n_units=8, share_state_with=l1)
     l3 = proto(inputs)
 
     assert l1.weights is l2.weights
@@ -228,12 +228,17 @@ def test_linear():
 
 
 def test_linear_rank3():
-    x1 = tx.Input([[[1], [1]], [[2], [2]]], dtype=tf.float32)
+    val = tf.constant([[[1], [1]], [[2], [2]]])
+    x1 = tx.Input(val, dtype=tf.float32)
     x2 = tx.Transpose(x1)
+
+    assert val.shape[1:] == x1.shape[1:]
+
     x1_flat = tx.Reshape(x1, [-1, 1])
+
     linear1 = tx.Linear(x1, n_units=2)
     linear2 = tx.Linear(x2,
-                        shape=[2, 1],
+                        weights_shape=[2, 1],
                         weights=linear1.weights,
                         transpose_weights=True)
 
@@ -243,11 +248,57 @@ def test_linear_rank3():
         linear1.reuse_with(x2, transpose_weights=True)
         pytest.fail("can't reuse with transpose weights while changing the layer definition")
 
-    linear_flat = linear1.reuse_with(x1_flat)
-    linear_flat = tx.Reshape(linear_flat, x1().get_shape().as_list()[:-1] + [2])
+    linear_flat = linear1.reuse_with(x1_flat,shape=(4,2))
+    x1_tensor = x1()
+    new_shape = x1_tensor.shape[:-1] + [2]
+
+    linear_flat = tx.Reshape(linear_flat, new_shape)
 
     assert tx.tensor_equal(linear1(), linear_flat())
     assert tx.tensor_equal(tf.shape(linear2()), [1, 2, 1])
+
+
+def test_constant_shape():
+    tensor = tf.ones([3, 3])
+    const_layer = tx.Constant(tensor)
+
+    assert const_layer.shape == tensor.shape
+
+
+def test_transpose():
+    tensor = tf.ones([3, 3])
+    trans_tensor = tf.transpose(tensor)
+    trans_layer = tx.Transpose(tensor, n_units=3)
+
+    assert trans_layer.input.shape == [3, 3]
+    assert trans_layer.shape == trans_tensor.shape
+
+    tensor = tf.ones([2, 3, 4])
+    perm = [2, 0, 1]
+    trans_tensor = tf.transpose(tensor, perm)
+    trans_layer = tx.Transpose(tensor, perm)
+
+    assert trans_layer.input.n_units == tensor.shape[-1]
+    assert trans_layer.shape == trans_tensor.shape
+    assert trans_layer.n_units == tensor.shape[perm[-1]]
+
+    inputs = tx.Input(shape=tf.TensorShape([None, 3]))
+    trans = tx.Transpose(inputs)
+    assert trans.shape[-1] is None
+    assert trans.shape[0] == 3
+
+
+def test_reshape_shape():
+    x = tf.reshape(tf.range(9), [3, 3, 1])
+    x = tx.Input(x, dtype=tf.float32)
+    flat = tx.Reshape(x, [-1, 1])
+    assert flat.shape[0] is None
+    assert flat.shape[-1] == 1
+
+    x = tx.Input(x, shape=[3, 3, 1], dtype=tf.float32)
+    print(x.shape)
+    flat = tx.Reshape(x, [-1, 1])
+    print(flat.shape)
 
 
 def test_transpose_reshape():
@@ -262,25 +313,76 @@ def test_transpose_reshape():
     assert tx.tensor_equal(y(), x)
     assert tx.tensor_equal(y.compute(x), t)
 
+    x = tf.reshape(tf.ones([18]), [-1, 3, 2])
+
+    x2 = tx.Reshape(tf.ones([18]), [-1, 3, 2])
+
+    assert x.shape == [3, 3, 2]
+    assert x.shape == x2.shape
+
+
+def test_mul_shape():
+    x = tx.Input(n_units=3)
+    m = x * 2
+    assert m.shape[0] is None
+    assert m.shape[-1] is 3
+
+    t = tx.Transpose(x)
+    assert t.shape[-1] is None
+    t = tx.Transpose(x, n_units=3)
+    assert t.shape == [3, 3]
+    m = t * 2
+    assert m.shape == [3, 3]
+
+    x = tx.Input(n_units=3)  # [None,3]
+    t = tx.Transpose(x)  # [None,None]
+    assert t.shape[0] == 3
+    assert t.shape[-1] is None
+
+    m = t * 2  # [None,None]
+
+    # TensorShape([3,None]) != TensorShape([3,None])
+    # because we don't know what None is
+    assert m.shape[0] == 3
+    assert m.shape[-1] is None
+
+
+def test_module_shape():
+    x = tx.Input(n_units=3)
+    t = tx.Transpose(x, n_units=3)
+    mul = t * 2
+    assert mul.shape == [3, 3]
+    m = tx.Module(output=mul, inputs=x)
+    assert m.n_units == 3
+    m()
+
+
+def test_wrap_shape():
+    x = tx.Input(n_units=3)
+    t = tx.Transpose(x, n_units=3)
+    assert t.shape[-1] == 3
+
+    w = tx.Wrap(t, wrap_fn=lambda layer: layer * 2)
+    assert w.shape == [3, 3]
+
 
 def test_wrap_transpose():
     tensor = tf.reshape(tf.range(9), [3, 3])
     t = tf.transpose(tensor)
 
-    trans = tx.Transpose(t, n_units=3)
-    # using Wrap or a module is the same (in this case) except we
-    # don't have to create the graph and then the module
-    w = tx.Wrap(trans, lambda layer: tx.Lambda(layer, fn=lambda x: x * 2))
-    w2 = w.reuse_with(tensor)
+    t_layer = tx.Transpose(t, n_units=3)
+    assert t_layer.shape == (3, 3)
 
-    assert tx.tensor_equal(w2(), t * 2)
-    assert tx.tensor_equal(w(tensor), t * 2)
+    mul2 = tx.Wrap(t_layer, wrap_fn=lambda layer: layer * 2)
+    mul2_2 = mul2.reuse_with(tensor)
 
-    assert tx.tensor_equal(w(t), w())
-
-    assert tx.tensor_equal(w.compute(t), tf.transpose(t) * 2)
-    assert tx.tensor_equal(trans.compute(t), tensor)
-    assert tx.tensor_equal(w2.compute(tensor), w2())
+    assert tx.tensor_equal(mul2_2(), t * 2)
+    assert tx.tensor_equal(mul2(tensor), t * 2)
+    assert tx.tensor_equal(mul2(t), mul2())
+    assert tx.tensor_equal(mul2.compute(t), mul2())
+    assert tx.tensor_equal(mul2.compute(t), tf.transpose(t) * 2)
+    assert tx.tensor_equal(t_layer.compute(t), tensor)
+    assert tx.tensor_equal(mul2_2.compute(tensor), mul2_2())
 
 
 def test_variable_layer():
@@ -354,8 +456,8 @@ def test_variable_layer_reuse():
     assert tx.tensor_equal(v3, v4)
 
     # variable batch dimension is dynamic its shape will be different
-    assert not tx.shape_equal(v4, v1)
-    assert tx.shape_equal(v2, v1)
+    assert not tx.same_shape(v4, v1)
+    assert tx.same_shape(v2, v1)
 
 
 def test_standalone_variable_layer():
@@ -364,6 +466,16 @@ def test_standalone_variable_layer():
     assert tx.tensor_equal(np.zeros([4], dtype=np.float32), var_layer())
     assert not tx.tensor_equal(np.zeros([4]), var_layer())
     assert tx.tensor_equal(tf.zeros([4]), var_layer())
+
+
+def test_merge_add_shape():
+    x1 = tx.Input([[2.]], n_units=1, name="x1")
+    x2 = tx.Input([[2.]], n_units=1, name="x2")
+
+    add = tx.Add(x1, x2)
+    assert len(add.shape) == 2
+    assert add.shape[-1] == 1
+    assert add.shape[0] is None
 
 
 def test_module_reuse_order():
@@ -387,14 +499,33 @@ def test_module_reuse_order():
     assert tx.tensor_equal(m1, m2)
 
 
+def test_attention_rnn_shape():
+    """ test attention and rnn layers integration with shape inference
+    """
+    x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
+    rnn1 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
+    att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
+
+    rnn1_res = rnn1()
+    att_res = att()
+
+    assert rnn1.n_units == 4
+    assert rnn1.n_units == rnn1.cell.n_units
+    assert tx.shape_equal(rnn1.shape[:-1], att.shape[:-1])
+    assert att.shape[-1] == att.n_units
+
+    assert tx.shape_equal(rnn1_res.shape[1:], rnn1.shape[1:])
+    assert tx.shape_equal(att_res.shape[1:], att.shape[1:])
+
+
 def test_module_rnn():
     """ Module + RNN integration
     """
     # test wrapping module around RNN because it has input dependencies that might not be given in the constructor
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
     x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
-    rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
-    rnn2 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+    rnn1 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
+    rnn2 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
 
     out = tx.Concat(rnn1, rnn2)
 
@@ -419,7 +550,7 @@ def test_module_with_attention():
     """
 
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
-    rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+    rnn1 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
     att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
     m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
     g = tx.Graph.build(inputs=x1, outputs=m, add_missing_inputs=True)
@@ -459,18 +590,20 @@ def test_rnn_cell():
     n_hidden = 2
     batch_size = 2
 
-    inputs = tx.Input(tf.ones([batch_size, n_inputs]))
+    x = tx.Input(init_value=tf.ones([batch_size, n_inputs]), constant=False)
+    rnn1 = tx.RNNCell(x, n_hidden)
 
-    rnn1 = tx.RNNCell(inputs, n_hidden)
+    assert rnn1.shape[0] == x.shape[0]
+    assert rnn1.shape[-1] == rnn1.n_units
 
     state = rnn1.state
     state = state[0]()
 
-    rnn_2 = rnn1.reuse_with(inputs, state)
-    rnn_3 = rnn1.reuse_with(inputs)
+    rnn_2 = rnn1.reuse_with(x, state)
+    rnn_3 = rnn1.reuse_with(x)
 
     with pytest.raises(TypeError):
-        tx.RNNCell(inputs, n_hidden, share_state_with=inputs)
+        tx.RNNCell(x, n_hidden, share_state_with=x)
         pytest.fail("Type Error Expected: inputs cannot share state with RNNCell")
 
     res1 = rnn1()
@@ -480,6 +613,20 @@ def test_rnn_cell():
     assert (batch_size, n_hidden) == np.shape(res1)
     assert tx.tensor_equal(res1, res3)
     assert not tx.tensor_equal(res1, res2)
+
+
+def test_rnn_layer_config():
+    x1 = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
+    x_config = x1.config
+    x2 = x_config()
+    assert tx.tensor_equal(x1(), x2())
+
+    rnn_cell = tx.RNNCell(input_layer=x1, n_units=3)
+    rnn_proto = rnn_cell.config
+    rnn_cell2 = rnn_proto(x1)
+
+    assert tx.same_shape(rnn_cell(), rnn_cell2())
+    assert not tx.tensor_equal(rnn_cell(), rnn_cell2())
 
 
 def test_gru_cell_module():
@@ -587,27 +734,59 @@ def test_rnn_cell_drop():
     assert tx.tensor_equal(mask1, mask2)
 
 
-def test_gru_cell():
-    n_inputs = 4
-    n_hidden = 2
-    batch_size = 2
-    data = tf.ones([batch_size, 4])
+def test_to_sparse():
+    inputs = tx.Input(init_value=tf.ones([2, 100]))
+    linear = tx.Linear(inputs, n_units=100)
+    relu = tx.Activation(linear, tx.relu)
+    sparse = tx.ToSparse(relu)
 
-    inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
-    rnn_1 = tx.GRUCell(inputs, n_hidden)
+    assert tx.shape_equal(sparse.shape, linear.shape)
+    assert tx.shape_equal(sparse.shape, relu.shape)
 
-    rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
 
-    # if we don't wipe the memory it reuses it
-    rnn_3 = rnn_1.reuse_with(inputs, tx.GRUCell.zero_state(rnn_1.n_units))
+def test_gate():
+    inputs = tx.Input(init_value=tf.ones([2, 3]))
+    linear = tx.Linear(inputs, n_units=4)
+    nop = tx.Activation(linear, fn=tx.identity)
+    gate_w = tx.Linear(linear, n_units=4, add_bias=True)
+    gate1 = tx.Gate(linear, gate_w)
+    gate2 = gate1.reuse_with(nop)
 
-    res1 = rnn_1()
-    res2 = rnn_2()
-    res3 = rnn_3()
+    assert tx.shape_equal(gate1.shape, gate2.shape)
 
-    assert (batch_size, n_hidden) == np.shape(res1)
-    assert tx.tensor_equal(res1, res3)
-    assert not tx.tensor_equal(res1, res2)
+    r1 = gate1()
+    r2 = gate2()
+
+    assert tx.tensor_equal(r1, r2)
+
+
+def test_coupled_gate():
+    vocab_size = 4
+    n_features = 3
+    seq_size = 2
+
+    inputs = tx.Input(init_value=np.array([[2, 0], [1, 2]]),
+                      n_units=seq_size,
+                      dtype=tf.int32,
+                      constant=True)
+
+    features1 = tx.Lookup(inputs, seq_size, embedding_shape=[vocab_size, n_features]).as_concat()
+    features2 = tx.Lookup(inputs, seq_size, embedding_shape=[vocab_size, n_features]).as_concat()
+    gate_w = tx.Linear(features1, seq_size, add_bias=True)
+    coupled_gate = tx.CoupledGate(features1, features2, gate_w)
+
+    sp_features1 = tx.ToSparse(features1)
+    assert tx.tensor_equal(tf.sparse.to_dense(sp_features1()), features1())
+
+    sp_gate = tx.CoupledGate(sp_features1, features2, gate_w)
+    print(sp_gate())
+    print(sp_gate.shape)
+    # coupled_gate2 = coupled_gate.reuse_with(sp_features1, features2)
+
+    r1 = coupled_gate()
+    # r2 = coupled_gate2()
+
+    # assert tx.tensor_equal(r1, r2)
 
 
 def test_module_gate():
@@ -631,6 +810,29 @@ def test_module_gate():
 
     assert tx.tensor_equal(result1, result2 * 2)
     assert tx.tensor_equal(result2, result3)
+
+
+def test_gru_cell():
+    n_inputs = 4
+    n_hidden = 2
+    batch_size = 2
+    data = tf.ones([batch_size, 4])
+
+    inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
+    rnn_1 = tx.GRUCell(inputs, n_hidden)
+
+    rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
+
+    # if we don't wipe the memory it reuses it
+    rnn_3 = rnn_1.reuse_with(inputs, tx.GRUCell.zero_state(rnn_1.n_units))
+
+    res1 = rnn_1()
+    res2 = rnn_2()
+    res3 = rnn_3()
+
+    assert (batch_size, n_hidden) == np.shape(res1)
+    assert tx.tensor_equal(res1, res3)
+    assert not tx.tensor_equal(res1, res2)
 
 
 def test_lstm_cell():
@@ -741,9 +943,9 @@ def test_rnn_layer():
     ones_state = tf.ones([batch_size, hidden_dim])
     zero_state = (tf.zeros([batch_size, hidden_dim]))
 
-    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
+    rnn_proto = tx.RNNCell.config(n_units=hidden_dim)
 
-    rnn1 = tx.RNN(seq, cell_proto=rnn_proto, previous_state=ones_state, return_state=True)
+    rnn1 = tx.RNN(seq, cell_config=rnn_proto, previous_state=ones_state, return_state=True)
     rnn2 = rnn1.reuse_with(seq)
 
     #  problem with RNN layer is that it uses modules that require
@@ -798,8 +1000,8 @@ def test_biRNN():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
-    rnn0 = tx.RNN(seq, cell_proto=rnn_proto, stateful=False, return_state=True)
+    rnn_proto = tx.RNNCell.config(n_units=hidden_dim)
+    rnn0 = tx.RNN(seq, cell_config=rnn_proto, stateful=False, return_state=True)
 
     # because a stateful rnn0 has a variable layer as input as well
     rnn_m0 = tx.Module(inputs=rnn0.inputs, output=rnn0)
@@ -813,14 +1015,21 @@ def test_biRNN():
 
     assert tx.tensor_equal(r01[0], r02[0])
 
-    rnn0_ = rnn0[0]
-    rnn1_ = rnn1[0]
+    rnn0_0 = rnn0[0]
+    rnn1_0 = rnn1[0]
     rnn0 = tx.Wrap(rnn0, wrap_fn=lambda y: y[0], n_units=rnn0.n_units)
     rnn1 = tx.Wrap(rnn1, wrap_fn=lambda y: y[0], n_units=rnn1.n_units)
 
-    assert tx.shape_equal(rnn0(), rnn1())
-    assert tx.shape_equal(rnn0(), rnn0_())
-    assert tx.shape_equal(rnn1(), rnn1_())
+    rnn0_tensor = rnn0()
+    rnn1_tensor = rnn1()
+    rnn0_0_tensor = rnn0_0()
+
+    print(rnn0_tensor.shape)
+    print(rnn0_0_tensor.shape)
+
+
+    #assert tx.same_shape(rnn0(), rnn1())
+    #assert tx.same_shape(rnn1(), rnn1_0())
 
 
 def test_stateful_rnn_layer():
@@ -834,10 +1043,10 @@ def test_stateful_rnn_layer():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
+    rnn_proto = tx.RNNCell.config(n_units=hidden_dim)
 
-    rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True, return_state=True)
-    lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hidden_dim), stateful=True, return_state=True)
+    rnn1 = tx.RNN(seq, cell_config=rnn_proto, stateful=True, return_state=True)
+    lstm1 = tx.RNN(seq, cell_config=tx.LSTMCell.config(n_units=hidden_dim), stateful=True, return_state=True)
 
     zero_state0 = [layer() for layer in rnn1.previous_state]
 
@@ -887,17 +1096,39 @@ def test_lookup_sequence_dense():
     assert np.shape(v2) == (batch_size, seq_size, embed_dim)
 
 
+def test_as_concat_wrap():
+    n = 10
+    h = 4
+
+    inputs = tx.Input(dtype=tf.int32, constant=False)
+    lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, h])
+    assert tx.shape_equal(lookup.shape, (None, None, h))
+    concat = lookup.as_concat()
+    assert tx.shape_equal(concat.shape, (None, None))
+
+    lookup = tx.Lookup(inputs, seq_size=2, embedding_shape=[n, h])
+    concat = lookup.as_concat()
+    assert tx.shape_equal(concat.shape, (None, 2 * 4))
+
+    seq1 = [[1, 2], [3, 4]]
+    inputs.value = seq1
+    concat_tensor = concat()
+    assert concat_tensor.shape[-1] == concat.shape[-1]
+
+
 def test_lookup_dynamic_sequence():
     seq1 = [[1, 2], [3, 4]]
     seq2 = [[1, 2, 3], [4, 5, 6]]
 
     n = 10
-    m = 4
+    h = 4
 
     inputs = tx.Input(dtype=tf.int32, constant=False)
 
-    lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, m])
+    lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, h])
+    assert tx.shape_equal(lookup.shape, (None, None, h))
     concat = lookup.as_concat()
+    inputs.value = seq1
 
     inputs.value = seq1
     inputs()
@@ -915,11 +1146,11 @@ def test_lookup_dynamic_sequence():
     inputs.value = seq2
     c2 = concat()
 
-    assert np.shape(l1)[-1] == m
-    assert np.shape(l2)[-1] == m
+    assert np.shape(l1)[-1] == h
+    assert np.shape(l2)[-1] == h
 
-    assert np.shape(c1)[-1] == m * 2
-    assert np.shape(c2)[-1] == m * 3
+    assert np.shape(c1)[-1] == h * 2
+    assert np.shape(c2)[-1] == h * 3
 
 
 def test_dynamic_concat():
@@ -942,6 +1173,7 @@ def test_dynamic_concat():
 
     concat3 = tx.SeqConcat(lookup, time_major=False)
     concat4 = tx.SeqConcat(lookup, seq_size=3, time_major=False)
+    assert tx.shape_equal(concat4.shape, (None, 3 * 4))
 
     c1, c2 = concat1(), concat3()
     assert tx.tensor_equal(c1, c2)
@@ -1170,7 +1402,7 @@ def test_residual():
         tx.Residual(x1, h3)
         pytest.fail("ValueError Expected: invalid module x1 not connected to h3")
 
-    assert tx.shape_equal(h1(), residual())
+    assert tx.same_shape(h1(), residual())
     assert not hasattr(residual, "projection")
     assert hasattr(residual2, "projection")
     assert len(residual.trainable_variables) == 0
@@ -1250,10 +1482,10 @@ def test_map_seq():
     seq = lookup.permute_batch_time()
 
     n_units = 2
-    linear_fn = tx.Linear.proto(n_units=n_units)
+    linear_fn = tx.Linear.config(n_units=n_units)
     assert tx.tensor_equal(tf.shape(seq()), [seq_size, batch_size, embed_size])
 
-    seq_map = tx.SeqMap(seq, n_units=2, layer_proto=linear_fn)
+    seq_map = tx.SeqMap(seq, n_units=2, layer_config=linear_fn)
     assert tx.tensor_equal(tf.shape(seq_map), [seq_size, batch_size, n_units])
 
 
@@ -1297,7 +1529,7 @@ def test_multihead_attention():
     result_reg = attention_reg()
     result2 = attention_2()
 
-    assert tx.shape_equal(result, result_reg)
+    assert tx.same_shape(result, result_reg)
     assert tx.tensor_equal(result, result2)
 
     vars1 = map(lambda v: v.ref(), attention.variables)

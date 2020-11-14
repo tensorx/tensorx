@@ -37,7 +37,7 @@ def test_gradient_sparse_var():
     with tf.GradientTape() as tape:
         loss_val = loss(target)
 
-    assert tx.shape_equal(tape.gradient(loss_val, v), v.value())
+    assert tx.same_shape(tape.gradient(loss_val, v), v.value())
 
 
 def test_to_sparse_gradient():
@@ -57,5 +57,5 @@ def test_to_sparse_gradient():
 
     gradients = tape.gradient(loss, h.trainable_variables)
     assert len(gradients) == 2
-    assert tx.shape_equal(gradients[0], h.weights)
-    assert tx.shape_equal(gradients[1], h.bias)
+    assert tx.same_shape(gradients[0], h.weights)
+    assert tx.same_shape(gradients[1], h.bias)

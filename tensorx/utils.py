@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 import logging
 from collections import Counter
 
@@ -497,7 +498,8 @@ class Graph:
 
             for node in self.dependency_iter():
                 if node not in viz_graph:
-                    viz_graph.add_node(node.name, shape="none", margin=0, label=vizstyle(node))  # , label=vizstyle(node))
+                    viz_graph.add_node(node.name, shape="none", margin=0,
+                                       label=vizstyle(node))  # , label=vizstyle(node))
                 for other_node in self.edges_out[node]:
                     viz_graph.add_edge(node.name, other_node.name)
 
@@ -612,6 +614,10 @@ def dependency_graph(layers):
     return g
 
 
+def as_numerical_shape(shape: tf.TensorShape):
+    return [-1 if dim is None else dim for dim in shape]
+
+
 def as_tensor(x, dtype=None):
     """ Converts to tensor and casts to a given type if possible
 
@@ -675,3 +681,52 @@ def cast_like(x, y):
         except AttributeError:
             pass
     return cast_x
+
+
+def fix_reshape_dimensions(original_shape, target_shape):
+    """ Find and replace a missing dimension in a target shape.
+
+    Args:
+      original_shape (`List[int]`): shape of tensor being reshaped
+      target_shape (`List`): desired shape with at most a single -1
+        which indicates a dimension that should be derived from the input shape.
+
+    Returns:
+        new_shape (`List`): the new shape with a -1 replaced with its computed value.
+
+    Raises:
+      `ValueError`: if the total tensor size of the new_shape is different than
+      the original_shape, or more than one unknown (-1) dimension are specified.
+    """
+    target_shape = list(target_shape)
+
+    target_n = 1
+    target_unknown = None
+    for i, dim in enumerate(target_shape):
+        if dim < 0:
+            if target_unknown is None:
+                target_unknown = i
+            else:
+                raise ValueError('Can only specify one unknown dimension.')
+        else:
+            target_n *= dim
+
+    msg = ('total size of new tensor must be unchanged, '
+           'input_shape = {}, output_shape = {}'
+           .format(original_shape, target_shape))
+
+    # the target should match original known
+    original_known = [dim if dim else 1 for dim in original_shape]
+    original_n = np.prod(original_known, dtype=int, keepdims=False)
+    if target_unknown is not None:
+        if target_n == 0 or original_n % target_n != 0:
+            raise ValueError(msg)
+        elif None in original_shape and len(original_shape) != len(target_shape) and original_n > target_n:
+            target_shape[target_unknown] = None
+        else:
+            target_shape[target_unknown] = original_n // target_n
+    elif original_n != target_n:
+        raise ValueError(msg)
+    return target_shape
+
+
