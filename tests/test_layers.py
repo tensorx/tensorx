@@ -250,6 +250,35 @@ def test_linear_rank3():
     assert tx.tensor_equal(tf.shape(linear2()), [1, 2, 1])
 
 
+def test_constant():
+    tensor = tf.ones([3, 3])
+    const_layer = tx.Constant(tensor)
+
+    assert const_layer.shape == tensor.shape
+
+
+def test_transpose():
+    tensor = tf.ones([3, 3])
+    trans_tensor = tf.transpose(tensor)
+    trans_layer = tx.Transpose(tensor, n_units=3)
+
+    assert trans_layer.input.shape == [3, 3]
+    assert trans_layer.shape == trans_tensor.shape
+
+    tensor = tf.ones([2, 3, 4])
+    perm = [2, 0, 1]
+    trans_tensor = tf.transpose(tensor, perm)
+    trans_layer = tx.Transpose(tensor, perm)
+
+    assert trans_layer.input.n_units == tensor.shape[-1]
+    assert trans_layer.shape == trans_tensor.shape
+    assert trans_layer.n_units == tensor.shape[perm[-1]]
+
+    inputs = tx.Input(shape=tf.TensorShape([None, 3]))
+    trans = tx.Transpose(inputs)
+    print(trans.shape)
+
+
 def test_transpose_reshape():
     x = tf.reshape(tf.range(9), [3, 3])
     x2 = tx.Reshape(tf.range(9), [3, 3])
@@ -262,25 +291,69 @@ def test_transpose_reshape():
     assert tx.tensor_equal(y(), x)
     assert tx.tensor_equal(y.compute(x), t)
 
+    x = tf.reshape(tf.ones([18]), [-1, 3, 2])
 
+    x2 = tx.Reshape(tf.ones([18]), [-1, 3, 2])
+
+    assert x.shape == [3, 3, 2]
+    assert x.shape == x2.shape
+
+
+def test_transpose_mul():
+    x = tx.Input(n_units=3)
+    t = tx.Transpose(x)
+    assert t.shape[-1] is None
+    t = tx.Transpose(x, n_units=3)
+    assert t.shape == [3, 3]
+    m = t * 2
+    assert m.shape == [3, 3]
+
+    x = tx.Input(n_units=3)
+    t = tx.Transpose(x)
+    m = t * 2
+    assert m.shape == [3, None]
+
+
+def test_wrap_shape():
+    x = tx.Input(n_units=3)
+    t = tx.Transpose(x)
+    assert t.shape[-1] is None
+
+    # TODO problematic if input does not match this but
+    #  the user is forcing this choice on the layer
+    #  shape inference verification can be added later
+    t = tx.Transpose(x, n_units=3)
+    assert t.shape[-1] == 3
+
+    w = tx.Wrap(t, wrap_fn=lambda layer: layer * 2)
+
+    print(w.shape)
+
+
+# TODO still failing but the problem is on Input layer with mismatching variable and shape
+#  when calling compute shape
 def test_wrap_transpose():
     tensor = tf.reshape(tf.range(9), [3, 3])
     t = tf.transpose(tensor)
 
-    trans = tx.Transpose(t, n_units=3)
+    t_layer = tx.Transpose(t, n_units=3)
+    assert t_layer.shape == (3, 3)
     # using Wrap or a module is the same (in this case) except we
     # don't have to create the graph and then the module
-    w = tx.Wrap(trans, lambda layer: tx.Lambda(layer, fn=lambda x: x * 2))
-    w2 = w.reuse_with(tensor)
+    # this is like a decorator in a sense
+    mul2 = tx.Wrap(t_layer,
+                   wrap_fn=lambda layer: tx.Lambda(layer, fn=lambda x: x * 2)
+                   )
+    mul2_2 = mul2.reuse_with(tensor)
 
-    assert tx.tensor_equal(w2(), t * 2)
-    assert tx.tensor_equal(w(tensor), t * 2)
+    assert tx.tensor_equal(mul2_2(), t * 2)
+    assert tx.tensor_equal(mul2(tensor), t * 2)
 
-    assert tx.tensor_equal(w(t), w())
+    assert tx.tensor_equal(mul2(t), mul2())
 
-    assert tx.tensor_equal(w.compute(t), tf.transpose(t) * 2)
-    assert tx.tensor_equal(trans.compute(t), tensor)
-    assert tx.tensor_equal(w2.compute(tensor), w2())
+    assert tx.tensor_equal(mul2.compute(t), tf.transpose(t) * 2)
+    assert tx.tensor_equal(t_layer.compute(t), tensor)
+    assert tx.tensor_equal(mul2_2.compute(tensor), mul2_2())
 
 
 def test_variable_layer():

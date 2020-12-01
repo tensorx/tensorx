@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 import logging
 from collections import Counter
 
@@ -680,3 +681,46 @@ def cast_like(x, y):
         except AttributeError:
             pass
     return cast_x
+
+
+def fix_reshape_dimensions(input_shape, output_shape):
+    """Find and replace a missing dimension in an output shape.
+    This is a near direct port of the internal Numpy function
+    `_fix_unknown_dimension` in `numpy/core/src/multiarray/shape.c`
+    Arguments:
+      input_shape: Shape of array being reshaped
+      output_shape: Desired shape of the array with at most
+        a single -1 which indicates a dimension that should be
+        derived from the input shape.
+    Returns:
+      The new output shape with a -1 replaced with its computed value.
+    Raises:
+      ValueError: If the total array size of the output_shape is
+      different than the input_shape, or more than one unknown dimension
+      is specified.
+    """
+    output_shape = list(output_shape)
+    msg = ('total size of new tensor must be unchanged, '
+           'input_shape = {}, output_shape = {}'
+           .format(input_shape, output_shape))
+
+    known = 1
+    unknown = None
+    for i, dim in enumerate(output_shape):
+        if dim < 0:
+            if unknown is None:
+                unknown = i
+            else:
+                raise ValueError('Can only specify one unknown dimension.')
+        else:
+            known *= dim
+
+    # TODO I could eliminate the numpy dependency here with reduce prod
+    original = np.prod(input_shape, dtype=int)
+    if unknown is not None:
+        if known == 0 or original % known != 0:
+            raise ValueError(msg)
+        output_shape[unknown] = original // known
+    elif original != known:
+        raise ValueError(msg)
+    return output_shape

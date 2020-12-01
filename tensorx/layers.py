@@ -15,7 +15,7 @@ import inspect
 from contextlib import ExitStack
 
 import tensorx as tx
-from tensorx.utils import as_tensor, as_list, Graph
+from tensorx.utils import as_tensor, as_list, Graph, fix_reshape_dimensions
 from tensorx.ops import embedding_lookup_sparse
 from tensorx.train.callbacks import OnValueChange
 
@@ -268,6 +268,20 @@ class Layer(AutoTrackable, ABC):
             self.__dict__.update(self.layer_state.__dict__)
 
     @property
+    def input(self):
+        """ syntax sugar to return a single input if layers only have one input
+        or the last layer if the current layer has more than one input
+
+        Returns:
+            layer (`Layer`): single input of the current layer
+        """
+        if hasattr(self, "inputs"):
+            if len(self.inputs) > 0:
+                return self.inputs[-1]
+            else:
+                return None
+
+    @property
     def input_graph(self):
         """ Lazy initialization for input_graph
 
@@ -373,14 +387,24 @@ class Layer(AutoTrackable, ABC):
         # https://github.com/tensorflow/tensorflow/blob/fcc4b966f1265f466e82617020af93670141b009/tensorflow/python/keras/engine/base_layer.py#L715
         # and get the shape for each output nest.map_structure(lambda t: t.shape, outputs)
         # raise NotImplementedError("shape inference not implemented for this layer")
-        input_shapes = [lr.shape for lr in self.inputs]
-        input_layers = [Input(shape=input_shape) for input_shape in input_shapes]
-        # since init_state is already called for current layer
+        # try:
+        input_shapes = [tf.TensorShape([0 if s is None else s for s in lr.shape]) for lr in self.inputs]
+
+
+        # input_layers = [Input(shape=input_shape,constant=True) for input_shape in input_shapes]
+        # input_tensors = [input_layer() for input_layer in input_layers]
+        input_tensors = [tf.zeros(input_shape) for input_shape in input_shapes]
         self.layer_state = self.init_state()
-        outputs = self(*input_layers)
-        output_shapes = [output.shape for output in outputs]
-        if len(output_shapes) == 1:
-            return output_shapes[0]
+        output: Union[tf.Tensor, tf.SparseTensor] = self.compute(*input_tensors)
+
+        output_shape = tf.TensorShape([None if s == 0 else s for s in output.shape])
+        return output_shape
+        # except Exception as e:
+        #     if self.shape is not None:
+        #         return self.shape
+        #     else:
+        #         raise ValueError(f"could not infer the output shape, please provide a shape:"
+        #                          f"\t{str(e)}")
 
     def compute(self, *args):
         raise NotImplementedError("computation not implemented for this layer")
@@ -485,16 +509,49 @@ class Layer(AutoTrackable, ABC):
                       name=f"get_item_{item_name.replace('-', 'minus')}")
 
     def __add__(self, other):
-        other = as_layer(other, dtype=self.dtype)
-        return Add(self, other)
+        if isinstance(other, Layer):
+            return Lambda(self,
+                          other,
+                          fn=tf.add,
+                          n_units=self.n_units,
+                          dtype=self.dtype,
+                          name="Add")
+        else:
+            other = as_tensor(other, self.dtype)
+            return Lambda(self,
+                          fn=lambda tensor: tf.add(tensor, other),
+                          n_units=self.n_units, dtype=self.dtype,
+                          name="Add")
 
     def __sub__(self, other):
-        other = as_layer(other, dtype=self.dtype)
-        return Lambda(self, other, fn=tf.subtract, n_units=self.n_units, dtype=self.dtype, name="Sub")
+        if isinstance(other, Layer):
+            return Lambda(self,
+                          other,
+                          fn=tf.subtract,
+                          n_units=self.n_units,
+                          dtype=self.dtype,
+                          name="Sub")
+        else:
+            other = as_tensor(other, self.dtype)
+            return Lambda(self,
+                          fn=lambda tensor: tf.subtract(tensor, other),
+                          n_units=self.n_units, dtype=self.dtype,
+                          name="Sub")
 
     def __mul__(self, other):
-        other = as_layer(other, dtype=self.dtype)
-        return Lambda(self, other, fn=tf.multiply, n_units=self.n_units, dtype=self.dtype, name="Mul")
+        if isinstance(other, Layer):
+            return Lambda(self,
+                          other,
+                          fn=tf.multiply,
+                          n_units=self.n_units,
+                          dtype=self.dtype,
+                          name="Mul")
+        else:
+            other = as_tensor(other, self.dtype)
+            return Lambda(self,
+                          fn=lambda tensor: tf.multiply(tensor, other),
+                          n_units=self.n_units, dtype=self.dtype,
+                          name="Mul")
 
 
 class Lambda(Layer):
@@ -687,6 +744,8 @@ class Wrap(Layer):
 
         self.wrapped = wrapped_layer
         self.wrap_fn = wrap_fn
+        # this will live inside module instead on init_state
+        self.wrap = self.wrap_fn(self.wrapped)
         self.fwd_attr = fwd_attr
 
         super().__init__(inputs=wrapped_layer.inputs,
@@ -699,14 +758,15 @@ class Wrap(Layer):
                          **attr_dict
                          )
 
+    def compute_shape(self):
+        return self.wrap.shape
+
     def init_state(self):
         state = super().init_state()
         with layer_scope(self, name=self.name):
             state.wrapped = self.wrapped
-            wrap = self.wrap_fn(self.wrapped)
-            # to make sure compute applies to the whole function
             state.wrap = Module(inputs=self.wrapped.inputs,
-                                output=wrap)
+                                output=self.wrap)
         return state
 
     # TODO I think this can be skipped because module is a layer and has variables
@@ -887,7 +947,9 @@ class Input(Layer):
                         self.n_units != self.shape[-1]:
                     raise ValueError(f"n_units and shape[-1] don't match:\n"
                                      f"\t  n_units: {self.n_units}\n\tshape[-1]: {self.shape[-1]}")
-                expected_shape = self.shape
+                # TODO inputs when given a shape only, should be treated
+                #  as being dynamic in the batch dimension?
+                expected_shape = [None] + self.shape[1:]
         else:  # VALUE NOT NONE
             if self.shape is None:
                 # if self.n_units is None at this point it means the value.shape[-1] is None for the input tensor
@@ -907,12 +969,12 @@ class Input(Layer):
         # verify shape
         if self.shape is not None:
             if not self.shape.is_compatible_with(expected_shape):
-                raise ValueError("Invalid shape for Input\n\texpected: {shape}\n\t"
-                                 " current: {invalid}".format(shape=expected_shape, invalid=self.shape))
-            else:
-                expected_shape = self.shape
-        else:
-            expected_shape
+                raise ValueError(f"Invalid shape for Input\n\texpected: {expected_shape}\n\t"
+                                 f" current: {self.shape}")
+            # else:
+            #    expected_shape = self.shape
+        # else:
+        #    expected_shape
 
         return tf.TensorShape(expected_shape)
 
@@ -1080,9 +1142,11 @@ class Constant(Input):
     def __init__(self,
                  init_value=None,
                  n_units=None,
-                 shape=None,
                  dtype=None,
                  name="tensor"):
+        init_value = tx.as_tensor(init_value, dtype=dtype)
+        shape = init_value.shape
+
         super().__init__(init_value=init_value,
                          n_units=n_units,
                          constant=True,
@@ -1237,10 +1301,21 @@ class Transpose(Layer):
     """
 
     def __init__(self, input_layer, perm=None, n_units=None, name="transpose"):
+        if perm is not None:
+            expected = input_layer.shape[perm[-1]]
+            if n_units is None:
+                n_units = input_layer.shape[perm[-1]]
 
-        n_units = n_units if perm is None or perm[-1] != len(perm) - 1 else input_layer.n_units
+            if n_units is not None and n_units != expected:
+                raise ValueError(f"n_units does not match permutation:"
+                                 f"\texpected {expected}"
+                                 f"\t n_units {n_units}")
 
-        # TODO this is redundant but the linter needs it
+        # n_units = n_units if perm is None or perm[-1] != len(perm) - 1 else input_layer.n_units
+
+        # TODO this is redundant because we have the kwargs in the base layer
+        #  that creates the attributes, a possible alternative is to modify
+        #  the setattr to add parameters to the class prototype automatically
         self.perm = perm
 
         super().__init__(inputs=input_layer,
@@ -1248,6 +1323,33 @@ class Transpose(Layer):
                          dtype=input_layer.dtype,
                          name=name,
                          perm=perm)
+
+    def compute_shape(self):
+        input_shape = self.input.shape.as_list()
+        output_shape = list(input_shape)
+
+        if self.perm is not None:
+            perm = self.perm
+        else:
+            perm = [len(input_shape) - 1 - i for i in range(len(input_shape))]
+
+        for i, dim in enumerate(perm):
+            target_dim = input_shape[dim]
+            output_shape[i] = target_dim
+
+        output_shape = tf.TensorShape(output_shape)
+        # TODO the problem is that this makes so that the previous
+        #  layers are forced to have certain dimensions which might not match
+        #  n_units, we could enforce graph shape verification but this will come later
+        if self.n_units is not None:
+            if output_shape[-1] is None:
+                output_shape = output_shape[:-1] + [self.n_units]
+            elif output_shape[-1] != self.n_units:
+                raise ValueError(f"inferred output shape does not match n_units"
+                                 f"\tn_units:{self.n_units}\n"
+                                 f"\toutput_shape[-1]:{output_shape[-1]}")
+
+        return output_shape
 
     def compute(self, *input_tensors):
         input_tensor = input_tensors[0]
@@ -1294,56 +1396,27 @@ class Reshape(Layer):
                          dtype=input_layer.dtype,
                          name=name)
 
-    def _fix_unknown_dimension(self, input_shape, output_shape):
-        """Find and replace a missing dimension in an output shape.
-        This is a near direct port of the internal Numpy function
-        `_fix_unknown_dimension` in `numpy/core/src/multiarray/shape.c`
-        Arguments:
-          input_shape: Shape of array being reshaped
-          output_shape: Desired shape of the array with at most
-            a single -1 which indicates a dimension that should be
-            derived from the input shape.
-        Returns:
-          The new output shape with a -1 replaced with its computed value.
-        Raises:
-          ValueError: If the total array size of the output_shape is
-          different than the input_shape, or more than one unknown dimension
-          is specified.
-        """
-        output_shape = list(output_shape)
-        msg = ('total size of new array must be unchanged, '
-               'input_shape = {}, output_shape = {}'
-               .format(input_shape, output_shape))
-
-        known, unknown = 1, None
-        for index, dim in enumerate(output_shape):
-            if dim < 0:
-                if unknown is None:
-                    unknown = index
-                else:
-                    raise ValueError('Can only specify one unknown dimension.')
-            else:
-                known *= dim
-
-        original = tf.reduce_prod(input_shape, dtype=int)
-        if unknown is not None:
-            if known == 0 or original % known != 0:
-                raise ValueError(msg)
-            output_shape[unknown] = original // known
-        elif original != known:
-            raise ValueError(msg)
-        return output_shape
-
     def compute_shape(self):
-        input_shape = self.inputs[0].shape
+        """
+
+        !!! problem
+            the problem in other libs like keras is they always assume
+            at least a 2d tensor, which for neural networks is acceptable but
+            if we try this as a general computational block, it breaks
+
+        Returns:
+
+        """
+        input_layer = self.inputs[-1]
+        input_shape = input_layer.shape.as_list()
         if None in input_shape[1:]:
+            # input partially unknown, replace -1's with None
             output_shape = [input_shape[0]]
-            # input shape (partially) unknown? replace -1's with None's
             output_shape += tuple(s if s != -1 else None for s in self.target_shape)
-        else:
-            output_shape = [input_shape[0]]
-            output_shape += self._fix_unknown_dimension(input_shape[1:],
-                                                        self.target_shape)
+
+        output_shape = fix_reshape_dimensions(input_shape=input_shape,
+                                              output_shape=self.target_shape)
+
         return tf.TensorShape(output_shape)
 
     def compute(self, *input_tensors):
@@ -1950,6 +2023,12 @@ class Dropout(Layer):
                          dtype=input_layer.dtype,
                          name=name
                          )
+
+    # TODO test removing this, default compute shape should be able to deal with it although this would require
+    #  dropout to be applied to the input layer
+    def compute_shape(self):
+        # same shape as input
+        return tf.TensorShape(self.inputs[-1].shape)
 
     def init_state(self):
         input_layer = self.inputs[0]
@@ -2722,6 +2801,11 @@ class Lookup(Layer):
         self.share_state_with = share_state_with
 
         super().__init__(inputs=input_layer, n_units=n_units, dtype=dtype, name=name)
+
+    def compute_shape(self):
+        batch_dim = self.inputs[-1].shape[0]
+
+        return tf.TensorShape((batch_dim, self.seq_size, self.n_units))
 
     def init_state(self):
         layer_state = super().init_state()
@@ -3902,7 +3986,7 @@ class MHAttention(Layer):
         self.head_units = n_units // n_heads
 
         # variables for type hinting
-        # TODO problem with this is that it overwrites the layer state
+        # TODO redundant but the linter has no way to know that these are attributes
         self.wq = None
         self.wk = None
         self.wv = None
