@@ -276,7 +276,8 @@ def test_transpose():
 
     inputs = tx.Input(shape=tf.TensorShape([None, 3]))
     trans = tx.Transpose(inputs)
-    print(trans.shape)
+    assert trans.shape[-1] is None
+    assert trans.shape[0] == 3
 
 
 def test_transpose_reshape():
@@ -299,8 +300,12 @@ def test_transpose_reshape():
     assert x.shape == x2.shape
 
 
-def test_transpose_mul():
+def test_mul_shape():
     x = tx.Input(n_units=3)
+    m = x * 2
+    assert m.shape[0] is None
+    assert m.shape[-1] is 3
+
     t = tx.Transpose(x)
     assert t.shape[-1] is None
     t = tx.Transpose(x, n_units=3)
@@ -308,26 +313,37 @@ def test_transpose_mul():
     m = t * 2
     assert m.shape == [3, 3]
 
+    x = tx.Input(n_units=3)  # [None,3]
+    t = tx.Transpose(x)  # [None,None]
+    assert t.shape[0] == 3
+    assert t.shape[-1] is None
+
+    m = t * 2  # [None,None]
+
+    # TensorShape([3,None]) != TensorShape([3,None])
+    # because we don't know what None is
+    assert m.shape[0] == 3
+    assert m.shape[-1] == None
+
+
+def test_module_shape():
     x = tx.Input(n_units=3)
-    t = tx.Transpose(x)
-    m = t * 2
-    assert m.shape == [3, None]
+    t = tx.Transpose(x, n_units=3)
+    mul = t * 2
+    assert mul.shape == [3, 3]
+    m = tx.Module(output=mul, inputs=x)
+    assert m.n_units == 3
+    print(m.shape)
+    m()
 
 
 def test_wrap_shape():
     x = tx.Input(n_units=3)
-    t = tx.Transpose(x)
-    assert t.shape[-1] is None
-
-    # TODO problematic if input does not match this but
-    #  the user is forcing this choice on the layer
-    #  shape inference verification can be added later
     t = tx.Transpose(x, n_units=3)
     assert t.shape[-1] == 3
 
     w = tx.Wrap(t, wrap_fn=lambda layer: layer * 2)
-
-    print(w.shape)
+    assert w.shape == [3, 3]
 
 
 # TODO still failing but the problem is on Input layer with mismatching variable and shape

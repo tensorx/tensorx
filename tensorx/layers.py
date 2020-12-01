@@ -381,6 +381,8 @@ class Layer(AutoTrackable, ABC):
         Returns:
             shape (`tf.TensorShape`): best guess for the output shape of the layer
         """
+        # TODO alternative maintain Input layers BUT set input shape batch dimension to None
+
         # TODO what they do is get the input shapes for this layer and then create placeholder like
         #  layers that take this shapes (in our case they could be inputs)
         # they then call the current layer on outputs
@@ -388,23 +390,20 @@ class Layer(AutoTrackable, ABC):
         # and get the shape for each output nest.map_structure(lambda t: t.shape, outputs)
         # raise NotImplementedError("shape inference not implemented for this layer")
         # try:
-        input_shapes = [tf.TensorShape([0 if s is None else s for s in lr.shape]) for lr in self.inputs]
+        # input_shapes = [tf.TensorShape([0 if s is None else s for s in lr.shape]) for lr in self.inputs]
 
-
-        # input_layers = [Input(shape=input_shape,constant=True) for input_shape in input_shapes]
-        # input_tensors = [input_layer() for input_layer in input_layers]
-        input_tensors = [tf.zeros(input_shape) for input_shape in input_shapes]
+        input_shapes = [input_layer.shape for input_layer in self.inputs]
+        # input_layers = [Input(shape=[None] + input_shape[1:]) for input_shape in input_shapes]
+        input_layers = [Input(shape=input_shape) for input_shape in input_shapes]
+        input_tensors = [input_layer() for input_layer in input_layers]
+        # input_tensors = [tf.zeros(input_shape) for input_shape in input_shapes]
         self.layer_state = self.init_state()
-        output: Union[tf.Tensor, tf.SparseTensor] = self.compute(*input_tensors)
+        # output_tensor = self.compute(*input_tensors)
+        output_tensor = self.compute(*input_tensors)
 
-        output_shape = tf.TensorShape([None if s == 0 else s for s in output.shape])
-        return output_shape
-        # except Exception as e:
-        #     if self.shape is not None:
-        #         return self.shape
-        #     else:
-        #         raise ValueError(f"could not infer the output shape, please provide a shape:"
-        #                          f"\t{str(e)}")
+        output_shape = output_tensor.shape
+        # output_shape = tf.TensorShape([None if s == 0 else s for s in output_tensor.shape])
+        return tf.TensorShape([None] + output_shape[1:])
 
     def compute(self, *args):
         raise NotImplementedError("computation not implemented for this layer")
@@ -418,7 +417,7 @@ class Layer(AutoTrackable, ABC):
             else:
                 input_tensors = tuple()
         else:
-            input_layers = map(as_layer, input_layers)
+            input_layers = list(map(as_layer, input_layers))
             input_tensors = Graph.eval(*input_layers)
 
             # return {f"{self.scoped_name}_output": self.compute(*input_tensors)}
@@ -505,6 +504,7 @@ class Layer(AutoTrackable, ABC):
         return Lambda(self,
                       fn=lambda output_tensor: output_tensor[item],
                       n_units=self.n_units,
+                      shape=self.shape[1:],
                       dtype=self.dtype,
                       name=f"get_item_{item_name.replace('-', 'minus')}")
 
@@ -515,12 +515,14 @@ class Layer(AutoTrackable, ABC):
                           fn=tf.add,
                           n_units=self.n_units,
                           dtype=self.dtype,
+                          shape=self.shape,
                           name="Add")
         else:
             other = as_tensor(other, self.dtype)
             return Lambda(self,
                           fn=lambda tensor: tf.add(tensor, other),
                           n_units=self.n_units, dtype=self.dtype,
+                          shape=self.shape,
                           name="Add")
 
     def __sub__(self, other):
@@ -530,12 +532,14 @@ class Layer(AutoTrackable, ABC):
                           fn=tf.subtract,
                           n_units=self.n_units,
                           dtype=self.dtype,
+                          shape=self.shape,
                           name="Sub")
         else:
             other = as_tensor(other, self.dtype)
             return Lambda(self,
                           fn=lambda tensor: tf.subtract(tensor, other),
                           n_units=self.n_units, dtype=self.dtype,
+                          shape=self.shape,
                           name="Sub")
 
     def __mul__(self, other):
@@ -544,12 +548,14 @@ class Layer(AutoTrackable, ABC):
                           other,
                           fn=tf.multiply,
                           n_units=self.n_units,
+                          shape=self.shape,
                           dtype=self.dtype,
                           name="Mul")
         else:
             other = as_tensor(other, self.dtype)
             return Lambda(self,
                           fn=lambda tensor: tf.multiply(tensor, other),
+                          shape=self.shape,
                           n_units=self.n_units, dtype=self.dtype,
                           name="Mul")
 
@@ -1351,25 +1357,12 @@ class Transpose(Layer):
 
         return output_shape
 
-    def compute(self, *input_tensors):
-        input_tensor = input_tensors[0]
-
+    def compute(self, input_tensor):
         with layer_scope(self):
             if not isinstance(input_tensor, tf.SparseTensor):
                 output = tf.transpose(input_tensor, self.perm)
             else:
                 output = tf.sparse.transpose(input_tensor, self.perm)
-
-            # this is only needed to determine the
-            n_units = output.shape.as_list()[-1]
-
-            if self.n_units is not None:
-                if self.n_units != n_units:
-                    expected = self.n_units
-                    raise ValueError("n_units is different from defined n_units:\n"
-                                     f"\texpected: {expected}\n"
-                                     f"\tn_units: {n_units}")
-
             return output
 
     def reuse_with(self, input_layer, name=None):
@@ -1749,6 +1742,9 @@ class Module(Layer):
                          dtype=output.dtype,
                          name=name,
                          dependencies=self.dependencies)
+
+    def compute_shape(self):
+        return self.output.shape
 
     def init_state(self):
         state = super().init_state()
