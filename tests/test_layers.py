@@ -154,12 +154,12 @@ def test_dynamic_input_graph():
 
 def test_rnn_layer_proto():
     inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
-    inputs_proto = inputs.proto
+    inputs_proto = inputs.config
     inputs2 = inputs_proto()
     assert tx.tensor_equal(inputs(), inputs2())
 
     rnn_cell = tx.RNNCell(input_layer=inputs, n_units=3)
-    rnn_proto = rnn_cell.proto
+    rnn_proto = rnn_cell.config
     rnn_cell2 = rnn_proto(inputs)
 
     assert tx.shape_equal(rnn_cell(), rnn_cell2())
@@ -170,7 +170,7 @@ def test_shared_state():
     inputs = tf.ones([2, 4])
     l1 = tx.Linear(inputs, 8)
     l2 = tx.Linear(inputs, 8, share_state_with=l1)
-    proto = tx.Linear.proto(n_units=8, share_state_with=l1)
+    proto = tx.Linear.config(n_units=8, share_state_with=l1)
     l3 = proto(inputs)
 
     assert l1.weights is l2.weights
@@ -250,7 +250,7 @@ def test_linear_rank3():
     assert tx.tensor_equal(tf.shape(linear2()), [1, 2, 1])
 
 
-def test_constant():
+def test_constant_shape():
     tensor = tf.ones([3, 3])
     const_layer = tx.Constant(tensor)
 
@@ -323,7 +323,7 @@ def test_mul_shape():
     # TensorShape([3,None]) != TensorShape([3,None])
     # because we don't know what None is
     assert m.shape[0] == 3
-    assert m.shape[-1] == None
+    assert m.shape[-1] is None
 
 
 def test_module_shape():
@@ -333,7 +333,6 @@ def test_module_shape():
     assert mul.shape == [3, 3]
     m = tx.Module(output=mul, inputs=x)
     assert m.n_units == 3
-    print(m.shape)
     m()
 
 
@@ -346,27 +345,20 @@ def test_wrap_shape():
     assert w.shape == [3, 3]
 
 
-# TODO still failing but the problem is on Input layer with mismatching variable and shape
-#  when calling compute shape
 def test_wrap_transpose():
     tensor = tf.reshape(tf.range(9), [3, 3])
     t = tf.transpose(tensor)
 
     t_layer = tx.Transpose(t, n_units=3)
     assert t_layer.shape == (3, 3)
-    # using Wrap or a module is the same (in this case) except we
-    # don't have to create the graph and then the module
-    # this is like a decorator in a sense
-    mul2 = tx.Wrap(t_layer,
-                   wrap_fn=lambda layer: tx.Lambda(layer, fn=lambda x: x * 2)
-                   )
+
+    mul2 = tx.Wrap(t_layer, wrap_fn=lambda layer: layer * 2)
     mul2_2 = mul2.reuse_with(tensor)
 
     assert tx.tensor_equal(mul2_2(), t * 2)
     assert tx.tensor_equal(mul2(tensor), t * 2)
-
     assert tx.tensor_equal(mul2(t), mul2())
-
+    assert tx.tensor_equal(mul2.compute(t), mul2())
     assert tx.tensor_equal(mul2.compute(t), tf.transpose(t) * 2)
     assert tx.tensor_equal(t_layer.compute(t), tensor)
     assert tx.tensor_equal(mul2_2.compute(tensor), mul2_2())
@@ -482,8 +474,8 @@ def test_module_rnn():
     # test wrapping module around RNN because it has input dependencies that might not be given in the constructor
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
     x2 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x2")
-    rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
-    rnn2 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+    rnn1 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
+    rnn2 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
 
     out = tx.Concat(rnn1, rnn2)
 
@@ -508,7 +500,7 @@ def test_module_with_attention():
     """
 
     x1 = tx.Input(tf.ones([1, 2, 3]), n_units=3, name="x1")
-    rnn1 = tx.RNN(x1, cell_proto=tx.LSTMCell.proto(n_units=4), n_units=4, stateful=False)
+    rnn1 = tx.RNN(x1, cell_config=tx.LSTMCell.config(n_units=4), n_units=4, stateful=False)
     att = tx.MHAttention(rnn1, rnn1, rnn1, n_units=3)
     m = tx.Module(inputs=x1, output=att, dependencies=rnn1.previous_state)
     g = tx.Graph.build(inputs=x1, outputs=m, add_missing_inputs=True)
@@ -830,9 +822,9 @@ def test_rnn_layer():
     ones_state = tf.ones([batch_size, hidden_dim])
     zero_state = (tf.zeros([batch_size, hidden_dim]))
 
-    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
+    rnn_proto = tx.RNNCell.config(n_units=hidden_dim)
 
-    rnn1 = tx.RNN(seq, cell_proto=rnn_proto, previous_state=ones_state, return_state=True)
+    rnn1 = tx.RNN(seq, cell_config=rnn_proto, previous_state=ones_state, return_state=True)
     rnn2 = rnn1.reuse_with(seq)
 
     #  problem with RNN layer is that it uses modules that require
@@ -887,8 +879,8 @@ def test_biRNN():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
-    rnn0 = tx.RNN(seq, cell_proto=rnn_proto, stateful=False, return_state=True)
+    rnn_proto = tx.RNNCell.config(n_units=hidden_dim)
+    rnn0 = tx.RNN(seq, cell_config=rnn_proto, stateful=False, return_state=True)
 
     # because a stateful rnn0 has a variable layer as input as well
     rnn_m0 = tx.Module(inputs=rnn0.inputs, output=rnn0)
@@ -923,10 +915,10 @@ def test_stateful_rnn_layer():
     lookup = tx.Lookup(inputs, seq_size=seq_size, embedding_shape=[n_features, embed_size])
     seq = lookup.permute_batch_time()
 
-    rnn_proto = tx.RNNCell.proto(n_units=hidden_dim)
+    rnn_proto = tx.RNNCell.config(n_units=hidden_dim)
 
-    rnn1 = tx.RNN(seq, cell_proto=rnn_proto, stateful=True, return_state=True)
-    lstm1 = tx.RNN(seq, cell_proto=tx.LSTMCell.proto(n_units=hidden_dim), stateful=True, return_state=True)
+    rnn1 = tx.RNN(seq, cell_config=rnn_proto, stateful=True, return_state=True)
+    lstm1 = tx.RNN(seq, cell_config=tx.LSTMCell.config(n_units=hidden_dim), stateful=True, return_state=True)
 
     zero_state0 = [layer() for layer in rnn1.previous_state]
 
@@ -1339,10 +1331,10 @@ def test_map_seq():
     seq = lookup.permute_batch_time()
 
     n_units = 2
-    linear_fn = tx.Linear.proto(n_units=n_units)
+    linear_fn = tx.Linear.config(n_units=n_units)
     assert tx.tensor_equal(tf.shape(seq()), [seq_size, batch_size, embed_size])
 
-    seq_map = tx.SeqMap(seq, n_units=2, layer_proto=linear_fn)
+    seq_map = tx.SeqMap(seq, n_units=2, layer_config=linear_fn)
     assert tx.tensor_equal(tf.shape(seq_map), [seq_size, batch_size, n_units])
 
 

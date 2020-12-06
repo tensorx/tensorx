@@ -109,11 +109,11 @@ def test_lstm_rnn_stateful():
     # (N, T, M)
     # print(np.shape(seq()))
 
-    lstm_cell = tx.LSTMCell.proto(n_units=n_units,
-                                  activation=tf.tanh,
-                                  gate_activation=tf.sigmoid,
-                                  forget_bias_init=tf.initializers.ones()
-                                  )
+    lstm_cell = tx.LSTMCell.config(n_units=n_units,
+                                   activation=tf.tanh,
+                                   gate_activation=tf.sigmoid,
+                                   forget_bias_init=tf.initializers.ones()
+                                   )
 
     # state0 = [s() for s in lstm0.previous_state]
 
@@ -121,7 +121,7 @@ def test_lstm_rnn_stateful():
     # res1 = lstm1(inputs, state0)
     # res1_ = lstm1(inputs, state0)
 
-    lstm_layer = tx.RNN(input_seq=seq, cell_proto=lstm_cell, stateful=True, return_state=True)
+    lstm_layer = tx.RNN(input_seq=seq, cell_config=lstm_cell, stateful=True, return_state=True)
     state0 = [s() for s in lstm_layer.previous_state]
     lstm_layer()
     state1 = [s() for s in lstm_layer.previous_state]

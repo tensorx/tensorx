@@ -148,7 +148,7 @@ def test_model_var_inputs():
     # seq = lookup.permute_batch_time()
     seq = tx.Transpose(lookup, [1, 0, 2])
 
-    rnn1 = tx.RNN(seq, cell_proto=tx.RNNCell.proto(n_units=hidden_dim))
+    rnn1 = tx.RNN(seq, cell_config=tx.RNNCell.config(n_units=hidden_dim))
     y_ = tx.Linear(rnn1[seq_size - 1], n_units=out_size)
 
     # y_ = tx.Linear(tx.SeqConcat(lookup, seq_size=seq_size), n_units=out_size)
