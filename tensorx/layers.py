@@ -240,7 +240,7 @@ class Layer(AutoTrackable, ABC):
         self._inputs = [as_layer(input_layer) for input_layer in as_list(inputs)]
         self.n_units = n_units
         # is shape is not None, it overrides output shape
-        self._shape = tf.TensorShape(shape)
+        self._shape = None if shape is None else tf.TensorShape(shape)
         self.dtype = tf.dtypes.as_dtype(dtype) if dtype is not None else None
         self._input_graph: Optional[Graph] = None
         self.layer_state = None
@@ -267,10 +267,16 @@ class Layer(AutoTrackable, ABC):
         if self.layer_state is None:
             self.layer_state = self.init_state()
 
+        # forward attributes from state to avoid layer.layer_state.variable
+        # setattr is overriden to set values on layer state as well
+        if self.layer_state is not None:
+            self.__dict__.update(self.layer_state.__dict__)
+
         # ************************************
         #  validate _shape
         # ************************************
         shape = self.shape
+
         if self.n_units and len(shape) == 0:
             raise ValueError(f"n_units and shape don't match:\n"
                              f"\tn_units: {self.n_units}\n"
@@ -412,16 +418,6 @@ class Layer(AutoTrackable, ABC):
                 setattr(self.layer_state, key, value)
 
         super(Layer, self).__setattr__(key, value)
-
-    def __getattr__(self, name):
-        if hasattr(self, "layer_state") and self.layer_state is not None:
-            if hasattr(self.layer_state, name):
-                return getattr(self.layer_state, name)
-        elif hasattr(self, "config") and self.config is not None:
-            if name in self.config.kwargs:
-                return getattr(self.config.kwargs, name)
-        else:
-            return getattr(self, name)
 
     @property
     def trainable_variables(self):
@@ -947,34 +943,35 @@ class Input(Layer):
             else:
                 expected_shape = (None,) * num_dims
 
-        # n_active overwrites expected shape
-        if self.n_active is not None:
-            # expecting a sparse 2D Tensor using a dense 2D tensor with indices
-            expected_shape = (None, self.n_active)
+        # if self.n_active is not None:
+        #    # expecting a sparse 2D Tensor using a dense 2D tensor with indices
+        #    expected_shape = (None, self.n_units)
 
         return tf.TensorShape(expected_shape)
 
     def init_state(self):
         layer_state = super().init_state()
-        if self._value is None and len(self.shape) > 0 and self.shape[-1] is not None:
+        shape = self.shape if self.n_active is None else self.shape[:-1] + self.n_active
+
+        if self._value is None and len(shape) > 0 and shape[-1] is not None:
             # set the value based on shape
             if self.n_active is None:
                 if self.sparse:
-                    dense_shape = [1] * len(self.shape[:-1]) + [self.shape[-1]]
+                    dense_shape = [1] * len(shape[:-1]) + [shape[-1]]
                     self._value = tx.empty_sparse_tensor(dense_shape=dense_shape, dtype=self.dtype)
                 else:
-                    self._value = tf.zeros([1] * len(self.shape[:-1]) + [self.shape[-1]], dtype=self.dtype)
+                    self._value = tf.zeros([1] * len(shape[:-1]) + [shape[-1]], dtype=self.dtype)
             else:
                 self.sparse = True
-                self._value = tf.zeros([0] * len(self.shape[:-1]) + [self.shape[-1]], dtype=tf.int64)
+                self._value = tf.zeros([0] * len(shape[:-1]) + [shape[-1]], dtype=tf.int64)
         else:
             if isinstance(self._value, tf.SparseTensor):
                 self.sparse = True
 
         if self._value is None:
             # create an empty tensor with a len(self.shape) number of dimensions
-            if len(self.shape) > 0:
-                self._value = tf.reshape(tf.constant([], dtype=self.dtype), [0] * len(self.shape))
+            if len(shape) > 0:
+                self._value = tf.reshape(tf.constant([], dtype=self.dtype), [0] * len(shape))
             else:
                 self._value = tf.constant(0., dtype=self.dtype)
 
@@ -987,7 +984,7 @@ class Input(Layer):
                                                          name=f"{self.name}_slot")
                 else:
                     layer_state.slot = tf.Variable(initial_value=self._value,
-                                                   shape=self.shape,
+                                                   shape=shape,
                                                    dtype=self.dtype,
                                                    validate_shape=False,
                                                    trainable=False,
@@ -1019,9 +1016,10 @@ class Input(Layer):
         if not self.cast and self.dtype is not None and self.dtype != x.dtype:
             raise TypeError(f"Input \"{self.name}\" has dtype {self.dtype}, value received {x.dtype}")
 
-        if not x.shape.is_compatible_with(self.shape):
+        var_shape = self.shape if self.n_active is None else self.shape[:-1] + self.n_active
+        if not x.shape.is_compatible_with(var_shape):
             raise ValueError(f"Invalid shape:\n"
-                             f"\texpected: {self.shape}\n"
+                             f"\texpected: {var_shape}\n"
                              f"\t current: {x.shape.as_list()}")
 
         # validate value
@@ -1122,6 +1120,7 @@ class Constant(Input):
                  name="tensor"):
         init_value = tx.as_tensor(init_value, dtype=dtype)
         shape = init_value.shape
+        dtype = init_value.dtype
 
         super().__init__(init_value=init_value,
                          n_units=n_units,
