@@ -73,6 +73,14 @@ def test_input_spec():
         tx.Input(value, n_active=3, n_units=10)
 
 
+def test_input_config():
+    in1 = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
+    cfg1 = in1.config
+    in2 = cfg1()
+
+    assert tx.tensor_equal(in1(), in2())
+
+
 def test_input_value():
     inputs = tx.Input(n_units=4, dtype=tf.int32, constant=False)
     assert tx.tensor_equal(inputs.value, tf.zeros([1, 4], dtype=tf.int32))
@@ -689,6 +697,55 @@ def test_gru_cell():
     assert (batch_size, n_hidden) == np.shape(res1)
     assert tx.tensor_equal(res1, res3)
     assert not tx.tensor_equal(res1, res2)
+
+
+def test_gate():
+    vocab_size = 4
+    n_features = 3
+    seq_size = 2
+
+    inputs = tx.Input(init_value=np.array([[2, 0], [1, 2]]),
+                      n_units=seq_size,
+                      dtype=tf.int32,
+                      constant=True)
+
+    features = tx.Lookup(inputs, seq_size, embedding_shape=[vocab_size, n_features]).as_concat()
+    sp_features = tx.ToSparse(features)
+
+    gate_w = tx.Linear(features, n_units=seq_size, add_bias=True)
+    gate1 = tx.Gate(features, gate_w)
+    gate2 = gate1.reuse_with(sp_features)
+
+    r1 = gate1()
+    r2 = gate2()
+
+    assert tx.tensor_equal(r1, r2)
+
+
+def test_coupled_gate(self):
+    vocab_size = 4
+    n_features = 3
+    seq_size = 2
+
+    inputs = tx.Input(init_value=np.array([[2, 0], [1, 2]]),
+                      n_units=seq_size,
+                      dtype=tf.int32,
+                      constant=True)
+
+    features1 = tx.Lookup(inputs, seq_size, embedding_shape=[vocab_size, n_features]).as_concat()
+    features2 = tx.Lookup(inputs, seq_size, embedding_shape=[vocab_size, n_features]).as_concat()
+
+    sp_features1 = tx.ToSparse(features1)
+
+    gate_w = tx.Linear(features1, seq_size, add_bias=True)
+    coupled_gate = tx.CoupledGate(features1, features2, gate_w)
+
+    coupled_gate2 = coupled_gate.reuse_with(sp_features1, features2)
+
+    r1 = coupled_gate()
+    r2 = coupled_gate2()
+
+    assert tx.tensor_equal(r1, r2)
 
 
 def test_module_gate():

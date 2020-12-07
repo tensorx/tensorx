@@ -263,6 +263,7 @@ class Layer(AutoTrackable, ABC):
         config = type(self).config()
         new_args = config.filter_args(**self.__dict__)
         config.update(**new_args)
+        self.config = config
 
         if self.layer_state is None:
             self.layer_state = self.init_state()
@@ -402,21 +403,12 @@ class Layer(AutoTrackable, ABC):
         raise AttributeError("input_graph cannot be set")
 
     def __setattr__(self, key, value):
-        """ Overrides __setattr__ to change a layer_state if a mutable member is there as well
-
-        TODO consider making layer state members immutable, can just throw an exception here
-
-        !!! bug "Dev Note"
-            During debugging I noticed that changing an instance attribute shared with the layer state would not
-            change the layer state, this could be problematic if users are trying to debug something using
-            member names as a shortcut to layer_state.attribute, so this method checks if the attribute we're
-            trying to change is in a layer_state of an initialized Layer, ir it is, change its value there.
+        """ Overrides __setattr__ to setattr on layer_state first
         """
         if hasattr(self, "layer_state") and self.layer_state is not None:
+            # ignore private attributes these can be created by AutoTrackable
             if hasattr(self.layer_state, key) and not key.startswith("_"):
-                # raise ValueError(f"can't change {key} attribute because this was set by init_state")
                 setattr(self.layer_state, key, value)
-
         super(Layer, self).__setattr__(key, value)
 
     @property
@@ -2409,6 +2401,23 @@ class RNN(Layer):
                          share_state_with=share_state_with)
 
     def init_state(self):
+        """ Create a recurrent cell from the given config
+
+        The only stateful thing here is the cell which is a layer. Since layers
+        Need to know their input layer for their state to be initialized, we need
+        to give the cell a dummy input.
+
+        Solutions for this (Layers could be initialized with an input_shape param)
+        this would mean that the default state could be initialized using that shape
+        the default value on compute could be the identity (multiply by tf.ones)
+
+        # TODO input_shape as param for Layer, this can be a list or a single shape
+        #   requires all layers to support this init without input_layers
+        #   since a layer can have more than one input
+
+        Returns:
+            state (`LayerState`): a state with a cell layer that performs the computations
+        """
         layer_state = super().init_state()
         input_seq = self.inputs[0]
 
@@ -2416,6 +2425,7 @@ class RNN(Layer):
             # TODO add input_dim to RNNCells for syntax sugar
             #  create dummy input which is used to init the cell init state without running the entire graph
             #  I guess computing output shape would be useful here
+            # TODO already have that so does it apply
             x0 = tf.ones_like(input_seq[0])
 
             if self.share_state_with is not None:
@@ -2441,6 +2451,8 @@ class RNN(Layer):
         return layer_state
 
     def compute(self, input_seq, *prev_state):
+        # TODO we could call this h_state, c_state (with h being the hidden state of the last layer)
+        #
         with layer_scope(self):
             seq_len = tf.shape(input_seq)[0]
             input_ta = tf.TensorArray(dtype=input_seq.dtype, size=seq_len, tensor_array_name="inputs",
@@ -2461,12 +2473,13 @@ class RNN(Layer):
             x0 = input_ta.read(i0)
             output_ta = output_ta.write(i0, self.cell.compute(x0, *prev_state))
             state = tuple([state_i.compute(x0, *prev_state) for state_i in self.cell.state])
+            cell = self.layer_state.cell
 
             # state_ta = state_ta.write(i0, state)
 
             def rnn_unroll(seq_i, outputs, previous_state):
                 xt = input_ta.read(seq_i)
-                c = self.cell.compute(xt, *previous_state)
+                c = cell.compute(xt, *previous_state)
                 curr_state = tuple([state_i.compute(xt, *previous_state) for state_i in self.cell.state])
 
                 outputs = outputs.write(seq_i, c)
@@ -2484,7 +2497,7 @@ class RNN(Layer):
 
             # getting the results and store them in the previous state
             if self.stateful:
-                for zero_state, last_state in zip(self.cell.previous_state, last_state):
+                for zero_state, last_state in zip(cell.previous_state, last_state):
                     zero_state.variable.assign(last_state)
                 out = out.stack()
             else:
@@ -2556,11 +2569,11 @@ class RNNCell(BaseRNNCell):
                  name="rnn_cell"):
 
         self.share_state_with = share_state_with
+
         # TODO add all attributes here for readability
         #  consider adding a get config method where users can add the params manually to each class
 
         # attributes
-        # TODO consider putting init state in constructor
         self.output = None
         self.state = None
 
