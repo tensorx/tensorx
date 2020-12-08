@@ -277,20 +277,22 @@ class Layer(AutoTrackable, ABC):
         #  validate _shape
         # ************************************
         shape = self.shape
+        if shape is not None:
+            if self.n_units and len(shape) == 0:
+                raise ValueError(f"n_units and shape don't match:\n"
+                                 f"\tn_units: {self.n_units}\n"
+                                 f"\tshape: {shape}")
+            elif self.n_units is not None and \
+                    len(shape) > 0 and \
+                    shape[-1] and \
+                    self.n_units != shape[-1]:
+                raise ValueError(f"n_units and shape[-1] don't match:\n"
+                                 f"\t  n_units: {self.n_units}\n\tshape[-1]: {shape[-1]}")
 
-        if self.n_units and len(shape) == 0:
-            raise ValueError(f"n_units and shape don't match:\n"
-                             f"\tn_units: {self.n_units}\n"
-                             f"\tshape: {shape}")
-        elif self.n_units is not None and \
-                len(shape) > 0 and \
-                shape[-1] and \
-                self.n_units != shape[-1]:
-            raise ValueError(f"n_units and shape[-1] don't match:\n"
-                             f"\t  n_units: {self.n_units}\n\tshape[-1]: {shape[-1]}")
-
-        if shape is not None and self.n_units is None:
-            self.n_units = shape[-1]
+            if self.n_units is None:
+                self.n_units = shape[-1]
+        else:
+            raise ValueError("Layer shape could not be determined")
 
     @property
     def shape(self):
@@ -314,7 +316,7 @@ class Layer(AutoTrackable, ABC):
             shape (`tf.TensorShape`): best guess for the output shape of the layer
         """
 
-        return self._shape
+        raise NotImplementedError
 
     def init_state(self):
         """ init_state meant to be overriden in subclasses
@@ -385,8 +387,10 @@ class Layer(AutoTrackable, ABC):
             layer (`Layer`): single input of the current layer
         """
         if hasattr(self, "inputs"):
+            # if len(self.inputs) > 1:
+            #    raise AttributeError("this layer has multiple inputs, use .inputs[i] instead")
             if len(self.inputs) > 0:
-                return self.inputs[-1]
+                return self.inputs[0]
             else:
                 return None
 
@@ -658,6 +662,10 @@ class ToSparse(Layer):
                          n_units=input_layer.n_units,
                          dtype=input_layer.dtype,
                          name=input_layer.name + "_sparse")
+
+    def compute_shape(self):
+        input_shape = self.input.shape
+        return tf.TensorShape(input_shape)
 
     def compute(self, input_tensor):
         with layer_scope(self):
@@ -2316,6 +2324,12 @@ class BaseRNNCell(Layer, ABC):
                          dtype=dtype,
                          name=name)
 
+    def compute_shape(self):
+        input_shape = self.input.shape
+        assert len(input_shape) == 2
+        output_shape = (input_shape[0], self.n_units)
+        return tf.TensorShape(output_shape)
+
     def reuse_with(self, input_layer, *previous_state, regularized=None, name=None, **kwargs):
         # because we use objects and not scopes we can use self always on share state with
         share_state_with = self  # self if self.share_state_with is None else self.share_state_with
@@ -2690,6 +2704,10 @@ class Gate(Layer):
                          n_units=input_layer.n_units,
                          dtype=tf.float32,
                          name=name)
+
+    def compute_shape(self):
+        input_layer = self.inputs[0]
+        return tf.TensorShape(input_layer.shape)
 
     def compute(self, input_tensor=None, gate_tensor=None):
         # input_layer = input_layer if input_layer is not None else self.input_layers[0]
@@ -3535,6 +3553,9 @@ class Activation(Layer):
                          n_units=input_layer.n_units,
                          dtype=input_layer.dtype,
                          name=name)
+
+    def compute_shape(self):
+        return self.input.shape
 
     def compute(self, input_tensor):
         with layer_scope(self):

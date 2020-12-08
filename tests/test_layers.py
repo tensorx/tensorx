@@ -160,18 +160,10 @@ def test_dynamic_input_graph():
     assert not tx.tensor_equal(out1, out2)
 
 
-def test_rnn_layer_proto():
+def test_activation():
     inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
-    inputs_proto = inputs.config
-    inputs2 = inputs_proto()
-    assert tx.tensor_equal(inputs(), inputs2())
-
-    rnn_cell = tx.RNNCell(input_layer=inputs, n_units=3)
-    rnn_proto = rnn_cell.config
-    rnn_cell2 = rnn_proto(inputs)
-
-    assert tx.shape_equal(rnn_cell(), rnn_cell2())
-    assert not tx.tensor_equal(rnn_cell(), rnn_cell2())
+    output = tx.Activation(inputs, tf.sigmoid)
+    assert tx.shape_same(inputs.shape, output.shape)
 
 
 def test_shared_state():
@@ -576,18 +568,20 @@ def test_rnn_cell():
     n_hidden = 2
     batch_size = 2
 
-    inputs = tx.Input(tf.ones([batch_size, n_inputs]))
+    x = tx.Input(init_value=tf.ones([batch_size, n_inputs]), constant=False)
+    rnn1 = tx.RNNCell(x, n_hidden)
 
-    rnn1 = tx.RNNCell(inputs, n_hidden)
+    assert rnn1.shape[0] == x.shape[0]
+    assert rnn1.shape[-1] == rnn1.n_units
 
     state = rnn1.state
     state = state[0]()
 
-    rnn_2 = rnn1.reuse_with(inputs, state)
-    rnn_3 = rnn1.reuse_with(inputs)
+    rnn_2 = rnn1.reuse_with(x, state)
+    rnn_3 = rnn1.reuse_with(x)
 
     with pytest.raises(TypeError):
-        tx.RNNCell(inputs, n_hidden, share_state_with=inputs)
+        tx.RNNCell(x, n_hidden, share_state_with=x)
         pytest.fail("Type Error Expected: inputs cannot share state with RNNCell")
 
     res1 = rnn1()
@@ -597,6 +591,20 @@ def test_rnn_cell():
     assert (batch_size, n_hidden) == np.shape(res1)
     assert tx.tensor_equal(res1, res3)
     assert not tx.tensor_equal(res1, res2)
+
+
+def test_rnn_layer_config():
+    x1 = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
+    x_config = x1.config
+    x2 = x_config()
+    assert tx.tensor_equal(x1(), x2())
+
+    rnn_cell = tx.RNNCell(input_layer=x1, n_units=3)
+    rnn_proto = rnn_cell.config
+    rnn_cell2 = rnn_proto(x1)
+
+    assert tx.shape_equal(rnn_cell(), rnn_cell2())
+    assert not tx.tensor_equal(rnn_cell(), rnn_cell2())
 
 
 def test_gru_cell_module():
@@ -704,45 +712,25 @@ def test_rnn_cell_drop():
     assert tx.tensor_equal(mask1, mask2)
 
 
-def test_gru_cell():
-    n_inputs = 4
-    n_hidden = 2
-    batch_size = 2
-    data = tf.ones([batch_size, 4])
+def test_to_sparse():
+    inputs = tx.Input(init_value=tf.ones([2, 100]))
+    linear = tx.Linear(inputs, n_units=100)
+    relu = tx.Activation(linear, tx.relu)
+    sparse = tx.ToSparse(relu)
 
-    inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
-    rnn_1 = tx.GRUCell(inputs, n_hidden)
-
-    rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
-
-    # if we don't wipe the memory it reuses it
-    rnn_3 = rnn_1.reuse_with(inputs, tx.GRUCell.zero_state(rnn_1.n_units))
-
-    res1 = rnn_1()
-    res2 = rnn_2()
-    res3 = rnn_3()
-
-    assert (batch_size, n_hidden) == np.shape(res1)
-    assert tx.tensor_equal(res1, res3)
-    assert not tx.tensor_equal(res1, res2)
+    assert tx.shape_same(sparse.shape, linear.shape)
+    assert tx.shape_same(sparse.shape, relu.shape)
 
 
 def test_gate():
-    vocab_size = 4
-    n_features = 3
-    seq_size = 2
+    inputs = tx.Input(init_value=tf.ones([2, 3]))
+    linear = tx.Linear(inputs, n_units=4)
+    nop = tx.Activation(linear, fn=tx.identity)
+    gate_w = tx.Linear(linear, n_units=4, add_bias=True)
+    gate1 = tx.Gate(linear, gate_w)
+    gate2 = gate1.reuse_with(nop)
 
-    inputs = tx.Input(init_value=np.array([[2, 0], [1, 2]]),
-                      n_units=seq_size,
-                      dtype=tf.int32,
-                      constant=True)
-
-    features = tx.Lookup(inputs, seq_size, embedding_shape=[vocab_size, n_features]).as_concat()
-    sp_features = tx.ToSparse(features)
-
-    gate_w = tx.Linear(features, n_units=seq_size, add_bias=True)
-    gate1 = tx.Gate(features, gate_w)
-    gate2 = gate1.reuse_with(sp_features)
+    assert tx.shape_same(gate1.shape, gate2.shape)
 
     r1 = gate1()
     r2 = gate2()
@@ -797,6 +785,29 @@ def test_module_gate():
 
     assert tx.tensor_equal(result1, result2 * 2)
     assert tx.tensor_equal(result2, result3)
+
+
+def test_gru_cell():
+    n_inputs = 4
+    n_hidden = 2
+    batch_size = 2
+    data = tf.ones([batch_size, 4])
+
+    inputs = tx.Input(init_value=data, n_units=n_inputs, dtype=tf.float32)
+    rnn_1 = tx.GRUCell(inputs, n_hidden)
+
+    rnn_2 = rnn_1.reuse_with(inputs, rnn_1)
+
+    # if we don't wipe the memory it reuses it
+    rnn_3 = rnn_1.reuse_with(inputs, tx.GRUCell.zero_state(rnn_1.n_units))
+
+    res1 = rnn_1()
+    res2 = rnn_2()
+    res3 = rnn_3()
+
+    assert (batch_size, n_hidden) == np.shape(res1)
+    assert tx.tensor_equal(res1, res3)
+    assert not tx.tensor_equal(res1, res2)
 
 
 def test_lstm_cell():
