@@ -236,9 +236,14 @@ def test_linear():
 
 
 def test_linear_rank3():
-    x1 = tx.Input([[[1], [1]], [[2], [2]]], dtype=tf.float32)
+    val = tf.constant([[[1], [1]], [[2], [2]]])
+    x1 = tx.Input(val, dtype=tf.float32)
     x2 = tx.Transpose(x1)
+
+    assert val.shape[1:] == x1.shape[1:]
+
     x1_flat = tx.Reshape(x1, [-1, 1])
+
     linear1 = tx.Linear(x1, n_units=2)
     linear2 = tx.Linear(x2,
                         weights_shape=[2, 1],
@@ -286,6 +291,19 @@ def test_transpose():
     trans = tx.Transpose(inputs)
     assert trans.shape[-1] is None
     assert trans.shape[0] == 3
+
+
+def test_reshape_shape():
+    x = tf.reshape(tf.range(9), [3, 3, 1])
+    x = tx.Input(x, dtype=tf.float32)
+    flat = tx.Reshape(x, [-1, 1])
+    assert flat.shape[0] is None
+    assert flat.shape[-1] == 1
+
+    x = tx.Input(x, shape=[3, 3, 1], dtype=tf.float32)
+    print(x.shape)
+    flat = tx.Reshape(x, [-1, 1])
+    print(flat.shape)
 
 
 def test_transpose_reshape():

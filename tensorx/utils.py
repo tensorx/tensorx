@@ -683,44 +683,48 @@ def cast_like(x, y):
     return cast_x
 
 
-def fix_reshape_dimensions(input_shape, output_shape):
-    """Find and replace a missing dimension in an output shape.
-    This is a near direct port of the internal Numpy function
-    `_fix_unknown_dimension` in `numpy/core/src/multiarray/shape.c`
-    Arguments:
-      input_shape: Shape of array being reshaped
-      output_shape: Desired shape of the array with at most
-        a single -1 which indicates a dimension that should be
-        derived from the input shape.
-    Returns:
-      The new output shape with a -1 replaced with its computed value.
-    Raises:
-      ValueError: If the total array size of the output_shape is
-      different than the input_shape, or more than one unknown dimension
-      is specified.
-    """
-    output_shape = list(output_shape)
-    msg = ('total size of new tensor must be unchanged, '
-           'input_shape = {}, output_shape = {}'
-           .format(input_shape, output_shape))
+def fix_reshape_dimensions(original_shape, target_shape):
+    """ Find and replace a missing dimension in a target shape.
 
-    known = 1
-    unknown = None
-    for i, dim in enumerate(output_shape):
+    Args:
+      original_shape (`List[int]`): shape of tensor being reshaped
+      target_shape (`List`): desired shape with at most a single -1
+        which indicates a dimension that should be derived from the input shape.
+
+    Returns:
+        new_shape (`List`): the new shape with a -1 replaced with its computed value.
+
+    Raises:
+      `ValueError`: if the total tensor size of the new_shape is different than
+      the original_shape, or more than one unknown (-1) dimension are specified.
+    """
+    target_shape = list(target_shape)
+
+    target_n = 1
+    target_unknown = None
+    for i, dim in enumerate(target_shape):
         if dim < 0:
-            if unknown is None:
-                unknown = i
+            if target_unknown is None:
+                target_unknown = i
             else:
                 raise ValueError('Can only specify one unknown dimension.')
         else:
-            known *= dim
+            target_n *= dim
 
-    # TODO I could eliminate the numpy dependency here with reduce prod
-    original = np.prod(input_shape, dtype=int)
-    if unknown is not None:
-        if known == 0 or original % known != 0:
+    msg = ('total size of new tensor must be unchanged, '
+           'input_shape = {}, output_shape = {}'
+           .format(original_shape, target_shape))
+
+    # the target should match original known
+    original_known = [dim if dim else 1 for dim in original_shape]
+    original_n = np.prod(original_known, dtype=int, keepdims=False)
+    if target_unknown is not None:
+        if target_n == 0 or original_n % target_n != 0:
             raise ValueError(msg)
-        output_shape[unknown] = original // known
-    elif original != known:
+        elif None in original_shape and len(original_shape) != len(target_shape) and original_n > target_n:
+            target_shape[target_unknown] = None
+        else:
+            target_shape[target_unknown] = original_n // target_n
+    elif original_n != target_n:
         raise ValueError(msg)
-    return output_shape
+    return target_shape

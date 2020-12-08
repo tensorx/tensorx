@@ -289,6 +289,9 @@ class Layer(AutoTrackable, ABC):
             raise ValueError(f"n_units and shape[-1] don't match:\n"
                              f"\t  n_units: {self.n_units}\n\tshape[-1]: {shape[-1]}")
 
+        if shape is not None and self.n_units is None:
+            self.n_units = shape[-1]
+
     @property
     def shape(self):
         if self._shape is None:
@@ -298,7 +301,11 @@ class Layer(AutoTrackable, ABC):
 
     @shape.setter
     def shape(self, value):
-        raise AttributeError("can't set attribute")
+        if not isinstance(value, TensorShape):
+            value = tf.TensorShape(value)
+        if self._shape is not None and self._shape.is_compatible_with(value):
+            self._shape = value
+        # raise AttributeError("can't set attribute")
 
     def compute_shape(self):
         """ called before init_state
@@ -592,7 +599,6 @@ class Lambda(Layer):
         self.var_list = var_list
         self.fn = fn
         self.apply_to_layer = apply_to_layer
-        self.shape = shape
 
         super().__init__(inputs=layers,
                          n_units=n_units,
@@ -931,7 +937,8 @@ class Input(Layer):
         else:  # VALUE NOT NONE
             num_dims = len(self._value.shape)
             if self.n_units is not None and self.n_units > 0:
-                expected_shape = (None,) * (num_dims - 1) + (self.n_units,)
+                # expected_shape = (None,) * (num_dims - 1) + (self.n_units,)
+                expected_shape = (None,) + self._value.shape[1:]
             else:
                 expected_shape = (None,) * num_dims
 
@@ -1150,7 +1157,6 @@ class VariableLayer(Layer):
         self.counter = None
         self.variable = None
 
-        self.shape = shape
         self.update_once = update_once
         self.trainable = trainable
         self.resource = resource
@@ -1160,15 +1166,15 @@ class VariableLayer(Layer):
         super().__init__(input_layer,
                          n_units=n_units,
                          dtype=dtype,
-                         name=name)
+                         name=name,
+                         shape=shape)
 
     def compute_shape(self):
         return
 
     def init_state(self):
         state = super().init_state()
-
-        input_layer = self.inputs[-1] if len(self.inputs) > 0 else None
+        input_layer = self.input if len(self.inputs) > 0 else None
 
         if input_layer is not None:
             if self.n_units is not None and self.n_units != input_layer.n_units:
@@ -1342,10 +1348,9 @@ class Reshape(Layer):
         input_layer (Layer): an input layer to be reshaped
     """
 
-    def __init__(self, input_layer, shape, name="reshape"):
+    def __init__(self, input_layer, target_shape, name="reshape"):
 
-        self.shape = shape
-        self.target_shape = [d if d is not None else -1 for d in shape]
+        self.target_shape = [d if d is not None else -1 for d in target_shape]
         n_units = self.target_shape[-1] if self.target_shape[-1] > 0 else None
 
         super().__init__(inputs=input_layer,
@@ -1364,15 +1369,10 @@ class Reshape(Layer):
         Returns:
 
         """
-        input_layer = self.inputs[-1]
-        input_shape = input_layer.shape.as_list()
-        if None in input_shape[1:]:
-            # input partially unknown, replace -1's with None
-            output_shape = [input_shape[0]]
-            output_shape += tuple(s if s != -1 else None for s in self.target_shape)
+        input_shape = self.input.shape
 
-        output_shape = fix_reshape_dimensions(input_shape=input_shape,
-                                              output_shape=self.target_shape)
+        output_shape = fix_reshape_dimensions(input_shape,
+                                              self.target_shape)
 
         return tf.TensorShape(output_shape)
 
