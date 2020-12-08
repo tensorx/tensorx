@@ -1163,6 +1163,22 @@ class VariableLayer(Layer):
         self.init = init
         self.share_state_with = share_state_with
 
+        # TODO this doesn't feel right
+        if input_layer is not None:
+            if n_units is not None and n_units != input_layer.n_units:
+                raise ValueError("n_units must match input_layer.n_units")
+            n_units = input_layer.n_units
+            dtype = input_layer.dtype if dtype is None else dtype
+        elif n_units is not None:
+            if shape is None:
+                raise ValueError("shape could not be determined: either supply an input layer or shape")
+        else:
+            n_units = shape[-1]
+
+        # TODO this could be cleaner
+        if n_units is None:
+            raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
+
         super().__init__(input_layer,
                          n_units=n_units,
                          dtype=dtype,
@@ -1170,40 +1186,24 @@ class VariableLayer(Layer):
                          shape=shape)
 
     def compute_shape(self):
-        return
+        return (None,) + self.input.shape[1:]
 
     def init_state(self):
         state = super().init_state()
         input_layer = self.input if len(self.inputs) > 0 else None
 
+        shape = self.shape
+
+        var_shape = shape
         if input_layer is not None:
-            if self.n_units is not None and self.n_units != input_layer.n_units:
-                raise ValueError("n_units must match input_layer.n_units")
-            self.n_units = input_layer.n_units
-            self.dtype = input_layer.dtype if self.dtype is None else self.dtype
-            self.shape = [1, self.n_units]
-
-        else:
-            if self.n_units is not None:
-                if self.shape is not None:
-                    if self.shape[-1] != self.n_units:
-                        raise ValueError(
-                            f"n_units {self.n_units} does not match var_shape last dimension {self.shape[-1]}")
-                else:
-                    raise ValueError("shape could not be determined: either supply an input layer or shape")
-            else:
-                self.n_units = self.shape[-1]
-
-        if self.n_units is None:
-            raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
-
-        if len(self.shape) > 1:
-            self.shape[0] = 1
+            var_shape = (1,) + input_layer.shape[1:]
+        if var_shape is None and shape is not None:
+            var_shape = (1,) + shape[1:]
 
         with layer_scope(self):
             if self.share_state_with is None:
-                variable = tf.Variable(initial_value=self.init(self.shape, dtype=self.dtype),
-                                       shape=tf.TensorShape([None] + self.shape[1:]),
+                variable = tf.Variable(initial_value=self.init(var_shape, dtype=self.dtype),
+                                       shape=tf.TensorShape([None] + var_shape[1:]),
                                        validate_shape=True,
                                        trainable=self.trainable,  # default = False
                                        name=self.name + "_variable")
