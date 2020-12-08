@@ -473,6 +473,16 @@ def test_standalone_variable_layer():
     assert tx.tensor_equal(tf.zeros([4]), var_layer())
 
 
+def test_merge_add_shape():
+    x1 = tx.Input([[2.]], n_units=1, name="x1")
+    x2 = tx.Input([[2.]], n_units=1, name="x2")
+
+    add = tx.Add(x1, x2)
+    assert len(add.shape) == 2
+    assert add.shape[-1] == 1
+    assert add.shape[0] is None
+
+
 def test_module_reuse_order():
     x1 = tx.Input([[2.]], n_units=1, name="x1")
     x2 = tx.Input([[2.]], n_units=1, name="x2")

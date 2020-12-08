@@ -1163,21 +1163,17 @@ class VariableLayer(Layer):
         self.init = init
         self.share_state_with = share_state_with
 
-        # TODO this doesn't feel right
+        if shape is not None:
+            if n_units is not None and n_units != shape[-1]:
+                raise ValueError(f"n_units doesn't match shape[-1]")
+            n_units = shape[-1]
+
         if input_layer is not None:
             if n_units is not None and n_units != input_layer.n_units:
                 raise ValueError("n_units must match input_layer.n_units")
-            n_units = input_layer.n_units
+            elif n_units is None:
+                n_units = input_layer.n_units
             dtype = input_layer.dtype if dtype is None else dtype
-        elif n_units is not None:
-            if shape is None:
-                raise ValueError("shape could not be determined: either supply an input layer or shape")
-        else:
-            n_units = shape[-1]
-
-        # TODO this could be cleaner
-        if n_units is None:
-            raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
 
         super().__init__(input_layer,
                          n_units=n_units,
@@ -1186,7 +1182,13 @@ class VariableLayer(Layer):
                          shape=shape)
 
     def compute_shape(self):
-        return (None,) + self.input.shape[1:]
+        # only called if shape is not given
+        if self.inputs:
+            return (None,) + self.input.shape[1:]
+        else:
+            if self.n_units is None:
+                raise ValueError("invalid variable layer parameters: either supply input layer or a valid shape")
+            return tf.TensorShape((None, self.n_units))
 
     def init_state(self):
         state = super().init_state()
@@ -2419,7 +2421,7 @@ class RNN(Layer):
             state (`LayerState`): a state with a cell layer that performs the computations
         """
         layer_state = super().init_state()
-        input_seq = self.inputs[0]
+        input_seq = self.input
 
         with layer_scope(self):
             # TODO add input_dim to RNNCells for syntax sugar
@@ -3546,7 +3548,8 @@ class Activation(Layer):
         return Activation(input_layer, self.fn, name, **self.kw)
 
 
-class Merge(Layer):
+# TODO compute shape
+class Merge(Lambda):
     """Merge Layer
 
     Merges a list layers by combining their tensors with a merging function.
@@ -3587,36 +3590,25 @@ class Merge(Layer):
 
         self.weights = weights
         self.merge_fn = merge_fn
+        if dtype is None:
+            dtype = inputs[0].dtype
 
-        super().__init__(inputs=inputs, n_units=n_units, dtype=dtype, name=name, **kwargs)
+        def merge_fn(*tensors):
+            if self.weights is not None:
+                tensors = [tf.math.scalar_mul(self.weights[i], tensors[i]) for i in
+                           range(len(tensors))]
 
-    def compute(self, *input_tensors):
-        outputs = [as_tensor(ts) for ts in input_tensors]
-        if self.weights is not None:
-            outputs = [tf.math.scalar_mul(self.weights[i], outputs[i]) for i in
-                       range(len(outputs))]
-
-        with layer_scope(self):
-            output = self.merge_fn(outputs)
-
-            # shape = tf.shape(output)
-
-            # if self.n_units is None:
-            #     if len(shape) > 0:
-            #         self.n_units = shape[-1]
-            # elif self.n_units > 0:
-            #     if shape[-1] != self.n_units:
-            #         raise ValueError(
-            #             f"output n_units {tf.shape(output)[-1]} does not match n_units {self.n_units}")
-
-            if self.dtype is None:
-                self.dtype = output.dtype
-            else:
-                if self.dtype != output.dtype:
-                    output = tf.cast(output, self.dtype)
+            output = self.merge_fn(tensors)
             output = tf.cast(output, self.dtype)
 
-        return output
+            return output
+
+        super().__init__(*inputs,
+                         fn=merge_fn,
+                         n_units=n_units,
+                         dtype=dtype,
+                         name=name,
+                         **kwargs)
 
     def reuse_with(self, *layers, name=None):
         if name is None:
@@ -3638,6 +3630,7 @@ class Add(Merge):
 
         n_units = inputs[0].n_units
         dtype = inputs[0].dtype
+        shape = inputs[0].shape
         for lr in inputs[1:]:
             if lr.n_units is not None:
                 if lr.n_units != n_units:
@@ -3660,7 +3653,13 @@ class Add(Merge):
 
         # merge_add = tf.add_n
 
-        super().__init__(*inputs, n_units=n_units, dtype=dtype, weights=weights, merge_fn=merge_add, name=name)
+        super().__init__(*inputs,
+                         n_units=n_units,
+                         dtype=dtype,
+                         weights=weights,
+                         merge_fn=merge_add,
+                         shape=shape,
+                         name=name)
 
 
 class Concat(Merge):
