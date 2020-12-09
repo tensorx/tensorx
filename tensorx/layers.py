@@ -692,6 +692,10 @@ class ToDense(Layer):
                          dtype=input_layer.dtype,
                          name=input_layer.name + "_dense")
 
+    def compute_shape(self):
+        input_shape = self.input.shape
+        return tf.TensorShape(input_shape)
+
     def compute(self, input_tensor):
         with layer_scope(self):
             if isinstance(input_tensor, tf.SparseTensor):
@@ -950,14 +954,8 @@ class Input(Layer):
                     expected_shape = (None, self.n_units)
                 else:
                     expected_shape = (None,) + self._value.shape[1:]
-
-
             else:
                 expected_shape = (None,) * num_dims
-
-        # if self.n_active is not None:
-        #    # expecting a sparse 2D Tensor using a dense 2D tensor with indices
-        #    expected_shape = (None, self.n_units)
 
         return tf.TensorShape(expected_shape)
 
@@ -1094,7 +1092,6 @@ class Param(Input):
     def __init__(self,
                  init_value,
                  n_units=0,
-                 shape=None,
                  dtype=None,
                  name="param"):
         super().__init__(init_value=init_value,
@@ -1102,11 +1099,14 @@ class Param(Input):
                          constant=False,
                          sparse=False,
                          n_active=None,
-                         shape=shape,
+                         shape=None,
                          dtype=dtype,
                          name=name)
 
         self.observers = []
+
+    def compute_shape(self):
+        return tf.TensorShape([])
 
     @Input.value.setter
     def value(self, value):
@@ -1417,7 +1417,6 @@ class Reshape(Layer):
         return Reshape(input_layer, self.target_shape, name)
 
 
-# TODO finish Linear shape
 class Linear(Layer):
     """ Linear(input_layer: Layer, n_units, shape=None add_bias=True)
 
@@ -1501,7 +1500,7 @@ class Linear(Layer):
 
     def compute_shape(self):
         input_shape = self.input.shape
-        output_shape = input_shape[:-1].concatenate(self.n_units)
+        output_shape = input_shape[:-1] + self.n_units
         return output_shape
 
     def init_state(self):
@@ -1765,6 +1764,7 @@ class Module(Layer):
         return Module(inputs=inputs, output=new_output, dependencies=self.dependencies, name=name)
 
 
+# TODO review ViewLayer
 class ViewLayer(Layer):
     """ ViewLayer
 
@@ -1791,6 +1791,9 @@ class ViewLayer(Layer):
 
     def compute(self, *input_tensors):
         return super().compute(*input_tensors)
+
+    def compute_shape(self):
+        return self.inner_layer.shape
 
     def init_state(self):
         layer_state = super().init_state()
@@ -1911,6 +1914,9 @@ class LayerNorm(Layer):
         self.bias = None
         self.scale = None
 
+    def compute_shape(self):
+        return self.input.shape
+
     def init_state(self):
         if self.share_state_with is None:
             state = super().init_state()
@@ -1992,11 +1998,8 @@ class Dropout(Layer):
                          name=name
                          )
 
-    # TODO test removing this, default compute shape should be able to deal with it although this would require
-    #  dropout to be applied to the input layer
     def compute_shape(self):
-        # same shape as input
-        return tf.TensorShape(self.inputs[-1].shape)
+        return self.input.shape
 
     def init_state(self):
         input_layer = self.inputs[0]
@@ -2136,6 +2139,9 @@ class DropLookup(Layer):
         self.scale = scale
         self.probability = probability
         super().__init__(inputs=[lookup_layer, indices], n_units=lookup_layer.n_units, name=name)
+
+    def compute_shape(self):
+        return self.input.shape
 
     def compute(self, input_value, indices):
         if self.probability == 1:
@@ -3128,10 +3134,15 @@ class CoupledGate(Layer):
         self.gate_fn = gate_fn
         self.gate_input = gate_input
 
+        assert tx.shape_equal(layer1.shape, layer2.shape)
+
         super().__init__(inputs=[layer1, layer2, gate_input],
                          n_units=layer1.n_units,
                          dtype=tf.float32,
                          name=name)
+
+    def compute_shape(self):
+        return self.inputs[0].shape
 
     def compute(self, tensor1, tensor2, gate_input):
         with layer_scope(self):
@@ -3571,7 +3582,6 @@ class Activation(Layer):
         return Activation(input_layer, self.fn, name, **self.kw)
 
 
-# TODO compute shape
 class Merge(Lambda):
     """Merge Layer
 
@@ -3744,6 +3754,9 @@ class Residual(Layer):
                          share_state_with=share_state_with,
                          weight_init=weight_init)
 
+    def compute_shape(self):
+        return self.module.shape
+
     def init_state(self):
         x, h = self.inputs
         state = super().init_state()
@@ -3853,18 +3866,20 @@ class Conv1D(Layer):
         self.filters = filters
         self.share_state_with = share_state_with
 
-        # input_tensor_shape = input_layer.tensor.get_shape()
-        # output_shape = _conv_out_shape(input_tensor_shape, self.filter_shape, self.padding, stride, dilation_rate)
-        # self.output_shape = tf.TensorShape(output_shape).as_list()
-
         super().__init__(inputs=input_layer,
                          n_units=n_units,
                          dtype=tf.float32,
                          name=name
                          )
 
+    def compute_shape(self):
+        input_shape = self.input.shape
+        filter_shape = [self.filter_size, self.input.n_units, self.n_units]
+        output_shape = _conv_out_shape(input_shape, filter_shape, self.padding, self.stride, self.dilation_rate)
+        return tf.TensorShape(output_shape)
+
     def init_state(self):
-        input_layer = self.inputs[0]
+        input_layer = self.input
         filter_shape = [self.filter_size, input_layer.n_units, self.n_units]
 
         if self.share_state_with is not None:
@@ -3982,12 +3997,15 @@ class MHAttention(Layer):
         self.head_units = n_units // n_heads
 
         # variables for type hinting
-        # TODO redundant but the linter has no way to know that these are attributes
         self.wq = None
         self.wk = None
         self.wv = None
 
         super().__init__(inputs=[query, key, value], n_units=n_units, name=name)
+
+    def compute_shape(self):
+        batch = self.inputs[0].shape[0]
+        return tf.TensorShape(batch, self.n_units)
 
     def init_state(self):
         if self.share_state_with is not None:
@@ -4129,6 +4147,9 @@ class FC(Layer):
                          share_state_with=share_state_with
                          )
 
+    def compute_shape(self):
+        return self.output.shape
+
     def init_state(self):
         input_layer = self.inputs[0]
         state = super().init_state()
@@ -4163,7 +4184,8 @@ class FC(Layer):
 
 
 class SeqMap(Layer):
-    """ Applies a given layer configuration to each element in the first dimension of the input layer
+    """ Applies a given layer configuration to each element in the first dimension (time-major)
+    of the input layer
 
     """
 
@@ -4172,6 +4194,7 @@ class SeqMap(Layer):
                  layer_config: LayerConfig,
                  parallel_iterations=10,
                  n_units=None,
+                 shape=None,
                  share_state_with: Optional['SeqMap'] = None,
                  name="seq_map"):
 
@@ -4188,11 +4211,16 @@ class SeqMap(Layer):
         # n_units and shape are set after the first cell is created
         super().__init__(inputs=input_seq,
                          n_units=layer_config.kwargs.get('n_units', n_units),
+                         shape=shape,
                          dtype=tf.float32,
                          name=name,
                          layer_config=layer_config,
                          parallel_iterations=parallel_iterations,
                          share_state_with=share_state_with)
+
+    def compute_shape(self):
+        input_shape = self.input.shape
+        return input_shape[:-1] + self.n_units
 
     def init_state(self):
         state = super().init_state()
