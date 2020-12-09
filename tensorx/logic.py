@@ -41,11 +41,11 @@ def tensor_equal(first, second):
     )
 
 
-def shape_equal(tensor1, tensor2):
+def same_shape(tensor1, tensor2):
     return tensor_equal(tf.shape(tensor1), tf.shape(tensor2))
 
 
-def shape_same(shape1, shape2):
+def shape_equal(shape1, shape2):
     shape1 = tf.TensorShape(shape1)
     shape2 = tf.TensorShape(shape2)
     return all([d1 == d2 for d1, d2 in zip(shape1, shape2)])

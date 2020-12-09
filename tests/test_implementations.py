@@ -239,9 +239,9 @@ def test_gru_cell():
     recurrent_kernel = tf.concat([u.weights for u in gru0.layer_state.u], axis=-1)
     bias = tf.concat([w.bias for w in gru0.layer_state.w], axis=-1)
 
-    assert tx.shape_equal(kernel, gru1.kernel)
-    assert tx.shape_equal(recurrent_kernel, gru1.recurrent_kernel)
-    assert tx.shape_equal(bias, gru1.bias)
+    assert tx.same_shape(kernel, gru1.kernel)
+    assert tx.same_shape(recurrent_kernel, gru1.recurrent_kernel)
+    assert tx.same_shape(bias, gru1.bias)
 
     gru1.kernel = kernel
     gru1.recurrent_kernel = recurrent_kernel

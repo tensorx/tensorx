@@ -163,7 +163,7 @@ def test_dynamic_input_graph():
 def test_activation():
     inputs = tx.Input(init_value=tf.ones([2, 2]), n_units=2)
     output = tx.Activation(inputs, tf.sigmoid)
-    assert tx.shape_same(inputs.shape, output.shape)
+    assert tx.shape_equal(inputs.shape, output.shape)
 
 
 def test_shared_state():
@@ -453,8 +453,8 @@ def test_variable_layer_reuse():
     assert tx.tensor_equal(v3, v4)
 
     # variable batch dimension is dynamic its shape will be different
-    assert not tx.shape_equal(v4, v1)
-    assert tx.shape_equal(v2, v1)
+    assert not tx.same_shape(v4, v1)
+    assert tx.same_shape(v2, v1)
 
 
 def test_standalone_variable_layer():
@@ -603,7 +603,7 @@ def test_rnn_layer_config():
     rnn_proto = rnn_cell.config
     rnn_cell2 = rnn_proto(x1)
 
-    assert tx.shape_equal(rnn_cell(), rnn_cell2())
+    assert tx.same_shape(rnn_cell(), rnn_cell2())
     assert not tx.tensor_equal(rnn_cell(), rnn_cell2())
 
 
@@ -718,8 +718,8 @@ def test_to_sparse():
     relu = tx.Activation(linear, tx.relu)
     sparse = tx.ToSparse(relu)
 
-    assert tx.shape_same(sparse.shape, linear.shape)
-    assert tx.shape_same(sparse.shape, relu.shape)
+    assert tx.shape_equal(sparse.shape, linear.shape)
+    assert tx.shape_equal(sparse.shape, relu.shape)
 
 
 def test_gate():
@@ -730,7 +730,7 @@ def test_gate():
     gate1 = tx.Gate(linear, gate_w)
     gate2 = gate1.reuse_with(nop)
 
-    assert tx.shape_same(gate1.shape, gate2.shape)
+    assert tx.shape_equal(gate1.shape, gate2.shape)
 
     r1 = gate1()
     r2 = gate2()
@@ -995,9 +995,9 @@ def test_biRNN():
     rnn0 = tx.Wrap(rnn0, wrap_fn=lambda y: y[0], n_units=rnn0.n_units)
     rnn1 = tx.Wrap(rnn1, wrap_fn=lambda y: y[0], n_units=rnn1.n_units)
 
-    assert tx.shape_equal(rnn0(), rnn1())
-    assert tx.shape_equal(rnn0(), rnn0_())
-    assert tx.shape_equal(rnn1(), rnn1_())
+    assert tx.same_shape(rnn0(), rnn1())
+    assert tx.same_shape(rnn0(), rnn0_())
+    assert tx.same_shape(rnn1(), rnn1_())
 
 
 def test_stateful_rnn_layer():
@@ -1064,17 +1064,39 @@ def test_lookup_sequence_dense():
     assert np.shape(v2) == (batch_size, seq_size, embed_dim)
 
 
+def test_as_concat_wrap():
+    n = 10
+    h = 4
+
+    inputs = tx.Input(dtype=tf.int32, constant=False)
+    lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, h])
+    assert tx.shape_equal(lookup.shape, (None, None, h))
+    concat = lookup.as_concat()
+    assert tx.shape_equal(concat.shape, (None, None))
+
+    lookup = tx.Lookup(inputs, seq_size=2, embedding_shape=[n, h])
+    concat = lookup.as_concat()
+    assert tx.shape_equal(concat.shape, (None, 2 * 4))
+
+    seq1 = [[1, 2], [3, 4]]
+    inputs.value = seq1
+    concat_tensor = concat()
+    assert concat_tensor.shape[-1] == concat.shape[-1]
+
+
 def test_lookup_dynamic_sequence():
     seq1 = [[1, 2], [3, 4]]
     seq2 = [[1, 2, 3], [4, 5, 6]]
 
     n = 10
-    m = 4
+    h = 4
 
     inputs = tx.Input(dtype=tf.int32, constant=False)
 
-    lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, m])
+    lookup = tx.Lookup(inputs, seq_size=None, embedding_shape=[n, h])
+    assert tx.shape_equal(lookup.shape, (None, None, h))
     concat = lookup.as_concat()
+    inputs.value = seq1
 
     inputs.value = seq1
     inputs()
@@ -1092,11 +1114,11 @@ def test_lookup_dynamic_sequence():
     inputs.value = seq2
     c2 = concat()
 
-    assert np.shape(l1)[-1] == m
-    assert np.shape(l2)[-1] == m
+    assert np.shape(l1)[-1] == h
+    assert np.shape(l2)[-1] == h
 
-    assert np.shape(c1)[-1] == m * 2
-    assert np.shape(c2)[-1] == m * 3
+    assert np.shape(c1)[-1] == h * 2
+    assert np.shape(c2)[-1] == h * 3
 
 
 def test_dynamic_concat():
@@ -1119,6 +1141,7 @@ def test_dynamic_concat():
 
     concat3 = tx.SeqConcat(lookup, time_major=False)
     concat4 = tx.SeqConcat(lookup, seq_size=3, time_major=False)
+    assert tx.shape_equal(concat4.shape, (None, 3 * 4))
 
     c1, c2 = concat1(), concat3()
     assert tx.tensor_equal(c1, c2)
@@ -1347,7 +1370,7 @@ def test_residual():
         tx.Residual(x1, h3)
         pytest.fail("ValueError Expected: invalid module x1 not connected to h3")
 
-    assert tx.shape_equal(h1(), residual())
+    assert tx.same_shape(h1(), residual())
     assert not hasattr(residual, "projection")
     assert hasattr(residual2, "projection")
     assert len(residual.trainable_variables) == 0
@@ -1474,7 +1497,7 @@ def test_multihead_attention():
     result_reg = attention_reg()
     result2 = attention_2()
 
-    assert tx.shape_equal(result, result_reg)
+    assert tx.same_shape(result, result_reg)
     assert tx.tensor_equal(result, result2)
 
     vars1 = map(lambda v: v.ref(), attention.variables)

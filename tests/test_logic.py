@@ -28,8 +28,8 @@ def test_shape_equal():
     t1 = tf.random.uniform([2, 2], dtype=tf.float32)
     t2 = tf.random.uniform([2, 3], dtype=tf.float32)
 
-    assert tx.shape_equal(t1, t1)
-    assert not tx.shape_equal(t1, t2)
+    assert tx.same_shape(t1, t1)
+    assert not tx.same_shape(t1, t2)
 
 
 def test_tensor_close():

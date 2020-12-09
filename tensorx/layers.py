@@ -946,7 +946,12 @@ class Input(Layer):
             num_dims = len(self._value.shape)
             if self.n_units is not None and self.n_units > 0:
                 # expected_shape = (None,) * (num_dims - 1) + (self.n_units,)
-                expected_shape = (None,) + self._value.shape[1:]
+                if self.n_active is not None:
+                    expected_shape = (None, self.n_units)
+                else:
+                    expected_shape = (None,) + self._value.shape[1:]
+
+
             else:
                 expected_shape = (None,) * num_dims
 
@@ -2797,9 +2802,9 @@ class Lookup(Layer):
         super().__init__(inputs=input_layer, n_units=n_units, dtype=dtype, name=name)
 
     def compute_shape(self):
-        batch_dim = self.inputs[-1].shape[0]
-
-        return tf.TensorShape((batch_dim, self.seq_size, self.n_units))
+        batch_dim = self.input.shape[0]
+        output_shape = tf.TensorShape((batch_dim, self.seq_size, self.n_units))
+        return output_shape
 
     def init_state(self):
         layer_state = super().init_state()
@@ -2994,30 +2999,15 @@ class Lookup(Layer):
         return output
 
     def as_concat(self):
-        """ concatenates the sequence produced by a lookup
+        """ concatenates the sequence produced by a lookup and returns the current lookup
+        viewed as a concat sequence layer
 
         Returns:
-
+            seq_concat (`Wrap`): a `SeqConcat` layer as a view for the Lookup layer
         """
-
-        def concat_fn(x):
-            if self.seq_size is None:
-                seq_size = tf.shape(self.inputs[-1]())[-1]
-            else:
-                seq_size = self.seq_size
-
-            new_shape = tf.stack([-1, self.n_units * seq_size])
-            return tf.reshape(x, new_shape)
-
-        if self.seq_size and self.n_units:
-            n_units = self.seq_size * self.n_units
-        else:
-            n_units = None
-
-        # TODO check if wrap layer can infer n_units
         return Wrap(self,
-                    n_units=n_units,
-                    wrap_fn=lambda current_layer: Lambda(current_layer, fn=concat_fn),
+                    n_units=None,
+                    wrap_fn=lambda current_layer: SeqConcat(current_layer, seq_size=self.seq_size),
                     fwd_attr=["weights", "bias", "seq_size"],
                     name="concat")
 
@@ -3070,12 +3060,10 @@ class SeqConcat(Layer):
     """
 
     def __init__(self, input_seq, seq_size=None, time_major=False, name="seq_concat"):
-        if input_seq.n_units is not None and seq_size is not None:
-            if seq_size <= 0:
-                raise ValueError(f"expected seq_size >0, got seq_size={seq_size}")
-            n_units = input_seq.n_units * seq_size
-        else:
-            n_units = None
+        if seq_size is not None and seq_size <= 0:
+            raise ValueError(f"expected seq_size >0, got seq_size={seq_size}")
+
+        n_units = input_seq.n_units * seq_size if seq_size is not None else None
 
         self.time_major = time_major
         self.seq_size = seq_size
@@ -3085,6 +3073,20 @@ class SeqConcat(Layer):
                          name=name,
                          time_major=time_major,
                          seq_size=seq_size)
+
+    def compute_shape(self):
+        input_shape = self.input.shape
+        if self.time_major:
+            batch_dim = input_shape[1]
+        else:
+            batch_dim = input_shape[0]
+
+        if self.seq_size is None or self.n_units is None:
+            output_shape = (batch_dim, None)
+        elif self.seq_size is not None and self.n_units is not None:
+            output_shape = (batch_dim, self.n_units)
+
+        return tf.TensorShape(output_shape)
 
     def compute(self, input_tensor):
         with layer_scope(self):
