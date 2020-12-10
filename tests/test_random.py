@@ -25,7 +25,7 @@ def test_random_bernoulli():
 
     assert tx.tensor_all_close(ones_prob,
                                ones_expected,
-                               atol=4e-2)
+                               atol=4e-1)
 
 
 def test_sample_sigmoid():

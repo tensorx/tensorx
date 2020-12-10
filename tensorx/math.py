@@ -22,7 +22,7 @@ def rms(x):
     return tf.sqrt(tf.reduce_mean(tf.square(x)))
 
 
-def sparse_multiply_dense(sp_tensor, dense_tensor, name="sparse_multiply_dense"):
+def sparse_dense_multiply(sp_tensor, dense_tensor, name="sparse_multiply_dense"):
     """ element-wise sparse_multiply_dense
 
     !!! info
@@ -174,7 +174,7 @@ def logit(x, dtype=tf.float32):
 
 
 __all__ = [
-    "sparse_multiply_dense",
+    "sparse_dense_multiply",
     "sparse_dot",
     "sparse_sparse_multiply",
     "batch_sparse_dot",

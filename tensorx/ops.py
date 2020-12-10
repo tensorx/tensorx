@@ -493,7 +493,7 @@ def apply_gate(x, gate):
         if isinstance(x, tf.SparseTensor):
             tensor_in = tf.sparse.reshape(x, [-1, n_gates, feature_dim])
             gate = tf.expand_dims(gate, -1)
-            gated = mx.sparse_multiply_dense(tensor_in, gate)
+            gated = mx.sparse_dense_multiply(tensor_in, gate)
         else:
             tensor_in = tf.reshape(x, [-1, n_gates, feature_dim])
             gated = tensor_in * tf.expand_dims(gate, -1)
@@ -1145,14 +1145,14 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
         ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
         ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
 
-        index_union = tf.sparse_add(ones1, ones2)
+        index_union = tf.sparse.add(ones1, ones2)
 
         index_filter = tf.math.equal(index_union.values, 2.)
 
         zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
-        expand1 = tf.sparse_add(zeros1, sp_tensor1)
+        expand1 = tf.sparse.add(zeros1, sp_tensor1)
 
-        filtered = tf.sparse_retain(expand1, index_filter)
+        filtered = tf.sparse.retain(expand1, index_filter)
         return filtered
 
 

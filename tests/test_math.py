@@ -20,7 +20,7 @@ def test_sparse_dense_mul():
     assert tx.tensor_all_close(mul0, mul1)
 
     # element-wise
-    mul2 = tx.sparse_multiply_dense(s, x)
+    mul2 = tx.sparse_dense_multiply(s, x)
     mul3 = tf.multiply(x, x)
 
     assert tx.tensor_all_close(mul2, mul3)

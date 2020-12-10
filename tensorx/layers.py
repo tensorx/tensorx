@@ -592,7 +592,8 @@ class Lambda(Layer):
                  dtype=None,
                  shape=None,
                  name="lambda",
-                 apply_to_layer=False):
+                 apply_to_layer=False,
+                 **kwargs):
 
         if isinstance(fn, LayerConfig):
             raise TypeError("cannot pass a LayerConfig to Lambda Layer, pass a callable function instead")
@@ -611,7 +612,8 @@ class Lambda(Layer):
                          fn=fn,
                          var_list=as_list(var_list),
                          apply_to_layer=apply_to_layer,
-                         shape=shape)
+                         shape=shape,
+                         **kwargs)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -1084,7 +1086,6 @@ class Param(Input):
     Args:
         init_value (`Tensor`):
         n_units (`int`):
-        shape (`Sequence[int]`):
         dtype (`tf.DType`): layer dtype
         name (`str`): layer name
     """
@@ -1094,12 +1095,13 @@ class Param(Input):
                  n_units=0,
                  dtype=None,
                  name="param"):
+
         super().__init__(init_value=init_value,
                          n_units=n_units,
                          constant=False,
                          sparse=False,
                          n_active=None,
-                         shape=None,
+                         shape=tf.TensorShape([]),
                          dtype=dtype,
                          name=name)
 
@@ -1386,8 +1388,11 @@ class Reshape(Layer):
         """
         input_shape = self.input.shape
 
-        output_shape = fix_reshape_dimensions(input_shape,
-                                              self.target_shape)
+        try:
+            output_shape = fix_reshape_dimensions(input_shape,
+                                                  self.target_shape)
+        except ValueError as e:
+            raise ValueError(f"shape of {self.name} could not be determined") from e
 
         return tf.TensorShape(output_shape)
 
@@ -1640,7 +1645,7 @@ class Linear(Layer):
 
         return tensor
 
-    def reuse_with(self, input_layer, name=None, transpose_weights=None, sparse_weights=None):
+    def reuse_with(self, input_layer, name=None, transpose_weights=None, sparse_weights=None, shape=None):
         """ Reuses the current layer on a different input.
 
         """
@@ -1664,7 +1669,8 @@ class Linear(Layer):
                       add_bias=self.add_bias,
                       weight_norm=self.weight_norm,
                       name=name,
-                      share_state_with=share_state_with)
+                      share_state_with=share_state_with,
+                      shape=shape)
 
 
 class Module(Layer):
@@ -2812,9 +2818,9 @@ class Lookup(Layer):
         super().__init__(inputs=input_layer, n_units=n_units, dtype=dtype, name=name)
 
     def compute_shape(self):
-        batch_dim = self.input.shape[0]
-        output_shape = tf.TensorShape((batch_dim, self.seq_size, self.n_units))
-        return output_shape
+        seq_size = self.seq_size if isinstance(self.seq_size, tf.Tensor) else None
+        output_shape = (self.input.shape[0], seq_size, self.n_units)
+        return tf.TensorShape(output_shape)
 
     def init_state(self):
         layer_state = super().init_state()
@@ -2943,12 +2949,6 @@ class Lookup(Layer):
                 # lookup_padding = sp_batch_size % self.seq_size
                 lookup_padding = tf.stack([[0, lookup_padding], [0, 0]])
                 output = tf.pad(output, lookup_padding)
-
-                # dynamic batch size with sparse tensors
-                # batch_size = tf.cast(tf.math.ceil(sp_batch_size / self.seq_size), tf.int32)
-                # batch_size = Print(batch_size, [batch_size], message="")
-                # tensor = tf.reshape(tensor, tf.stack([-1, self.seq_size, self.n_units]))
-
                 output_shape = tf.stack([-1, self.seq_size, self.n_units])
                 output = tf.reshape(output, output_shape)
 
@@ -3138,7 +3138,7 @@ class CoupledGate(Layer):
         self.gate_fn = gate_fn
         self.gate_input = gate_input
 
-        assert tx.shape_equal(layer1.shape, layer2.shape)
+        assert layer1.shape.is_compatible_with(layer2.shape)
 
         super().__init__(inputs=[layer1, layer2, gate_input],
                          n_units=layer1.n_units,
@@ -3683,7 +3683,8 @@ class Add(Merge):
                     ))
 
         def merge_add(tensors):
-            res = 0
+            # tensors = [as_tensor(tensor) for tensor in tensors]
+            res = tf.constant(0, dtype=self.dtype)
             for tensor in tensors:
                 res = res + tensor
             return res
