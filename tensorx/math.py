@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow.python.ops.sparse_ops import sparse_dense_cwise_mul
-from tensorx.ops import sparse_ones, sparse_zeros
-
+from tensorx import ops
 
 def rms(x):
     """ Root mean square (RMS)
@@ -24,7 +23,7 @@ def rms(x):
 
 
 def sparse_multiply_dense(sp_tensor, dense_tensor, name="sparse_multiply_dense"):
-    """ sparse_multiply_dense
+    """ element-wise sparse_multiply_dense
 
     !!! info
         Uses `sparse_dense_cwise_mul` from Tensorflow but returns a dense result
@@ -109,38 +108,11 @@ def sparse_sparse_multiply(sp_tensor1, sp_tensor2):
         a `SparseTensor` with the element-wise multiplication of the two sparse tensors
 
     """
-    overlap1 = sparse_overlap(sp_tensor1, sp_tensor2)
-    overlap2 = sparse_overlap(sp_tensor2, sp_tensor1)
+    overlap1 = ops.sparse_overlap(sp_tensor1, sp_tensor2)
+    overlap2 = ops.sparse_overlap(sp_tensor2, sp_tensor1)
 
     values = tf.math.multiply(overlap1.values, overlap2.values)
     return tf.SparseTensor(overlap1.indices, values, overlap1.dense_shape)
-
-
-def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
-    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
-    with the values of the first one
-
-    Args:
-        name: name for this op
-        sp_tensor1: a `SparseTensor`
-        sp_tensor2: a `SparseTensor`
-
-    Returns:
-        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
-    """
-    with tf.name_scope(name):
-        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
-        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
-
-        index_union = tf.sparse_add(ones1, ones2)
-
-        index_filter = tf.math.equal(index_union.values, 2.)
-
-        zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
-        expand1 = tf.sparse_add(zeros1, sp_tensor1)
-
-        filtered = tf.sparse_retain(expand1, index_filter)
-        return filtered
 
 
 def sparse_dot(sp_tensor1, tensor2, name=None):

@@ -1,9 +1,49 @@
 import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
-
 from tensorflow.python.ops.variables import PartitionedVariable
 from tensorx.utils import as_tensor
 from tensorflow.python.framework import tensor_shape, tensor_util
+from tensorx import math as mx
+
+
+def sparse_ones(indices, dense_shape, dtype=tf.float32, name="sparse_ones"):
+    """ Creates a new ``SparseTensor`` with the given indices having value 1
+
+    Args:
+        indices: a rank 2 ``Tensor`` with the (row,column) indices for the resulting sparse tensor
+        dense_shape: the ``SparseTensor`` dense shape
+        dtype: the tensor type for the values
+        name: name for this op
+
+    Returns:
+        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
+    """
+    with tf.name_scope(name=name):
+        indices = as_tensor(indices, tf.int64)
+        dense_shape = as_tensor(dense_shape, tf.int64)
+        indices_shape = indices.shape
+        values = tf.ones([indices_shape[0]], dtype)
+        return tf.SparseTensor(indices, values, dense_shape)
+
+
+def sparse_zeros(indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
+    """ Creates a new ``SparseTensor`` with the given indices having value 1
+
+    Args:
+        indices: a rank 2 ``Tensor`` with the indices for the resulting sparse tensor
+        dense_shape: the ``SparseTensor`` dense shape
+        dtype: the tensor type for the values
+        name: name for this op
+
+    Returns:
+        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
+    """
+    with tf.name_scope(name=name):
+        indices = as_tensor(indices, tf.int64)
+        dense_shape = as_tensor(dense_shape, tf.int64)
+        indices_shape = tf.shape(indices)
+        values = tf.zeros([indices_shape[0]], dtype)
+        return tf.SparseTensor(indices, values, dense_shape)
 
 
 def sparse_indices(sp_values, name="sparse_indices"):
@@ -95,46 +135,6 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
         indices = tf.stack([row_indices, col_indices], axis=-1)
 
         return indices
-
-
-def sparse_ones(indices, dense_shape, dtype=tf.float32, name="sparse_ones"):
-    """ Creates a new ``SparseTensor`` with the given indices having value 1
-
-    Args:
-        indices: a rank 2 ``Tensor`` with the (row,column) indices for the resulting sparse tensor
-        dense_shape: the ``SparseTensor`` dense shape
-        dtype: the tensor type for the values
-        name: name for this op
-
-    Returns:
-        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
-    """
-    with tf.name_scope(name=name):
-        indices = as_tensor(indices, tf.int64)
-        dense_shape = as_tensor(dense_shape, tf.int64)
-        indices_shape = indices.shape
-        values = tf.ones([indices_shape[0]], dtype)
-        return tf.SparseTensor(indices, values, dense_shape)
-
-
-def sparse_zeros(indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
-    """ Creates a new ``SparseTensor`` with the given indices having value 1
-
-    Args:
-        indices: a rank 2 ``Tensor`` with the indices for the resulting sparse tensor
-        dense_shape: the ``SparseTensor`` dense shape
-        dtype: the tensor type for the values
-        name: name for this op
-
-    Returns:
-        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
-    """
-    with tf.name_scope(name=name):
-        indices = as_tensor(indices, tf.int64)
-        dense_shape = as_tensor(dense_shape, tf.int64)
-        indices_shape = tf.shape(indices)
-        values = tf.zeros([indices_shape[0]], dtype)
-        return tf.SparseTensor(indices, values, dense_shape)
 
 
 def sparse_matrix_indices(column_indices, num_cols, dtype=tf.float32, name="sparse_one_hot"):
@@ -492,7 +492,8 @@ def apply_gate(x, gate):
 
         if isinstance(x, tf.SparseTensor):
             tensor_in = tf.sparse.reshape(x, [-1, n_gates, feature_dim])
-            gated = tf.sparse.sparse_dense_matmul(tensor_in, tf.expand_dims(gate, -1))
+            gate = tf.expand_dims(gate, -1)
+            gated = mx.sparse_multiply_dense(tensor_in, gate)
         else:
             tensor_in = tf.reshape(x, [-1, n_gates, feature_dim])
             gated = tensor_in * tf.expand_dims(gate, -1)
@@ -773,8 +774,8 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
         sp_tensor (`SparseTensor`): sparse tensor with the overlapping indices and the values of `sp_tensor1`
     """
     with tf.name_scope(name):
-        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
-        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
+        ones1 = mx.sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
+        ones2 = mx.sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
 
         index_union = tf.sparse.add(ones1, ones2)
 
@@ -1128,8 +1129,38 @@ def filter_nd(condition, params, name="filter_nd"):
         return sp_result
 
 
-__all__ = ["apply_gate",
-           "sparse_ones",
+def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
+    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
+    with the values of the first one
+
+    Args:
+        name: name for this op
+        sp_tensor1: a `SparseTensor`
+        sp_tensor2: a `SparseTensor`
+
+    Returns:
+        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
+    """
+    with tf.name_scope(name):
+        ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
+        ones2 = sparse_ones(sp_tensor2.indices, sp_tensor2.dense_shape)
+
+        index_union = tf.sparse_add(ones1, ones2)
+
+        index_filter = tf.math.equal(index_union.values, 2.)
+
+        zeros1 = sparse_zeros(index_union.indices, index_union.dense_shape, sp_tensor1.values.dtype)
+        expand1 = tf.sparse_add(zeros1, sp_tensor1)
+
+        filtered = tf.sparse_retain(expand1, index_filter)
+        return filtered
+
+
+
+__all__ = ["sparse_ones",
+           "sparse_zeros",
+           "sparse_overlap",
+           "apply_gate",
            "sparse_indices",
            "sparse_matrix_indices",
            "matrix_indices",
@@ -1141,7 +1172,6 @@ __all__ = ["apply_gate",
            "SparseVariable",
            "to_sparse",
            "embedding_lookup_sparse",
-           "sparse_zeros",
            "sparse_overlap",
            "sort_by_first",
            "ranges",

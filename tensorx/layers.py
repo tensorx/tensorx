@@ -2427,6 +2427,10 @@ class RNN(Layer):
                          return_state=return_state,
                          share_state_with=share_state_with)
 
+    def compute_shape(self):
+        input_seq = self.input
+        return input_seq.shape[:-1] + self.n_units
+
     def init_state(self):
         """ Create a recurrent cell from the given config
 
@@ -4004,8 +4008,7 @@ class MHAttention(Layer):
         super().__init__(inputs=[query, key, value], n_units=n_units, name=name)
 
     def compute_shape(self):
-        batch = self.inputs[0].shape[0]
-        return tf.TensorShape(batch, self.n_units)
+        return self.inputs[0].shape[:-1] + self.n_units
 
     def init_state(self):
         if self.share_state_with is not None:
