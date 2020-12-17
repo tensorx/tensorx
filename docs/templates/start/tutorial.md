@@ -1,4 +1,4 @@
-# TensorX Tutorial
+# Tutorial
 This tutorial introduces basic TensorX concepts.
 
 ## Prerequisites
