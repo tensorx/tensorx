@@ -5,6 +5,10 @@ url: https://tensorx.org/
 
 
 pages:
+  - page: "api/layers/index.md"
+    source: "tensorx/layers.py"
+    index: True
+
   - page: "api/layers/Linear.md"
     source: "tensorx/layers.py"
     classes:
