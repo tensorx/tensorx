@@ -47,10 +47,14 @@ nav:
       - Installation: start/install.md
       - Tutorial: start/tutorial.md
   - API:
-      - layers: api/layers.md
-      - ops: api/ops.md
-  - Train:
-      - Model: train/model.md
+    - Layers:
+        - Overview: api/index.md
+        - Linear: api/layers/Linear.md
+        - Activation: api/layers/Activation.md
+        - MHAttention: api/layers/MHAttention.md
+    - Ops: api/ops.md
+    - Train:
+        - Model: train/model.md
   - Contributing: contributing.md
 
 
