@@ -40,6 +40,7 @@ theme:
   favicon: 'assets/images/tx.png'
   features:
     - navigation.tabs
+    - navigation.tabs.sticky
     - instant
 nav:
   - Home: index.md
@@ -47,14 +48,20 @@ nav:
       - Installation: start/install.md
       - Tutorial: start/tutorial.md
   - API:
-    - Layers:
-        - Overview: api/index.md
+    - layers:
+        - Overview: api/layers/index.md
+        - Lambda: api/layers/Lambda.md
+        - Input: api/layers/Input.md
         - Linear: api/layers/Linear.md
+        - Lookup: api/layers/Lookup.md
         - Activation: api/layers/Activation.md
-        - MHAttention: api/layers/MHAttention.md
-    - Ops: api/ops.md
-    - Train:
-        - Model: train/model.md
+    - ops: api/ops.md
+    - math: api/math.md
+    - init: api/init.md
+    - activation: api/activation.md
+    - loss: api/loss.md
+    - metrics: api/metrics.md
+
   - Contributing: contributing.md
 
 

@@ -2,12 +2,16 @@ sources: docs/sources
 templates: docs/templates
 docstring_template: docs/docstring_template.md
 url: https://tensorx.org/
+repo: https://github.com/davidenunes/tensorx/
+# can be a specific tag or any other reference
+version: master
 
 
 pages:
-  - page: "api/layers/index.md"
+  - page: "api/layers/Input.md"
     source: "tensorx/layers.py"
-    index: True
+    classes:
+      - Input
 
   - page: "api/layers/Linear.md"
     source: "tensorx/layers.py"
@@ -19,18 +23,21 @@ pages:
     classes:
       - Activation
 
-  - page: "api/layers/MHAttention.md"
+  - page: "api/layers/Lookup.md"
     source: "tensorx/layers.py"
     classes:
-      - MHAttention
+      - Lookup
 
-  - page: "api/train/model.md"
-    source: "tensorx/train/model.py"
+  - page: "api/layers/Lambda.md"
+    source: "tensorx/layers.py"
     classes:
-      - Model:
-          - train
-          - set_optimizer
+      - Lambda
 
+  - page: "api/layers/index.md"
+    source: "tensorx/layers.py"
+    index: True
+    functions:
+      - layer
 
 
   - page: "api/math.md"
@@ -38,10 +45,35 @@ pages:
     functions:
       - sparse_dense_multiply
       - rms
+
   - page: "api/ops.md"
     source: 'tensorx/ops.py'
     functions:
       - matrix_indices
+      - empty_sparse_tensor
+      - sparse_ones
+      - sparse_zeros
+      - sparse_overlap
+      - apply_gate
+      - sparse_indices
+      - sparse_matrix_indices
+      - dropout
+      - alpha_dropout
+      - sparse_dropout
+      - binary_random_mask
+      - to_sparse
+      - embedding_lookup_sparse
+      - sparse_overlap
+      - sort_by_first
+      - ranges
+      - grid_2d
+      - gather_sparse
+      - sparse_tile
+      - pairs
+      - sparse_put
+      - put
+      - filter_nd
+
   - page: "api/init.md"
     source: 'tensorx/init.py'
     functions:
@@ -54,6 +86,7 @@ pages:
       - orthogonal_init
       - identity_init
       - he_uniform_init
+
   - page: "api/activation.md"
     source: 'tensorx/activation.py'
     functions:
@@ -65,6 +98,7 @@ pages:
       - gelu
       - softmax
       - sparsemax
+
   - page: "api/loss.md"
     source: 'tensorx/loss.py'
     functions:
@@ -75,6 +109,7 @@ pages:
       - sinkhorn_loss
       - sparsemax_loss
       - binary_hinge
+
   - page: "api/metrics.md"
     source: 'tensorx/metrics.py'
     functions:

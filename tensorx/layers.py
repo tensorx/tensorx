@@ -9,15 +9,18 @@ from tensorflow.python.training.tracking.tracking import AutoTrackable
 from tensorflow.python.training.tracking import data_structures as track
 
 import typing
-from typing import Union, Type, Callable, Optional, List, Hashable, Dict, Set, Any, Tuple
+from typing import Union, Type, Callable, Optional, List, Hashable, Dict, Set, Any, Tuple, Iterable
 
 import inspect
 from contextlib import ExitStack
 
-import tensorx as tx
+from tensorx.activation import identity
+from tensorx.init import zeros_init, ones_init, glorot_uniform_init
 from tensorx.utils import as_tensor, as_list, Graph, fix_reshape_dimensions
-from tensorx.ops import embedding_lookup_sparse
+from tensorx.ops import embedding_lookup_sparse, to_sparse, alpha_dropout, dropout, sparse_dropout, binary_random_mask, \
+    empty_sparse_tensor, sparse_matrix_indices, sparse_indices, matrix_indices, apply_gate, SparseVariable
 from tensorx.train.callbacks import OnValueChange
+from tensorflow.python.training import moving_averages
 
 
 class LayerState(AutoTrackable):
@@ -674,7 +677,7 @@ class ToSparse(Layer):
             if isinstance(input_tensor, tf.SparseTensor):
                 return input_tensor
             else:
-                return tx.to_sparse(input_tensor)
+                return to_sparse(input_tensor)
 
     def reuse_with(self, input_layer):
         return ToSparse(input_layer)
@@ -709,6 +712,7 @@ class ToDense(Layer):
         return ToDense(input_layer)
 
 
+# TODO when it forwards variables from state setting a value does not update it on state
 class Wrap(Layer):
     """ Wraps another layer with tf code
 
@@ -833,9 +837,10 @@ class Wrap(Layer):
 class Input(Layer):
     """ Input Layer
 
-    Receives input values to a neural network and outputs either ``Tensor`` or ``SparseTensor`` values.
+    An `Input` layer defines constant or dynamic inputs of a neural network model in TensorX.
 
-    Input is stateful, which means it will always output the same value until a new value is set:
+    An input layer has no inputs and is usable as a placeholder for Tensorflow `Tensor` or `SparseTensor` objects.
+    An `Input` layer is **stateful**, which means that it can hold and output a given value until this value is changed.
 
         ```python
         import tensorx as tx
@@ -864,10 +869,14 @@ class Input(Layer):
         ```
 
     !!! info
-        * when `n_active` is provided, and this layer is connected to an `Linear` layer, this is interpreted as a
-        binary sparse (one-hot) input layer and expects it's values to be of type `tf.int64`.
+        * when `n_active` is provided, `Input` layers are interpreted as representing binary sparse
+        (one-hot)[https://en.wikipedia.org/wiki/One-hot] encoding and expects it's values to be of type `tf.int64`.
 
-        * `SparseTensor` value can be passed as an initial value
+        * both `Linear` and `Lookup` layers are compatible with `Input` layers that output `SparseTensor` objects,
+        representing one-hot encodings of categorical inputs.
+
+        * `SparseTensor` value can be passed as an initial value.
+
 
     Args:
         init_value (`Tensor`): initial value for `Input` layer, if given, it determines `n_units`
@@ -881,7 +890,7 @@ class Input(Layer):
         cast (bool): if True tries to cast the input to the given dtype on value set
 
     Attributes:
-        value (`Union[Tensor`,`SparseTensor`]): if `constant=True` value cannot be set
+        value (`Union[Tensor`,`SparseTensor`]): if `constant=True` value cannot be set and an exception is raised
 
     """
 
@@ -970,7 +979,7 @@ class Input(Layer):
             if self.n_active is None:
                 if self.sparse:
                     dense_shape = [1] * len(shape[:-1]) + [shape[-1]]
-                    self._value = tx.empty_sparse_tensor(dense_shape=dense_shape, dtype=self.dtype)
+                    self._value = empty_sparse_tensor(dense_shape=dense_shape, dtype=self.dtype)
                 else:
                     self._value = tf.zeros([1] * len(shape[:-1]) + [shape[-1]], dtype=self.dtype)
             else:
@@ -990,10 +999,10 @@ class Input(Layer):
         with layer_scope(self):
             if not self.constant and self._value is not None:
                 if isinstance(self._value, tf.SparseTensor):
-                    layer_state.slot = tx.SparseVariable(initial_value=self._value,
-                                                         validate_shape=False,
-                                                         trainable=False,
-                                                         name=f"{self.name}_slot")
+                    layer_state.slot = SparseVariable(initial_value=self._value,
+                                                      validate_shape=False,
+                                                      trainable=False,
+                                                      name=f"{self.name}_slot")
                 else:
                     layer_state.slot = tf.Variable(initial_value=self._value,
                                                    shape=shape,
@@ -1063,7 +1072,7 @@ class Input(Layer):
     def compute(self):
         with layer_scope(self):
             if self.n_active is not None:
-                return tx.sparse_matrix_indices(self.value, num_cols=self.n_units, dtype=self.dtype)
+                return sparse_matrix_indices(self.value, num_cols=self.n_units, dtype=self.dtype)
             else:
                 return self.value
 
@@ -1095,7 +1104,6 @@ class Param(Input):
                  n_units=0,
                  dtype=None,
                  name="param"):
-
         super().__init__(init_value=init_value,
                          n_units=n_units,
                          constant=False,
@@ -1132,7 +1140,7 @@ class Constant(Input):
                  n_units=None,
                  dtype=None,
                  name="tensor"):
-        init_value = tx.as_tensor(init_value, dtype=dtype)
+        init_value = as_tensor(init_value, dtype=dtype)
         shape = init_value.shape
         dtype = init_value.dtype
 
@@ -1500,7 +1508,17 @@ class Linear(Layer):
                          n_units=n_units,
                          shape=shape,
                          dtype=dtype,
-                         name=name
+                         name=name,
+                         # params
+                         weights_shape=self.weights_shape,
+                         weight_init=weight_init,
+                         weights=weights,
+                         add_bias=add_bias,
+                         bias=bias,
+                         transpose_weights=transpose_weights,
+                         sparse_weights=sparse_weights,
+                         weight_norm=weight_norm,
+                         share_state_with=share_state_with
                          )
 
     def compute_shape(self):
@@ -1608,7 +1626,6 @@ class Linear(Layer):
                                            transpose_b=True)
                 else:
 
-                    # sp_indices = tx.sparse_indices(sp_values)
                     lookup_sum = embedding_lookup_sparse(params=weights,
                                                          sp_tensor=sp_values,
                                                          # sp_ids=sp_indices,
@@ -1844,9 +1861,9 @@ class DropConnect(ViewLayer):
             layer_state = self.share_state_with.layer_state
         else:
             layer_state = super().init_state()
-            layer_state.weight_mask = tx.binary_mask(self.inner_layer.weights, self.probability)
+            layer_state.weight_mask = binary_random_mask(self.inner_layer.weights, self.probability)
             if self.inner_layer.bias is not None:
-                layer_state.bias_mask = tx.binary_mask(self.inner_layer.bias)
+                layer_state.bias_mask = binary_random_mask(self.inner_layer.bias)
 
         return layer_state
 
@@ -1855,19 +1872,19 @@ class DropConnect(ViewLayer):
             weights = self.inner_layer.weights
             bias = self.inner_layer.bias
 
-            drop_w, w_mask = tx.dropout(weights, probability=self.probability,
-                                        random_mask=self.layer_state.weight_mask,
-                                        scale=False,
-                                        return_mask=True)
+            drop_w, w_mask = dropout(weights, probability=self.probability,
+                                     random_mask=self.layer_state.weight_mask,
+                                     scale=False,
+                                     return_mask=True)
             # self.layer_state.weight_mask = w_mask
             drop_bias = None
             add_bias = bias is not None
             if add_bias:
-                drop_bias, b_mask = tx.dropout(bias,
-                                               probability=self.probability,
-                                               random_mask=self.layer_state.bias_mask,
-                                               scale=False,
-                                               return_mask=True)
+                drop_bias, b_mask = dropout(bias,
+                                            probability=self.probability,
+                                            random_mask=self.layer_state.bias_mask,
+                                            scale=False,
+                                            return_mask=True)
                 # self.layer_state.bias_mask = b_mask
 
             new_linear = Linear(input_tensor,
@@ -1927,9 +1944,9 @@ class LayerNorm(Layer):
         if self.share_state_with is None:
             state = super().init_state()
             # center
-            state.bias = tf.Variable(tx.zeros_init()([self.n_units]), trainable=True, name="beta")
+            state.bias = tf.Variable(zeros_init()([self.n_units]), trainable=True, name="beta")
             # scale
-            state.scale = tf.Variable(tx.ones_init()([self.n_units]), trainable=True, name="gamma")
+            state.scale = tf.Variable(ones_init()([self.n_units]), trainable=True, name="gamma")
         else:
             state = self.share_state_with.layer_state
 
@@ -1949,6 +1966,201 @@ class LayerNorm(Layer):
                 offset=self.bias,
                 scale=self.scale,
                 variance_epsilon=variance_epsilon)
+
+
+class BatchNorm(Layer):
+    """ Batch Normalization Layer
+
+    !!! note
+        Typically, what we want to do is setup the inference graph or training graph first with all the BatchNorm
+        layers in place, afterwards we can call reuse_with with a different value on the training flag. This will
+        create the appropriate batch_norm computations for training and inference time while sharing the same variables.
+        BatchNorm is better understood as a technique which reduces second-order relationships between parameters of
+        different layers than a method to reduce covariate shift. Thus, the before/after distinction doesn't
+        matter, and differences in performance could simply be because of other particular factors of the model.
+        Training time:
+            * computes batch normalisation based on mini-batch mean and variance
+            * computes the population estimates based on a exponential moving average with a given decay parameter
+        Inference time:
+            * computes batch normalisation based on population estimates for mean and variance (learned during training)
+        How to use center and scale params:
+            * if you use center=True, your preceding layer does not require a bias because this bias will be canceled
+            out in the batch_norm process anyway.
+            * when the next layer is linear (e.g. a ReLU Activation), scale can be set to False, since the scaling can
+            be done by the next layer if needed.
+
+    !!! example
+        if I added the updates to the update collection I would have to do something like
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            train_op = optimizer.minimize(loss)
+        Don't see the need for now, this seems ugly. Perhaps later I can add this info to any layer (updates
+        that need to take place)
+
+    !!! cite "Reference"
+        Ioffe, Szegedy [Batch Normalization: Accelerating Deep Network Training by Reducing
+        Internal Covariate Shift](http://arxiv.org/abs/1502.03167.)
+
+    Args:
+        input_layer (`Layer`): layer from which the batch normalisation will be computed
+        axis (`Iterable[int]`): Optional iterable of indices of dimensions to reduce over. By default `None` and all
+        dimensions except the last are reduced over.
+        offset (`bool` or None): Optional boolean to specify whether or not to apply a trained component-wise bias
+         `beta` after the batch normalization and scaling. If True, subtract `beta`.
+        scale (`bool` or None): Optional boolean to specify whether or not to apply a trained component-wise `gamma`
+         scale after the batch normalization. If True, multiplies result by `gamma`.
+        decay_rate (`float`): Decay rate of the exponential moving averages of the mean and variance.
+        training (`bool`): if True uses the current mini-batch mean and variance to compute the batch-normalised output and
+        updates the population estimates. Else, computes the batch normalisation using the estimates.
+        eps (`float`): eps or epsilon
+        name: Name of the layer.
+    """
+
+    def compute_shape(self):
+        return self.input.shape
+
+    def reset_estimates(self):
+        self.moving_mean.assign(tf.zeros_like(self.moving_mean))
+        self.moving_average.assign(tf.zeros_like(self.moving_average))
+
+    def __init__(self,
+                 input_layer,
+                 offset=True,
+                 axis=None,
+                 scale=False,
+                 training=True,
+                 gamma_init=ones_init(),
+                 beta_init=zeros_init(),
+                 decay_rate=0.99,
+                 eps=0.001,
+                 share_state_with=None,
+                 name="BatchNorm"):
+
+        self.axis = axis
+        self.decay_rate = decay_rate
+        self.eps = eps
+        self.training = training
+        self.offset = offset
+        self.scale = scale
+        self.share_state_with = share_state_with
+        self.gamma_init = gamma_init
+        self.beta_init = beta_init
+
+        if input_layer.dtype not in (tf.float32, tf.float64, tf.float16):
+            raise TypeError("Expected float layer got {} instead".format(input_layer.dtype))
+
+        super().__init__(inputs=input_layer,
+                         n_units=input_layer.n_units,
+                         dtype=input_layer.dtype,
+                         name=name,
+                         # params
+                         axis=axis,
+                         offset=offset,
+                         scale=scale,
+                         decay_rate=decay_rate,
+                         eps=eps,
+                         gamma_init=gamma_init,
+                         beta_init=beta_init,
+                         training=training,
+                         share_state_with=share_state_with
+                         )
+
+    def init_state(self):
+        if self.share_state_with is not None:
+            state = self.share_state_with.layer_state
+        else:
+            state = super(BatchNorm, self).init_state()
+
+        param_shape = self.input.shape[-1:]
+
+        with layer_scope(self):
+            if not hasattr(state, "gamma"):
+                state.gamma = tf.Variable(initial_value=self.gamma_init(param_shape),
+                                          name="gamma",
+                                          dtype=self.dtype,
+                                          trainable=self.scale
+                                          )
+
+            if not hasattr(state, "beta"):
+                state.beta = tf.Variable(initial_value=self.beta_init(param_shape),
+                                         name="beta",
+                                         dtype=self.dtype,
+                                         trainable=self.offset,
+                                         )
+
+            # moving statistics, not trainable
+            if not hasattr(state, "moving_mean"):
+                state.moving_mean = tf.Variable(initial_value=zeros_init()(param_shape),
+                                                name="moving_mean",
+                                                trainable=False,
+                                                dtype=self.dtype)
+
+            if not hasattr(state, "moving_variance"):
+                state.moving_variance = tf.Variable(initial_value=zeros_init()(param_shape),
+                                                    name="moving_variance",
+                                                    trainable=False,
+                                                    dtype=self.dtype)
+
+        return state
+
+    def compute(self, input_tensor):
+        input_tensor = tf.convert_to_tensor(input_tensor, dtype=self.dtype)
+        input_shape = input_tensor.shape
+
+        with layer_scope(self):
+            if isinstance(input_tensor, tf.SparseTensor):
+                input_tensor = tf.sparse.to_dense(input_tensor)
+
+            axis = list(range(len(input_shape) - 1)) if self.axis is None else self.axis
+
+            # Calculate the moments based on the individual batch.
+            batch_mean, batch_variance = tf.nn.moments(x=input_tensor,
+                                                       axes=axis,
+                                                       shift=self.moving_mean,
+                                                       name="moments")
+
+            if self.training:
+                # zero de-bias ema update
+                moving_averages.assign_moving_average(variable=self.moving_mean,
+                                                      value=batch_mean,
+                                                      decay=self.decay_rate,
+                                                      zero_debias=True)
+                moving_averages.assign_moving_average(variable=self.moving_variance,
+                                                      value=batch_variance,
+                                                      decay=self.decay_rate,
+                                                      zero_debias=True)
+
+                return tf.nn.batch_normalization(x=input_tensor,
+                                                 mean=batch_mean,
+                                                 variance=batch_variance,
+                                                 offset=self.beta,
+                                                 scale=self.gamma,
+                                                 variance_epsilon=self.eps)
+            else:
+                return tf.nn.batch_normalization(x=input_tensor,
+                                                 mean=self.moving_mean,
+                                                 variance=self.moving_variance,
+                                                 offset=self.beta,
+                                                 scale=self.gamma,
+                                                 variance_epsilon=self.eps)
+
+    def reuse_with(self, input_layer, training=None, name=None):
+        if self.training is None:
+            training = self.training
+        else:
+            training = training
+
+        return BatchNorm(input_layer=input_layer,
+                         axis=self.axis,
+                         training=training,
+                         offset=self.offset,
+                         scale=self.scale,
+                         gamma_init=self.gamma_init,
+                         beta_init=self.beta_init,
+                         decay_rate=self.decay_rate,
+                         eps=self.eps,
+                         share_state_with=self if self.share_state_with is None else self.share_state_with,
+                         name=self.name if name is None else name)
 
 
 class Dropout(Layer):
@@ -2069,30 +2281,30 @@ class Dropout(Layer):
         with layer_scope(self):
             if isinstance(input_value, tf.SparseTensor):
                 # if input is sparse, noise_shape is not used
-                tensor, mask = tx.sparse_dropout(sp_tensor=input_value,
-                                                 mask=mask_value,
-                                                 probability=self.probability,
-                                                 scale=self.scale,
-                                                 return_mask=True,
-                                                 alpha=self.alpha,
-                                                 seed=self.seed)
-
-            else:
-                if self.alpha:
-                    tensor, mask = tx.alpha_dropout(tensor=input_value,
-                                                    noise_shape=self.noise_shape,
-                                                    random_mask=mask_value,
-                                                    probability=self.probability,
-                                                    return_mask=True,
-                                                    seed=self.seed)
-                else:
-                    tensor, mask = tx.dropout(tensor=input_value,
-                                              noise_shape=self.noise_shape,
-                                              random_mask=mask_value,
+                tensor, mask = sparse_dropout(sp_tensor=input_value,
+                                              mask=mask_value,
                                               probability=self.probability,
                                               scale=self.scale,
                                               return_mask=True,
+                                              alpha=self.alpha,
                                               seed=self.seed)
+
+            else:
+                if self.alpha:
+                    tensor, mask = alpha_dropout(tensor=input_value,
+                                                 noise_shape=self.noise_shape,
+                                                 random_mask=mask_value,
+                                                 probability=self.probability,
+                                                 return_mask=True,
+                                                 seed=self.seed)
+                else:
+                    tensor, mask = dropout(tensor=input_value,
+                                           noise_shape=self.noise_shape,
+                                           random_mask=mask_value,
+                                           probability=self.probability,
+                                           scale=self.scale,
+                                           return_mask=True,
+                                           seed=self.seed)
 
             return tensor
 
@@ -2207,9 +2419,9 @@ class BaseRNNCell(Layer, ABC):
                  state_size,
                  n_units,
                  dtype=tf.float32,
-                 w_init=tf.initializers.glorot_uniform(),
-                 u_init=tf.initializers.glorot_uniform(),
-                 bias_init=tf.initializers.zeros(),
+                 w_init=glorot_uniform_init(),
+                 u_init=glorot_uniform_init(),
+                 bias_init=zeros_init(),
                  activation=tf.tanh,
                  w_dropconnect=None,
                  u_dropconnect=None,
@@ -2739,7 +2951,7 @@ class Gate(Layer):
 
         with layer_scope(self):
             gate = self.gate_fn(gate_tensor)
-            output = tx.apply_gate(input_tensor, gate)
+            output = apply_gate(input_tensor, gate)
 
             return output
 
@@ -2759,40 +2971,52 @@ class Gate(Layer):
 
 
 class Lookup(Layer):
-    """
-    Note:
-        If the input is a ``SparseInput`` it expects on element of an n-sequence per row of the ``SparseTensor``
-        this is because of how embedding lookup works. Since this layer requires us to supply an exact batch_size
-        it will aggregate the final result according to this batch.
+    """ A `Lookup` or **Embeddings** layer that gathers rows of a given parameter table given integer indices.
 
-        If we want to lookup a batch of sequences of 4 elements, the ``SparseInput`` must have the shape
-        [4*2,m] where m is the n_features.
+    Similar to the [`embedding_lookup`](https://www.tensorflow.org/api_docs/python/tf/nn/embedding_lookup) operation
+    from TensorFlow or the [Embedding](https://www.tensorflow.org/api_docs/python/tf/keras/layers/Embedding) layer
+    from Keras with added functionality.
 
-        If the input is ``Input``, for a sequence of 4 elements and batch size of 2, the shape should be [2,4].
 
-    Returns:
-        A ``Tensor`` with shape [batch_size,seq_size*n_features] with the features of all elements in the sequence
-        concatenated,
+    !!! note
+        If a `SparseTensor` is passed as input, `Lookup` outputs one vector per row of the `SparseTensor`. If
+        an exact batch_size is given the aggregation and padding is done based on this batch_size.
+
+        If we want to lookup a batch of 2 sequences of 4 elements encoded in a `SparseTensor`, this should have the
+        shape `(4*batch_size,d)` where `batch_size=2` and `d` is the input `n_units`.
 
     Args:
-        input_layer: an `Input` layer or `SparseInput` layers.
-        seq_size: size of the sequence to be looked-up
-        weight_init (`Callable[tf.Tensor]`):
-        embedding_shape: lookup table feature dimension
-        batch_size: number of sequences to be looked up,
-        if not None, will force a padding up to the specified batch_size
+        input_layer(`Layer`): an `Input` or other `Layer` representing indices for the lookup
+        seq_size (`int`): size of the sequence to be looked-up
+        weight_init (`Callable[tf.Tensor]`): embedding table initializer
+        embedding_shape (`tf.TensorShape`): lookup table shape
+        batch_size (`int` or None): number of sequences to be looked up, if not None, will force a padding up to the
+            specified batch_size.
+        add_bias (`bool`): if True adds a bias to the lookup output.
+        bias (`tf.Tensor` or `tf.Variable`): optionally pass bias value to the lookup operator
+        weights (`tf.Tensor` or `tf.Variable`): optional lookup table value
+        shape: (`tf.TensorShape`): expected output shape for the lookup. overrides `lookup.shape` inference
+        dtype (`tf.DType`): output data type
+        name (`str`): layer name
+        share_state_with (`Lookup`): a `Lookup` layer with which this layer shares its state
+        batch_padding (`bool`): if True, pads the output according to `seq_size` and given (or inferred) `batch_size`
+
+    Returns:
+        embeddings (`Tensor`): output tensor
+
     """
 
     def __init__(self,
                  input_layer,
                  seq_size,
                  embedding_shape,
-                 weight_init=tf.initializers.glorot_uniform(),
+                 weight_init=glorot_uniform_init(),
                  batch_size=None,
                  add_bias=False,
                  bias_init=tf.initializers.zeros(),
                  bias=None,
                  weights=None,
+                 shape=None,
                  dtype=tf.float32,
                  name="lookup",
                  share_state_with=None,
@@ -2800,7 +3024,7 @@ class Lookup(Layer):
                  ):
 
         self.weight_init = weight_init
-        self.embedding_shape = embedding_shape
+        self.embedding_shape = tf.TensorShape(embedding_shape)
         self.seq_size = seq_size
         self.batch_padding = batch_padding
 
@@ -2815,11 +3039,16 @@ class Lookup(Layer):
         self.weights = weights
         self.share_state_with = share_state_with
 
-        super().__init__(inputs=input_layer, n_units=n_units, dtype=dtype, name=name)
+        super().__init__(inputs=input_layer,
+                         n_units=n_units,
+                         shape=shape,
+                         dtype=dtype,
+                         name=name)
 
     def compute_shape(self):
-        seq_size = self.seq_size if isinstance(self.seq_size, tf.Tensor) else None
-        output_shape = (self.input.shape[0], seq_size, self.n_units)
+        # seq_size = self.seq_size if isinstance(self.seq_size, (tf.Tensor, int)) else None
+        batch_size = self.batch_size if self.batch_size is not None else self.input.shape[0]
+        output_shape = (batch_size, None, self.n_units)
         return tf.TensorShape(output_shape)
 
     def init_state(self):
@@ -2910,12 +3139,12 @@ class Lookup(Layer):
                 # similar to the semantics of 1D dense tensor lookups
                 if len(input_tensor.get_shape().as_list()) == 1:
                     sp_batch_size = tf.shape(input_tensor.values)[0]
-                    sp_indices = tx.matrix_indices(input_tensor.indices)
+                    sp_indices = matrix_indices(input_tensor.indices)
                     sp_batch_dim = tf.cast(tf.stack([sp_batch_size, sp_dim]), tf.int64)
                     input_tensor = tf.SparseTensor(sp_indices, input_tensor.values, sp_batch_dim)
 
                 sp_values = input_tensor
-                sp_indices = tx.sparse_indices(sp_values)
+                sp_indices = sparse_indices(sp_values)
 
                 # sums the lookups for the same row
                 # TODO check if this code has corrected the sparse gradient problem or if I need to add my own version
@@ -2983,9 +3212,19 @@ class Lookup(Layer):
                     lookup_bias = tf.expand_dims(lookup_bias, -1)
                     lookup_weights += lookup_bias
 
-                batch_size = tf.shape(input_tensor)[0]
+                # seq_size = -1 if self.seq_size is None else self.seq_size
+                # if isinstance(self.seq_size, tf.Tensor):
+                # lookup_shape = tf.cond(tf.less(seq_size, 0),
+                #                        true_fn=lambda: tf.stack(
+                #                            [tf.shape(input_tensor)[0], seq_size, self.n_units]),
+                #                        false_fn=lambda: tf.stack([-1, seq_size, self.n_units])
+                #                        )
+                # else:
+                #    lookup_shape = tf.stack([batch_size, seq_size, self.n_units])
+
+                batch_size = input_tensor.shape[0]
                 lookup_shape = tf.stack([batch_size, -1, self.n_units])
-                output = tf.reshape(lookup_weights, lookup_shape)
+                output = tf.reshape(lookup_weights, shape=lookup_shape)
 
                 # padding
                 padding = []
@@ -3153,8 +3392,8 @@ class CoupledGate(Layer):
             gate1 = self.gate_fn(gate_input)
             gate2 = 1 - gate1
 
-            output1 = tx.apply_gate(tensor1, gate1)
-            output2 = tx.apply_gate(tensor2, gate2)
+            output1 = apply_gate(tensor1, gate1)
+            output2 = apply_gate(tensor2, gate2)
             output = tf.math.add(output1, output2)
 
             return output
@@ -3544,26 +3783,21 @@ class LSTMCell(BaseRNNCell):
 
 
 class Activation(Layer):
-    """Activation(layer,fn=tf.identity,name="activation",**kwargs)
+    """Activation(layer,fn=tx.identity,name="activation",**kwargs)
 
-    Applies a given function the the output of its input layer.
-
-    !!! info
-        You can pass positional arguments and keyword arguments for the given function,
-        their application works like `functools.partial`.
-
+    Applies the given function the the output of the input `Layer`.
 
     !!! warning
         if the input layer outputs a `SparseTensor`, this is converted to a dense `Tensor` first.
 
     Args:
-        input_layer: the input `Layer`
+        input_layer (`Layer`): input layer to which the activation function is applied
         fn: a function that produces a Tensor and can be called on the tensor produced by the input layer
         name: the layer name
-        **kwargs: the keyword arguments for the given function
+        **kwargs: the keyword arguments passed to the given `fn` function
     """
 
-    def __init__(self, input_layer, fn=tf.identity, name="activation", **kwargs):
+    def __init__(self, input_layer, fn=identity, name="activation", **kwargs):
         self.fn = partial(fn, **kwargs)
         self.kw = kwargs
         super().__init__(inputs=input_layer,
@@ -4075,10 +4309,10 @@ class MHAttention(Layer):
             scores = self.attention_fn(output)
 
             if self.attention_dropout > 0 and self.regularized:
-                scores = tx.dropout(tensor=scores,
-                                    probability=self.attention_dropout,
-                                    scale=True,
-                                    name="dropout")
+                scores = dropout(tensor=scores,
+                                 probability=self.attention_dropout,
+                                 scale=True,
+                                 name="dropout")
 
             # weighted sum (context vectors) weighted by attention scores
             context_vectors = tf.matmul(scores, vh)
@@ -4353,14 +4587,15 @@ ALIAS definitions
 layer_scope: Type[LayerScope] = LayerScope
 
 __all__ = [
+    "Input",
+    "Linear",
+    "Activation",
+    "Lookup",
+    "Lambda",
     "DropConnect",
     "as_layer",
-    "Activation",
-    "Lambda",
     "Layer",
     "layer",
-    "Linear",
-    "Input",
     "Constant",
     "Param",
     "Wrap",
@@ -4376,7 +4611,6 @@ __all__ = [
     "GRUCell",
     "LSTMCell",
     "RNN",
-    "Lookup",
     "ToDense",
     "ToSparse",
     "Dropout",
@@ -4387,5 +4621,6 @@ __all__ = [
     "FC",
     "SeqConcat",
     "SeqMap",
-    "LayerNorm"
+    "LayerNorm",
+    "BatchNorm"
 ]

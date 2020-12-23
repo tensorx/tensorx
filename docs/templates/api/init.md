@@ -1,3 +1,5 @@
+#
+## tx.init
 **Initializers** allow you to pre-specify an initialization strategy, encoded in
 a `Callable` object, without knowing the `shape` and `dtype` of the `Variable`
 being initialized.

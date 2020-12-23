@@ -248,7 +248,7 @@ def test_linear_rank3():
         linear1.reuse_with(x2, transpose_weights=True)
         pytest.fail("can't reuse with transpose weights while changing the layer definition")
 
-    linear_flat = linear1.reuse_with(x1_flat,shape=(4,2))
+    linear_flat = linear1.reuse_with(x1_flat, shape=(4, 2))
     x1_tensor = x1()
     new_shape = x1_tensor.shape[:-1] + [2]
 
@@ -1027,9 +1027,38 @@ def test_biRNN():
     print(rnn0_tensor.shape)
     print(rnn0_0_tensor.shape)
 
+    # assert tx.same_shape(rnn0(), rnn1())
+    # assert tx.same_shape(rnn1(), rnn1_0())
 
-    #assert tx.same_shape(rnn0(), rnn1())
-    #assert tx.same_shape(rnn1(), rnn1_0())
+
+def test_batch_norm():
+    v = tf.random.uniform([3, 4])
+    x = tx.Input(v, dtype=tf.float32)
+
+    bn = tx.BatchNorm(x, offset=True, scale=True)
+    moving_mean = bn.moving_mean
+    moving_variance = bn.moving_variance
+
+    before = bn.moving_mean.value()
+    bn()
+    after = bn.moving_mean.value()
+    assert not tx.tensor_equal(before, after)
+
+    x.value = tf.random.uniform([3, 4])
+    bn = bn.reuse_with(x, training=False)
+    before = bn.moving_mean.value()
+    bn()
+    after = bn.moving_mean.value()
+    assert tx.tensor_equal(before, after)
+    assert moving_mean is bn.moving_mean
+    assert moving_variance is bn.moving_variance
+
+    bn = bn.reuse_with(x, training=True)
+    x.value = tf.random.uniform([3, 4])
+    before = bn.moving_mean.value()
+    bn()
+    after = bn.moving_mean.value()
+    assert not tx.tensor_equal(before, after)
 
 
 def test_stateful_rnn_layer():
@@ -1071,6 +1100,38 @@ def test_stateful_rnn_layer():
     rnn1.reset()
     reset_state = rnn1.previous_state[0]()
     assert tx.tensor_equal(reset_state, zero_state0[0])
+
+
+def test_lookup_config():
+    inputs = tx.Input(np.array([[2, 0], [1, 2]]), 2, dtype=tf.int64)
+    lookup = tx.Lookup(inputs, None,
+                       embedding_shape=[2, 10],
+                       batch_size=None,
+                       batch_padding=True)
+
+    assert lookup.config['embedding_shape'] == [2, 10]
+    assert lookup.config['batch_size'] is None
+    assert lookup.config['batch_padding'] is True
+    assert lookup.config['seq_size'] is None
+
+
+def test_lookup_sequence_mismatch():
+    inputs = tx.Input(np.array([[2, 0], [1, 2]]), 2, dtype=tf.int64)
+    lookup = tx.Lookup(inputs, None,
+                       embedding_shape=[2, 10],
+                       batch_size=None,
+                       batch_padding=True)
+
+    assert lookup.shape.is_compatible_with(lookup().shape)
+
+    lookup = tx.Lookup(inputs, 1,
+                       embedding_shape=[2, 10],
+                       batch_size=None,
+                       batch_padding=True)
+
+    # not validating seq_len differing from input seq_len
+    assert lookup.batch_size is None
+    assert lookup.shape.is_compatible_with(lookup().shape)
 
 
 def test_lookup_sequence_dense():

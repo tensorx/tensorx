@@ -7,16 +7,16 @@ from tensorx import math as mx
 
 
 def sparse_ones(indices, dense_shape, dtype=tf.float32, name="sparse_ones"):
-    """ Creates a new ``SparseTensor`` with the given indices having value 1
+    """ Creates a new `SparseTensor` with the given indices having value 1
 
     Args:
-        indices: a rank 2 ``Tensor`` with the (row,column) indices for the resulting sparse tensor
-        dense_shape: the ``SparseTensor`` dense shape
-        dtype: the tensor type for the values
-        name: name for this op
+        indices (`Tensor`): a rank 2 tensor with the `(row,column)` indices for the resulting sparse tensor
+        dense_shape (`Tensor` or `TensorShape`): the output dense shape
+        dtype (`tf.DType`): the tensor type for the values
+        name (`str`): sparse_ones op
 
     Returns:
-        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
+        sp_tensor (`SparseTensor`): a new sparse tensor with values set to 1
     """
     with tf.name_scope(name=name):
         indices = as_tensor(indices, tf.int64)
@@ -27,16 +27,16 @@ def sparse_ones(indices, dense_shape, dtype=tf.float32, name="sparse_ones"):
 
 
 def sparse_zeros(indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
-    """ Creates a new ``SparseTensor`` with the given indices having value 1
+    """ Creates a new `SparseTensor` with the given indices having value 0
 
     Args:
-        indices: a rank 2 ``Tensor`` with the indices for the resulting sparse tensor
-        dense_shape: the ``SparseTensor`` dense shape
-        dtype: the tensor type for the values
-        name: name for this op
+        indices (`Tensor`): a rank 2 tensor with the `(row,column)` indices for the resulting sparse tensor
+        dense_shape (`Tensor` or `TensorShape`): the output dense shape
+        dtype (`tf.DType`): the tensor type for the values
+        name (`str`): sparse_ones op
 
     Returns:
-        ``SparseTensor``: a new tf.SparseTensor with the values set to 1.
+        sp_tensor (`SparseTensor`): a new sparse tensor with values set to 0
     """
     with tf.name_scope(name=name):
         indices = as_tensor(indices, tf.int64)
@@ -47,18 +47,19 @@ def sparse_zeros(indices, dense_shape, dtype=tf.float32, name="sparse_zeros"):
 
 
 def sparse_indices(sp_values, name="sparse_indices"):
-    """ Returns the a ``SparseTensor`` with the indices for the active values on a given ``SparseTensor`` .
+    """ Returns a `SparseTensor` with the values containing column indices for the active values on a
+    given `SparseTensor`.
 
-    Use Case:
-        To be used with ``embedding_lookup_sparse`` when we need two ``SparseTensor`` : one with the indices and
-        one with the values.
+    !!! example "Use Case"
+        To be used with ``embedding_lookup_sparse`` when we need two `SparseTensor` objects with the indices and
+        values
 
     Args:
-        sp_values: a ``SparseTensor`` for which we extract the active indices.
-        name: name for this op
+        sp_values (`SparseTensor`): a sparse tensor for which we extract the active indices.
+        name (`str`): name for sparse_indices op
 
     Returns:
-        ``SparseTensor``: a ``SparseTensor`` with the indices of the active elements of another ``SparseTensor`` .
+        sp_indices (`SparseTensor`): a sparse tensor with the column indices
     """
     with tf.name_scope(name=name):
         if len(sp_values.get_shape().dims) == 1:
@@ -74,12 +75,12 @@ def repeat(x, n, name="repeat"):
     """ Repeats the values of a tensor along the last dimension
 
     Args:
-        x: ``Tensor``
-        n: :obj:`int` number of repetitions of each element
-        name: name for the operation
+        x (`Tensor`): input tensor
+        n (`int`): number of repetitions of each element
+        name (`str`): name for the repeat op
 
     Returns:
-        A `Tensor` with shape [shape[:-1, ], shape[-1:, ] * n]
+        tensor (`Tensor`): tensor with shape [shape[:-1, ], shape[-1:, ] * n]
     """
     with tf.name_scope(name):
         x = tf.convert_to_tensor(x)
@@ -97,17 +98,16 @@ def repeat(x, n, name="repeat"):
 
 
 def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix_indices"):
-    """ transforms a batch of column indices to a batch of matrix indices, if the indices are out of order and sorted is
-     `True`, the resulting indices are sorted in canonical row-major order.
+    """ Transforms a batch of column indices into a batch of matrix indices
 
     Args:
-        index_tensor (Tensor): a tensor with shape `[b,n]` with a batch of `n` column indices.
-        dtype (DType): the output dtype for the indices. Defaults to `int64`.
-        sort_indices (bool): if `True`, output indices are sorted in canonical row-major order.
-        name (str): name for this op.
+        index_tensor (`Tensor`): a tensor with shape `(b,n)` with a batch of `n` column indices.
+        dtype (`DType`): the output dtype for the indices. Defaults to `int64`.
+        sort_indices (`bool`): if `True`, output indices are sorted in canonical row-major order.
+        name (`str`): name for this op.
 
     Returns:
-        tensor (Tensor): tensor with shape `[b,2]` for each index in the input tensor with the corresponding matrix
+        tensor (`Tensor`): tensor with shape `[b,2]` for each index in the input tensor with the corresponding matrix
         indices
     """
     with tf.name_scope(name):
@@ -138,29 +138,32 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
 
 
 def sparse_matrix_indices(column_indices, num_cols, dtype=tf.float32, name="sparse_one_hot"):
-    """Transforms a batch of column indices to a one-hot encoding ``SparseTensor``.
+    """Transforms a batch of column indices to a one-hot encoding `SparseTensor`.
 
-        Example::
-
+        Example:
+            ``` python
             indices = [[0,1,4],
                        [1,2,6]]
-
             dense_shape = [2,10]
-
             sp_one_hot = sparse_one_hot(indices,dense_shape)
-
-            expected = tf.SparseTensor(indices=[[0,0],[0,1],[0,4],[1,1],[1,2],[1,6]],
+            expected = tf.SparseTensor(indices=[[0,0],
+                                                [0,1],
+                                                [0,4],
+                                                [1,1],
+                                                [1,2],
+                                                [1,6]],
                                     values=[1,1,1,1,1,1],
                                     dense_shape=[2,10])
+            ```
 
         Args:
-            column_indices: a dense ``Tensor`` with the indices to be active for each sample (row)
-            num_cols: number of columns for the one-hot encoding
-            dtype: the type for the output values.
-            name: name for this op
+            column_indices (`Tensor`): a dense tensor with the indices to be active for each sample (row)
+            num_cols (`int`): number of columns for the one-hot encoding
+            dtype (`tf.DType`): the type for the output values.
+            name (`str`): name for this op
 
         Returns:
-            `SparseTensor`: a ``Sparse Tensor`` with the one hot encoding for the given indices
+            sp_tensor (`SparseTensor`): a sparse tensor with the one hot encoding for the given indices
     """
     with tf.name_scope(name=name):
         column_indices = as_tensor(column_indices, tf.int64)
@@ -201,9 +204,7 @@ def dropout(tensor,
             seed=None,
             return_mask=False,
             name="dropout"):
-    """ dropout
-
-    With probability `probability`, outputs `0`  otherwise outputs the input element. If ``scale`` is True, the
+    """ With probability `probability`, outputs `0`  otherwise outputs the input element. If ``scale`` is True, the
     input elements are scaled up by `1 / (1-probability)` so that the expected sum of the activations is unchanged.
 
     By default, each element is kept or dropped independently.  If `noise_shape`
@@ -214,20 +215,21 @@ def dropout(tensor,
     kept independently and each row and column will be kept or not kept together.
 
     Args:
-        noise_shape: A 1-D `Tensor` of type `int32`, representing the shape for randomly generated drop flags.
-        return_mask: if true, returns the random mask used
-        random_mask: a tensor used to create the random bernoulli mask
-        tensor: A floating point tensor.
-        probability: A scalar `Tensor` with the same type as x. The probability that each element is kept.
-        scale: if true rescales the non-zero elements to 1 / (1-drop_probability)
-        seed: A Python integer with the random number generator seed
-        name: a name for this operation (optional)
+        tensor (`Tensor`): an input tensor
+        noise_shape (`Tensor`): A 1-D `Tensor` of type `int32`, representing the shape for randomly generated drop flags
+        return_mask (`bool`): if `True`, returns the random mask used
+        random_mask (`Tensor`): a tensor used to create the random bernoulli mask
+        probability (`float` or `Tensor`): A scalar `Tensor` with the same type as x. The probability that each element
+            is kept.
+        scale (`bool`): if true rescales the non-zero elements to 1 / (1-drop_probability)
+        seed (`int`): A Python integer with the random number generator seed
+        name (`str`): a name for this operation
 
     Returns:
-        a Tensor of the same shape of tensor
+        tensor (`Tensor`): output tensor with the same `DType` as the input
 
     Raises:
-        ValueError: If `probability` is not in `[0, 1]` or if `x` is not a floating point tensor.
+        ValueError: if `probability` is not in `[0, 1]` or if `x` is not a floating point tensor.
     """
     with tf.name_scope(name):
         tensor = tf.convert_to_tensor(tensor, name="x")
@@ -305,10 +307,8 @@ def alpha_dropout(tensor,
                   seed=None,
                   return_mask=False,
                   name="dropout"):
-    """ alpha_dropout
-
-    keeps mean and variance of inputs in order to ensure the self-normalization after dropout. Alpha dropout is
-    proposed for Scaled Exponential Linear Units (SELUs) because it randomly sets activations to the
+    """ Alpha Dropout keeps mean and variance of inputs in order to ensure the self-normalization after dropout.
+    Alpha dropout is proposed for Scaled Exponential Linear Units (SELUs) because it randomly sets activations to the
     negative saturation value rather than 0.
 
     The multiplicative noise will have standard deviation $\\sqrt{\\frac{probability}{(1-probability)}}
@@ -317,13 +317,14 @@ def alpha_dropout(tensor,
         1. [Self-Normalizing Neural Networks](https://arxiv.org/pdf/1706.02515.pdf)
 
     Args:
-        noise_shape: A 1-D `Tensor` of type `int32`, representing the shape for randomly generated drop flags.
-        return_mask: if true, returns the random mask used
-        random_mask: a tensor used to create the random bernoulli mask
-        tensor: A floating point tensor.
-        probability: A scalar `Tensor` with the same type as x. The probability that each element is kept.
-        seed: A Python integer with the random number generator seed
-        name: a name for this operation (optional)
+        tensor (`Tensor`): A floating point tensor.
+        noise_shape (`Tensor`): A 1-D `Tensor` of type `int32`, representing the shape for randomly generated drop flags
+        return_mask (`bool`): if true, returns the random mask used
+        random_mask (`Tensor`): a tensor used to create the random bernoulli mask
+        probability (`float` or `Tensor`): A scalar `Tensor` with the same type as x. The probability that each element
+            is kept.
+        seed (`int`): A Python integer with the random number generator seed
+        name (`str`): a name for this operation (optional)
 
     Returns:
         result (`Tensor`): a tensor with the same shape as the input with the dropped units set to negative values
@@ -400,7 +401,19 @@ def alpha_dropout(tensor,
         return a * x + b
 
 
-def binary_mask(tensor, mask_probability=0.0, seed=None):
+def binary_random_mask(tensor, mask_probability=0.0, seed=None):
+    """ Creates a binary mask with the same shape as the given tensor, randomly generated from
+    the given mask probability.
+
+    Args:
+        tensor (`Tensor`): tensor for which we would like to create a mask
+        mask_probability (`float`, `Tensor`): scalar tensor or float with probability of masking a given value
+        seed (`int`): seed for random number generator
+
+    Returns:
+        binary_mask (`Tensor`): a tensor with values `0` or `1` with the same shape as the input tensor
+
+    """
     with tf.name_scope(name="random_mask"):
         tensor = as_tensor(tensor)
         noise_shape = _get_noise_shape(tensor, None)
@@ -420,23 +433,23 @@ def sparse_dropout(sp_tensor,
                    return_mask=False,
                    alpha=False,
                    name="sparse_dropout"):
-    """Performs a dropout on a ``SparseTensor``.
+    """ Performs a dropout on a `SparseTensor`.
 
     With probability `keep_prob`, outputs the input element scaled up by
     `1 / keep_prob`, otherwise outputs `0`.  The scaling is so that the expected
     sum is unchanged.
 
     Args:
-        mask: a random_mask to be applied to the values of this tensor
-        return_mask: if true returns the random_mask used to perform dropout (result,random_mask)
-        sp_tensor: a ``SparseTensor`` on which the dropout is performed.
-        probability: A scalar `Tensor` with the same type as x. The probability
-        that each element is kept.
-        scale: if True rescales the input to 1 / keep_prob else simply drops without rescaling
-        seed: A Python integer. Used to create random seeds. (See `TensorFlow` documentation
-        for ``tf.set_random_seed`` for behavior.)
-        name: A name for this operation (optional).
-        alpha (`Bool`): if True uses `alpha_dropout` instead of `dropout` in the inputs
+        sp_tensor (`SparseTensor`): a sparse tensor on which the dropout is performed.
+        mask (`Tensor`): a binary random mask to be applied to the values of this tensor
+        return_mask (`bool`): if true returns the random_mask used to perform dropout (result,random_mask)
+        probability (`float`, `Tensor`): A scalar tensor with the same type as x. The probability
+            that each element is kept.
+        scale (`bool`): if True rescales the input to 1 / keep_prob else simply drops without rescaling
+        seed (`int): A Python integer used as seed. (See `TensorFlow` documentation
+            for ``tf.set_random_seed`` for behavior.)
+        alpha (`bool`): if True uses `alpha_dropout` instead of `dropout` in the inputs
+        name (`str`): A name for this operation (optional).
 
     """
     with tf.name_scope(name=name):
@@ -481,60 +494,60 @@ def sparse_dropout(sp_tensor,
             return new_tensor
 
 
-def apply_gate(x, gate):
+def apply_gate(tensor, gate):
+    """ Applies a gate tensor to the given input
+
+    if input tensor outer dimension is a multiple of gate outer dimension we use broadcasting to apply the gate evenly
+    across the input tensor.
+
+    Example:
+        ```python
+        tx.apply_gate(tf.ones([1,4]),[1.,0.])
+
+        [[1., 1., 0., 0.]]
+        ```
+
+    Args:
+        tensor (`Tensor`): an input tensor
+        gate (`Tensor`): float tensor that is multiplied by the input tensor. The outer dimension of the input tensor
+            should either match the gate tensor or be a multiple of gate tensor.
+
+    Returns:
+        gated (`Tensor`): input tensor gated using the given gate weights
+
+    """
     with tf.name_scope("apply_gate"):
-        x = as_tensor(x)
+        tensor = as_tensor(tensor)
         gate = as_tensor(gate)
 
         n_gates = tf.shape(gate)[-1]
-        n_units = tf.shape(x)[-1]
+        n_units = tf.shape(tensor)[-1]
         feature_dim = n_units // n_gates
 
-        if isinstance(x, tf.SparseTensor):
-            tensor_in = tf.sparse.reshape(x, [-1, n_gates, feature_dim])
+        if isinstance(tensor, tf.SparseTensor):
+            tensor_in = tf.sparse.reshape(tensor, [-1, n_gates, feature_dim])
             gate = tf.expand_dims(gate, -1)
             gated = mx.sparse_dense_multiply(tensor_in, gate)
         else:
-            tensor_in = tf.reshape(x, [-1, n_gates, feature_dim])
+            tensor_in = tf.reshape(tensor, [-1, n_gates, feature_dim])
             gated = tensor_in * tf.expand_dims(gate, -1)
 
         out_shape = tf.stack([-1, n_units])
         output = tf.reshape(gated, out_shape)
 
-        # since n_units is taken from a tensor, we need to set the shape manually
-        # otherwise this can't be determined
-        # this was required in the non-eager version
-        # output.set_shape(tf.TensorShape([None, n_units]))
-
         return output
 
 
 def empty_sparse_tensor(dense_shape, dtype=tf.float32, name="empty_sp_tensor"):
-    """ Creates an empty tf.SparseTensor.
-
-    Note:
-        ``shape = [10]``
-
-        ``empty = tf.sparse.to_dense(transform.empty_sparse_tensor(shape))``
-
-        is equivalent to:
-
-        ``zero = tf.zeros(shape)``
-
-       meaning that:
-
-       ``tf.reduce_all(tf.equal(zeros,empty)).eval()``
-
-       returns True
-
+    """ Creates an empty `SparseTensor`
 
     Args:
-        dense_shape: a 1-D tensor, python list, or numpy array with the output shape for the sparse tensor
-        dtype: the dtype of the values for the empty tf.SparseTensor
-        name: a name for this operation (optional)
+        dense_shape (`TensorShape`): a 1-D tensor, python list, or numpy array with the output shape for the sparse tensor
+        dtype (`DType`): the dtype of the values for the empty tf.SparseTensor
+        name (`str`): a name for this operation
 
     Returns:
-        ``SparseTensor``: an empty sparse tensor with a given shape
+        sp_tensor (`SparseTensor`): an empty sparse tensor with a given shape
 
     """
     with tf.name_scope(name):
@@ -547,37 +560,49 @@ def empty_sparse_tensor(dense_shape, dtype=tf.float32, name="empty_sp_tensor"):
         return tf.SparseTensor(empty_indices, empty_values, dense_shape)
 
 
+# TODO: check this problem for values
+#        https://github.com/tensorflow/tensorflow/issues/32215
 class SparseVariable:
+    """ SparseVariable is the equivalent of `tf.Variable` but `SparseTensor` values can be assigned directly
+    for an update.
+
+    Args:
+        initial_value (`SparseValue`): sparse variable initial value
+        trainable (`bool`): if `True` sets the values tensor variable as trainable
+        validate_shape (`bool`): if False, the shape of the variables is not checked
+        dtype (`DType`): data type
+        name (`str`): name for sparse variable
     """
 
-    TODO: check this problem for values
-        https://github.com/tensorflow/tensorflow/issues/32215
-    """
+    def __init__(self,
+                 initial_value: tf.SparseTensor,
+                 trainable=True,
+                 validate_shape=True,
+                 dtype=None,
+                 name="sparse_var"):
+        with tf.name_scope(name):
+            self.indices = tf.Variable(initial_value=initial_value.indices,
+                                       trainable=False,
+                                       dtype=tf.int64,
+                                       shape=tf.TensorShape([None] * len(initial_value.shape[:-1]) +
+                                                            [initial_value.indices.shape[-1]]),
+                                       validate_shape=validate_shape,
+                                       name=f"indices")
 
-    def __init__(self, initial_value: tf.SparseTensor, trainable=True, validate_shape=True, dtype=None,
-                 name="sparsevar"):
-        self.indices = tf.Variable(initial_value=initial_value.indices,
-                                   trainable=False,
-                                   dtype=tf.int64,
-                                   shape=tf.TensorShape([None] * len(initial_value.shape[:-1]) +
-                                                        [initial_value.indices.shape[-1]]),
-                                   validate_shape=validate_shape,
-                                   name=f"{name}_indices")
+            self.values = tf.Variable(initial_value=initial_value.values,
+                                      dtype=dtype,
+                                      trainable=trainable,
+                                      validate_shape=validate_shape,
+                                      shape=tf.TensorShape([None]),
+                                      name=f"values"
+                                      )
 
-        self.values = tf.Variable(initial_value=initial_value.values,
-                                  dtype=dtype,
-                                  trainable=trainable,
-                                  validate_shape=validate_shape,
-                                  shape=tf.TensorShape([None]),
-                                  name=f"{name}_values"
-                                  )
-
-        self.shape = tf.Variable(initial_value=initial_value.shape.as_list(),
-                                 trainable=False,
-                                 dtype=tf.int64,
-                                 validate_shape=validate_shape,
-                                 shape=tf.TensorShape([None]),
-                                 name=f"{name}_shape")
+            self.shape = tf.Variable(initial_value=initial_value.shape.as_list(),
+                                     trainable=False,
+                                     dtype=tf.int64,
+                                     validate_shape=validate_shape,
+                                     shape=tf.TensorShape([None]),
+                                     name=f"shape")
 
     def assign(self, sp_value):
         if len(sp_value.shape) != len(self.shape.value()):
@@ -593,21 +618,22 @@ class SparseVariable:
 
 
 def to_sparse(tensor, name="to_sparse"):
-    """ to_sparse
-    Returns a `SparseTensor` for a given dense `Tensor`.
+    """Converts a given `Tensor` in a `SparseTensor`
 
-    !!! example
+    Example:
         For a dense `Tensor` such as:
         ```python
-            tensor = [[1,0],
-                      [2,3]]
+        tensor = [[1,0],
+                  [2,3]]
         ```
         this returns an op that creates the following two `SparseTensor`:
 
         ```python
-            tf.SparseTensor(indices = [[0,0],[1,0],[1,1]],
-                                    values = [1,2,3],
-                                    dense_shape = [2,2])
+        tf.SparseTensor(indices = [[0,0],
+                                   [1,0],
+                                   [1,1]],
+                        values = [1,2,3],
+                        dense_shape = [2,2])
         ```
     Args:
         tensor (`Tensor`): a dense tensor
@@ -631,7 +657,6 @@ def to_sparse(tensor, name="to_sparse"):
 # TODO check if this has been fixed from previous versions
 def embedding_lookup_sparse(params,
                             sp_tensor,
-                            partition_strategy="mod",
                             combiner=None,
                             max_norm=None,
                             name="embedding_lookup_sparse"):
@@ -655,16 +680,8 @@ def embedding_lookup_sparse(params,
         `PartitionedVariable`, created by partitioning along dimension 0. Each
         element must be appropriately sized for the given `partition_strategy`.
 
-        sp_ids: N x M `SparseTensor` of int64 ids where N is typically batch size
-        and M is arbitrary.
-
-        sp_weights: either a `SparseTensor` of float / double weights, or `None` to
-        indicate all weights should be taken to be 1. If specified, `sp_weights`
-        must have exactly the same shape and indices as `sp_ids`.
-        partition_strategy: A string specifying the partitioning strategy, relevant
-        if `len(params) > 1`. Currently `"div"` and `"mod"` are supported. Default
-        is `"mod"`. See `tf.nn.embedding_lookup` for more details.
-        name: Optional name for the op.
+        sp_tensor (`SparseTensor`):  N x M `SparseTensor` with the ids and weights
+            where N is typically batch size and M is arbitrary.
 
         combiner: A string specifying the reduction op. Currently "mean", "sqrtn"
         and "sum" are supported. "sum" computes the weighted sum of the embedding
@@ -675,13 +692,13 @@ def embedding_lookup_sparse(params,
         max_norm: If not `None`, each embedding is clipped if its l2-norm is larger
         than this value, before combining.
 
+        name (`str`): op name
+
     Returns:
-        A dense tensor representing the combined embeddings for the
-        sparse ids. For each row in the dense tensor represented by `sp_ids`, the op
-        looks up the embeddings for all ids in that row, multiplies them by the
-        corresponding weight, and combines these embeddings as specified.
-
-
+        tensor (`Tensor`): dense tensor representing the combined embeddings for the
+            sparse ids. For each row in the dense tensor represented by `sp_ids`, the op
+            looks up the embeddings for all ids in that row, multiplies them by the
+            corresponding weight, and combines these embeddings as specified.
 
     Raises:
         TypeError: If `sp_ids` is not a `SparseTensor`, or if `sp_weights` is
@@ -760,7 +777,7 @@ def embedding_lookup_sparse(params,
 
 
 def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
-    """ sparse_overlap
+    """sparse overlap
 
     Returns a `SparseTensor` where the indices of the overlapping indices in the two
     sparse tensors with the values of the first one.
@@ -789,7 +806,7 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
 
 
 def sort_by_first(tensor1, tensor2, ascending=True, name="sort_by_first"):
-    """ sort_by_first
+    """sort_by_first
 
     Sorts two tensors. Sorts the second by the changes in the first sort
 
@@ -832,11 +849,12 @@ def ranges(range_sizes, name="ranges"):
     similar to concatenating multiple `tf.range` calls applied
     to each element of a given 1D tensor with range sizes.
 
-    !!! example
-        ```python
-            ranges([1,2,4])
+    Example:
 
-            [0,0,1,0,1,2,3]
+        ```python
+        ranges([1,2,4])
+
+        [0,0,1,0,1,2,3]
         ```
 
         the enums are `[0]`, `[0,1]`, `[0,1,2,3]`
@@ -884,7 +902,7 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse"):
         gathering from a `SparseTensor` is inefficient
 
 
-    !!! example
+    Example:
         ```python
         gather_sparse(sp_tensor,[1,1,4])
         ```
@@ -944,7 +962,7 @@ def grid_2d(shape, name="grid_2d"):
     
     Args:
         shape (`Tensor`): an Tensor of tf.int32 with a 2D shape for the grid
-        name: grid_2d op name
+        name (`str`): grid_2d op name
 
     Returns:
         grid_coordinates (`Tensor`): 2D tensor with grid coordinates
@@ -962,6 +980,16 @@ def grid_2d(shape, name="grid_2d"):
 
 
 def sparse_tile(sp_tensor, num, name="sparse_tile"):
+    """ Constructs a `SparseTensor` by replicating the input sparse tensor `num` times
+
+    Args:
+        sp_tensor (`SparseTensor`): a sparse input tensor to be tiled
+        num (`int`): number of repetitions
+        name (`str`): name for the op
+
+    Returns:
+        sp_tile (`SparseTensor`): result sparse tensor
+    """
     with tf.name_scope(name):
         sp_tensor = as_tensor(sp_tensor)
         values = tf.tile(sp_tensor.values, [num])
@@ -994,7 +1022,7 @@ def sparse_tile(sp_tensor, num, name="sparse_tile"):
 def pairs(tensor1, tensor2, name="pairs"):
     """Pairwise combination of elements from the two tensors.
 
-    !!! example
+    Example:
         ```python
         t1 = [[0],[1]]
         t2 = [2,3,4]
@@ -1130,16 +1158,16 @@ def filter_nd(condition, params, name="filter_nd"):
 
 
 def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
-    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a ``SparseTensor``
+    """ Returns a `SparseTensor` where the indices of the two tensors overlap returning a `SparseTensor`
     with the values of the first one
 
     Args:
-        name: name for this op
-        sp_tensor1: a `SparseTensor`
-        sp_tensor2: a `SparseTensor`
+        sp_tensor1 (`SparseTensor`): a `SparseTensor`
+        sp_tensor2 (`SparseTensor`): another `SparseTensor`
+        name (`str`): name for this op
 
     Returns:
-        `SparseTensor`, `SparseTensor`: sp1, sp2 - sparse tensors with the overlapping indices
+        sp1 (`SparseTensor`): sparse tensor with the overlapping indices and values of the first tensor
     """
     with tf.name_scope(name):
         ones1 = sparse_ones(sp_tensor1.indices, sp_tensor1.dense_shape)
@@ -1156,30 +1184,31 @@ def sparse_overlap(sp_tensor1, sp_tensor2, name="sparse_overlap"):
         return filtered
 
 
-
-__all__ = ["sparse_ones",
-           "sparse_zeros",
-           "sparse_overlap",
-           "apply_gate",
-           "sparse_indices",
-           "sparse_matrix_indices",
-           "matrix_indices",
-           "dropout",
-           "alpha_dropout",
-           "sparse_dropout",
-           "binary_mask",
-           "empty_sparse_tensor",
-           "SparseVariable",
-           "to_sparse",
-           "embedding_lookup_sparse",
-           "sparse_overlap",
-           "sort_by_first",
-           "ranges",
-           "grid_2d",
-           "gather_sparse",
-           "sparse_tile",
-           "pairs",
-           "sparse_put",
-           "put",
-           "filter_nd"
-           ]
+__all__ = [
+    "matrix_indices",
+    "empty_sparse_tensor",
+    "sparse_ones",
+    "sparse_zeros",
+    "sparse_overlap",
+    "apply_gate",
+    "sparse_indices",
+    "sparse_matrix_indices",
+    "dropout",
+    "alpha_dropout",
+    "sparse_dropout",
+    "binary_random_mask",
+    "SparseVariable",
+    "to_sparse",
+    "embedding_lookup_sparse",
+    "sparse_overlap",
+    "sort_by_first",
+    "ranges",
+    "grid_2d",
+    "gather_sparse",
+    "sparse_tile",
+    "pairs",
+    "sparse_put",
+    "put",
+    "filter_nd",
+    "repeat"
+]

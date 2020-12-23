@@ -5,12 +5,23 @@ ${h3} .${header['function']}
     %else:
 ${h3} ${header['function']}
     %endif
+%if not source is UNDEFINED:
+<a href="${source}">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a>
+%endif
 ```python
 .${signature}
 ```
 %elif header['class']:
 ${h2} ${header['class']}
-
+%if not source is UNDEFINED:
+<a href="${source}">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a>
+%endif
 ```python 
 ${signature}
 ```
