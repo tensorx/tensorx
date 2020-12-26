@@ -53,7 +53,7 @@ Install using `pip` with the following commands:
 
 ```shell
 pip install tensorflow 
-pip install tensorx
+pip install tensorx --pre
 ```
 
 For more details about the installation, check the [documentation](https://tensorx.org/start/install/).
