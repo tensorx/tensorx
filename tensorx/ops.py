@@ -958,7 +958,7 @@ def gather_sparse(sp_tensor, ids, name="gather_sparse"):
 
 
 def grid_2d(shape, name="grid_2d"):
-    """ grid_2d
+    """ creates a tensor with a grid 2d coordinates
     
     Args:
         shape (`Tensor`): an Tensor of tf.int32 with a 2D shape for the grid

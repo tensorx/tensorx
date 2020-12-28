@@ -9,8 +9,7 @@ dependencies** like `matplotlib` or `pygraphviz` for certain functionality.
 Install using `pip` with the following commands
 ```shell
 pip install tensorflow 
-# adding pre because tensorx is currently in alpha
-pip install tensorx --pre
+pip install tensorx 
 ```
 
 You can install a [custom tensorflow wheel](https://github.com/davidenunes/tensorflow-wheels) using it's URL like so:
