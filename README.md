@@ -20,7 +20,6 @@
 </p>
 
 
-
 **TensorX** is a high-level deep neural network library written in Python
 that simplifies model specification, training, and execution using 
 [TensorFlow](https://www.tensorflow.org/). It was designed for fast 

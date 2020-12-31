@@ -1706,8 +1706,8 @@ class Module(Layer):
         self-contained layer graph.
 
     Args:
-        inputs : one or more input layers
-        output : output layer; if no inputs are passed, it follows the graph backwards from the output
+        inputs (`Layer` or `List[Layer]`): one or more input layers
+        output (`Layer` or `None`): output layer; if no inputs are passed, it follows the graph backwards from the output
     """
 
     def __init__(self, inputs, output=None, dependencies=None, name="module"):
@@ -3596,11 +3596,14 @@ class LSTMCell(BaseRNNCell):
     """ A long short-term memory (LSTM) cell.
 
     Args:
+        input_layer (`Layer`): input sequence layer in time-major order
         previous_state (`Optional[Tuple[Layer]]`): (prev_h, prev_mem)
         previous_memory is the memory state output for the previous cell or None if the current cell is the first step
     """
 
-    def __init__(self, input_layer, n_units,
+    def __init__(self,
+                 input_layer,
+                 n_units,
                  previous_state=None,
                  activation=tf.tanh,
                  gate_activation=tf.sigmoid,

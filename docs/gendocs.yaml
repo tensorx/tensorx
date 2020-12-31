@@ -8,6 +8,21 @@ version: master
 
 
 pages:
+  - page: "api/layers/utils/LayerConfig.md"
+    source: "tensorx/layers.py"
+    classes:
+      - LayerConfig
+
+  - page: "api/layers/utils/LayerState.md"
+    source: "tensorx/layers.py"
+    classes:
+      - LayerState
+
+  - page: "api/layers/Layer.md"
+    source: "tensorx/layers.py"
+    classes:
+      - Layer
+
   - page: "api/layers/Input.md"
     source: "tensorx/layers.py"
     classes:
@@ -22,6 +37,11 @@ pages:
     source: "tensorx/layers.py"
     classes:
       - Activation
+
+  - page: "api/layers/Module.md"
+    source: "tensorx/layers.py"
+    classes:
+      - Module
 
   - page: "api/layers/Lookup.md"
     source: "tensorx/layers.py"
@@ -39,12 +59,37 @@ pages:
     functions:
       - layer
 
+  - page: "api/layers/rnn/BaseRNNCell.md"
+    source: "tensorx/layers.py"
+    classes:
+      - BaseRNNCell
+
+  - page: "api/layers/rnn/RNNCell.md"
+    source: "tensorx/layers.py"
+    classes:
+      - RNNCell
+
+  - page: "api/layers/rnn/GRUCell.md"
+    source: "tensorx/layers.py"
+    classes:
+      - GRUCell
+
+  - page: "api/layers/rnn/LSTMCell.md"
+    source: "tensorx/layers.py"
+    classes:
+      - LSTMCell
+
+  - page: "api/layers/rnn/RNN.md"
+    source: "tensorx/layers.py"
+    classes:
+      - RNN
 
   - page: "api/math.md"
     source: 'tensorx/math.py'
     functions:
       - sparse_dense_multiply
       - rms
+
 
   - page: "api/ops.md"
     source: 'tensorx/ops.py'

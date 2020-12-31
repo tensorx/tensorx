@@ -49,11 +49,22 @@ nav:
   - API:
     - layers:
         - Overview: api/layers/index.md
+        - Layer: api/layers/Layer.md
         - Lambda: api/layers/Lambda.md
         - Input: api/layers/Input.md
         - Linear: api/layers/Linear.md
         - Lookup: api/layers/Lookup.md
         - Activation: api/layers/Activation.md
+        - Module: api/layers/Module.md
+        - Recurrent Layers:
+            - RNN: api/layers/rnn/RNN.md
+            - RNNBaseCell: api/layers/rnn/BaseRNNCell.md
+            - RNNCell: api/layers/rnn/RNNCell.md
+            - GRUCell: api/layers/rnn/GRUCell.md
+            - LSTMCell: api/layers/rnn/LSTMCell.md
+        - Utils:
+            - LayerState: api/layers/utils/LayerState.md
+            - LayerConfig: api/layers/utils/LayerConfig.md
     - ops: api/ops.md
     - math: api/math.md
     - init: api/init.md
