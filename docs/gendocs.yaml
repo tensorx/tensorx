@@ -43,6 +43,11 @@ pages:
     classes:
       - Module
 
+  - page: "api/layers/MHAttention.md"
+    source: "tensorx/layers.py"
+    classes:
+      - MHAttention
+
   - page: "api/layers/Lookup.md"
     source: "tensorx/layers.py"
     classes:
