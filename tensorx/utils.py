@@ -44,17 +44,13 @@ class Graph:
             self.out_nodes[node] = None
 
     def add_edge(self, node1, node2):
-        """ Adds a new edge to the graph and removes
-         the nodes from input roots or output leafs
-         if these are changed
+        """ Adds a new edge to the graph
 
+        also removes nodes from input roots or outputs to reflect the current edge if necessary.
 
         Args:
-            node1:
-            node2:
-
-        Returns:
-
+            node1 (`Node`): starting node
+            node2 (`Node`): ending node
         """
         self.add_node(node1)
         self.add_node(node2)
@@ -115,9 +111,6 @@ class Graph:
     @staticmethod
     def build(inputs, outputs, add_missing_inputs=False):
         """ build_graph
-
-        #TODO perhaps I could change the name to inputs, to make this more general, any node with inputs would work
-        Transverses nodes starting from outputs and following `node.input_layers` to create the edges.
 
         !!! note
             use `add_missing_inputs` if you have graph inputs but might have other dependencies that might not have
@@ -218,41 +211,38 @@ class Graph:
     def as_function(self, ord_inputs=None, ord_outputs=None, name="compiled_graph", compile=True):
         """ compiles the graph into a tensorflow callable compiled graph
 
-        the idea is to use exec to create a function and then call tf.function
-        on the created function. this is to avoid using loops and lists to
-        run through the Graph instance and call compute.
+        Converts the current graph into a function with a series of `layer.compute(*tensors)` calls
+        and uses `tf.function` to compile this function to a Tensorflow static graph if compile is `True`.
+        The resulting function is a closure with access to layer objects, to TensorFlow should be able to
+        trace the computations for each layer `compute` call.
 
-        function parameters:
-            converts all the non-constant Input Layer nodes into graph arguments which means that only Input
-            layers are converted to params
 
-        run through each layer and queue up nodes starting on the input
-        write down a function as a series of compute calls with inputs from the previous
-        layer outputs
+        Another way to feed inputs to a graph is to use input layers and change the value, if the graphs are created
+        without inputs, but the terminal input nodes are Dynamic Inputs, the execution of those layers is a read
+        on their placeholder value, which you can change that value before calling the graph and the output will be
+        correct.
 
-        !!! note
-            Another way to feed inputs to a graph is to use input layers
+        ```python
+        input_layer.value = in0
+        input_Layer.value = in1
+        outputs = graph()
+        ```
 
-                ```python
-                input_layer.value = in0
-                input_Layer.value = in1
-                outputs = graph()
-                ```
-
-            this adds a bit of a overhead since we have to write to the variable
+        this adds a bit of a overhead since we have to write to the variable
 
         !!! bug "Dev Note"
-            adding indices to the variables in the created function is necessary to avoid users
-            naming layers like built-in identifiers.
+            * makes use of `dependency_iter` to create the computation calls such that when we call compute all the
+                inputs needed as dependencies are already available.
+
 
         Args:
-            ord_inputs: list of input that determines the order of resulting function arguments
-            ord_outputs: list of outputs used to determine the return order
+            ord_inputs (`List[Node]`): list of input that determines the order of resulting function arguments
+            ord_outputs (`List[Node`]): list of outputs used to determine the return order
             name (`str`): function name, must be a valid python function name
             compile (`bool`): if True, returns a tensorflow graph else returns a python function
 
         Returns:
-            function (`function`): an optimized TensorFlow static graph as a callable function or a python function
+            function (`Callable`): an optimized TensorFlow static graph as a callable function or a python function
 
         """
 

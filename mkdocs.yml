@@ -72,6 +72,11 @@ nav:
     - activation: api/activation.md
     - loss: api/loss.md
     - metrics: api/metrics.md
+    - utils:
+        - Graph: api/utils/Graph.md
+    - train:
+        - Model: api/train/Model.md
+        - Callback: api/train/Callback.md
 
   - Contributing: contributing.md
 

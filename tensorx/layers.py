@@ -2649,20 +2649,19 @@ class RNN(Layer):
         input_seq = self.input
         return input_seq.shape[:-1] + self.n_units
 
+    # TODO input_shape as param for Layer, this can be a list or a single shape
+    #   requires all layers to support this init without input_layers
+    #   since a layer can have more than one input
+    #   Solutions for this (Layers could be initialized with an input_shape param)
+    #   this would mean that the default state could be initialized using that shape
+    #   the default value on compute could be the identity (multiply by tf.ones)
     def init_state(self):
         """ Create a recurrent cell from the given config
 
-        The only stateful thing here is the cell which is a layer. Since layers
-        Need to know their input layer for their state to be initialized, we need
-        to give the cell a dummy input.
-
-        Solutions for this (Layers could be initialized with an input_shape param)
-        this would mean that the default state could be initialized using that shape
-        the default value on compute could be the identity (multiply by tf.ones)
-
-        # TODO input_shape as param for Layer, this can be a list or a single shape
-        #   requires all layers to support this init without input_layers
-        #   since a layer can have more than one input
+        !!! bug "Dev note"
+            The only stateful thing here is the cell which is a layer. Since layers
+            Need to know their input layer for their state to be initialized, we need
+            to give the cell a dummy input.
 
         Returns:
             state (`LayerState`): a state with a cell layer that performs the computations

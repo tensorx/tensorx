@@ -160,7 +160,7 @@ l3 = l2.reuse_with(d1)
 ```
   </div>
   <div style="width:49%;padding-top:50px; float:right;">
-  <img width="80%;" src="/img/reuse_with.svg"> 
+    <img width="80%;" src="/img/reuse_with.svg"> 
   </div>
 </div>
 <div style="clear: both;"></div>
@@ -246,11 +246,83 @@ used as targets.
 
 ## Graph Compilation
 
+TensorX builds layer graphs automatically from layer objects are connected to each other. These graphs are, in effect, 
+directed acyclic graphs (DAG) defining a given computation over inputs. To aid with validation and execution
+of neural network layer graphs, TensorX has a [Graph](/api/utils/Graph/) utility class. The `Graph` class allows for 
+automatic graph construction from output nodes (by recursively visiting each node's inputs). It also facilitates 
+transversal by dependency ordering along with conversion of arbitrary graphs to functions and Tensorflow static graphs. 
+
+TensorX takes advantage of Tensorflow's graph optimization system to simplify and optimize `Layer` computations. It does
+this by converting layer graphs into functions that are then trace-compiled into an optimized TensorFlow static graphs.
+
+
+<div style="width:100%;">
+  <div style="width:42%; padding-top: 20px; float:left;">
+```python
+x1 = Input(n_units=2)
+x2 = Input(n_units=4)
+l1 = Linear(x1,4)
+l2 = Add(l1,x2)
+l3 = Linear(l2,2)
+
+g = Graph.build(outputs=l3,
+                inputs=[x1,x2])
+fn = g.as_function(compile=True)
+```
+  </div>
+  
+  <div style="width:49%; float:right;">
+```python
+# fn is holding the following function
+@tf.function 
+def compiled_graph():
+	x1 = layers["x1"].compute()
+	x2 = layers["x2"].compute()
+	l1 = layers["l1"].compute(x1)
+	l2 = layers["l2"].compute(l1,x2)
+	l3 = layers["l3"].compute(l2)
+	return l3
+```
+  </div>
+</div>
+<div style="clear: both;"></div>
+If no `ord_inputs` are given to `as_function`, the resulting function doesn't define input parameters.
+To feed values to such a function we would need to change the values of the inputs with `x1.value = ... ` before 
+calling `fn()`. If `ord_inputs` are passed (e.g. `g.as_function(ord_inputs=[x1,x2])`), these will map the parameters to the corresponding layers that **must**
+be inputs of the current graph, if so, the resulting function can be called with arguments as `fn(value1,value2)`.
+
+Just as `Layer` objects define implicit subgraphs, we can also build `Callable` functions and TensorFlow static graphs
+from any layer by calling `layer.as_function()`. Much like in the previous example, doing this will return a function
+without parameters. This is just syntax sugar for:
+
+```python
+...
+graph = Graph.build(inputs=None, outputs=self)
+return graph.as_function(name=name, compile=compile)
+```
+
+!!! bug "Dev Notes"
+    A function conversion procedure which uses parameters with optional values for `Input` layers is in development.
 
 ## Models
 
+TensorX uses the [Model](/api/train/Model) class to group together multiple layer graphs and simplify the 
+configuration of a training loop with multiple callbacks. This part of the API might suffer some changes but at its core
+it's just intended as a way to group together layer graphs, 
+[optimizers](https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Optimizer), and a configurable training loop
+with [Callbacks](/api/train/Callback).
+
+!!! warning "Docs in progress"
+    Finish this documentation with examples
+
 ## Callbacks
 
+!!! warning "Docs in progress"
+    Finish this documentation with examples
+
 ## Serialization 
+
+!!! warning "Docs in progress"
+    Finish this documentation with examples
 
 

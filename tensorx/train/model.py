@@ -13,10 +13,10 @@ import re
 logger = logging.getLogger('tensorx')
 
 
+# TODO convert Callable train_loss to layer
 class Model:
     """ Base Model
     Args:
-        TODO convert callable to layer
         train_loss: either a callable, layer, or dictionary mapping a callable or
         layer to the target outputs.
 

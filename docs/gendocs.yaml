@@ -89,6 +89,21 @@ pages:
     classes:
       - RNN
 
+  - page: "api/utils/Graph.md"
+    source: "tensorx/utils.py"
+    classes:
+      - Graph
+
+  - page: "api/train/Model.md"
+    source: "tensorx/train/model.py"
+    classes:
+      - Model
+
+  - page: "api/train/Callback.md"
+    source: "tensorx/train/callbacks.py"
+    classes:
+      - Callback
+
   - page: "api/math.md"
     source: 'tensorx/math.py'
     functions:
