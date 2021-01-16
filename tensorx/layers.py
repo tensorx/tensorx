@@ -18,7 +18,8 @@ from tensorx.activation import identity
 from tensorx.init import zeros_init, ones_init, glorot_uniform_init
 from tensorx.utils import as_tensor, as_list, Graph, fix_reshape_dimensions
 from tensorx.ops import embedding_lookup_sparse, to_sparse, alpha_dropout, dropout, sparse_dropout, binary_random_mask, \
-    empty_sparse_tensor, sparse_matrix_indices, sparse_indices, matrix_indices, apply_gate, SparseVariable
+    empty_sparse_tensor, sparse_matrix_indices, sparse_indices, matrix_indices, apply_gate, SparseVariable, \
+    dense_one_hot
 from tensorx.train.callbacks import OnValueChange
 from tensorflow.python.training import moving_averages
 
@@ -681,6 +682,35 @@ class ToSparse(Layer):
 
     def reuse_with(self, input_layer):
         return ToSparse(input_layer)
+
+
+class OneHot(Layer):
+    """ Converts the input to a dense one-hot encoding
+        Args:
+            input_layer (`Layer`): input with shape
+            n_units (`int`): output dimension for the one-hot encoding
+            reduce (`bool`): if True (default) applies reduce sum to last dimension on resulting one-hot vectors
+            dtype (`tf.DType`): output dtype
+    """
+
+    def __init__(self, input_layer, n_units, reduce=True, dtype=tf.float32, name="one_hot"):
+        if not input_layer.dtype == tf.int64:
+            raise TypeError(
+                f"input {input_layer.name} expected to have type int64, found: {input_layer.dtype}")
+
+        self.reduce = reduce
+
+        super().__init__(inputs=input_layer,
+                         n_units=n_units,
+                         dtype=dtype,
+                         name=name,
+                         reduce=reduce)
+
+    def compute_shape(self):
+        return tf.TensorShape([self.input.shape[0], self.n_units])
+
+    def compute(self, input_tensor):
+        return dense_one_hot(input_tensor, num_cols=self.n_units, reduce=self.reduce, dtype=self.dtype)
 
 
 class ToDense(Layer):
@@ -4613,6 +4643,7 @@ __all__ = [
     "GRUCell",
     "LSTMCell",
     "RNN",
+    "OneHot",
     "ToDense",
     "ToSparse",
     "Dropout",

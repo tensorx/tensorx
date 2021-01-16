@@ -119,30 +119,6 @@ class Model:
     def trainable_variables(self):
         return list(itertools.chain(*(layer.trainable_variables for layer in self.train_graph.nodes)))
 
-    #
-    # TODO I wonder if I can get just one optimizer per model
-    #   the use case would be train a model n steps with an optimizer then use a callback to switch
-    #   to a different optimizer etc.
-    #   In this case the train loop would still be a single loop but the optimizers would switch inside of it
-    #   I would need the option to switch optimizers manually
-    #   but I still have a single loss
-    #   Use case 2.
-    #   -how to switch between two losses ?
-    #   -I guess different losses would use different optimization steps since we need to gather the gradients
-    #    for them
-    #   - in keras you set the loss with compile, but where it connects along with its inputs becomes fuzzy
-    #   - unless we have a way to set the optimizer to a specific loss?
-    #   - since the loss is a layer it can have a name but these names are not guaranteed to be unique
-    #   (I can force this)
-    #   - the goal is not to use string names but object so we can have optimizers connected to specific losses
-    #   - if multiple losses are defined, setting an optimizer will create a join loss, otherwise a loss must be
-    #   specified
-    #   - the model subclass should be responsible for exposing names for the loss references if necessary
-    #   SET OPTIMIZER
-    #   1. if no loss specified, create join loss with MEAN layer
-    #   2. if loss specified create optimize step for that loss
-    #   3. train will call specific optimizer or all of them in sequence? for the same data? this is a problem
-    #   I guess I can ignore the later feature for now
     def set_optimizer(self, optimizer, **config):
         """ Set the optimizer for this model
 
@@ -189,12 +165,6 @@ class Model:
                 cfg = self.optimizer.get_config()
 
                 grads = tape.gradient(loss, self.trainable_variables)
-
-                # TODO add debugging when gradient is None
-                #  most likely this happens when a variable is not dependent on the given function
-                # for g, var in zip(grads, self.trainable_variables):
-                #    if g is None:
-                #        print(var.name)
 
                 if "clipnorm" in cfg:
                     clipnorm = cfg["clipnorm"]
@@ -311,10 +281,9 @@ class Model:
 
             eval_graph = self.eval_graph
             if eval_graph not in self.compiled:
-                self.compiled[eval_graph] = eval_graph.as_function(ord_inputs=self.eval_inputs)
+                self.compiled[eval_graph] = eval_graph.as_function(ord_inputs=self.eval_inputs, compile=True)
 
             static_eval_graph = self.compiled[eval_graph]
-            # *eval_out, eval_score = eval_fn(*list(data_feed.values()))
             feed_values = list(data_feed.values())
             return static_eval_graph(*feed_values)
         else:
@@ -429,7 +398,6 @@ class Model:
                         scheduler.trigger(OnStep(step.value, AT.START))
                         scheduler.trigger(OnEpochStep(epoch_step.value, AT.START))
 
-                        # TODO test if the loss is properly retrieved from the graph
                         *outputs, loss = self.train_step(feed_dict)
                         if not np.isscalar(loss):
                             if isinstance(loss, list):
@@ -491,8 +459,8 @@ class Eval(Callback):
                     feed_dict = dict(zip(inputs, feed_dict))
 
                 # *outputs, score
-                outputs = model.eval_step(feed_dict)
-                *_, mean_eval = outputs
+                eval_output = model.eval_step(feed_dict)
+                *_, mean_eval = eval_output
                 if not np.isscalar(mean_eval):
                     mean_eval = np.mean(mean_eval)
                 sum_eval += mean_eval

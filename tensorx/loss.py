@@ -228,25 +228,58 @@ class Loss(Lambda):
 
 class BinaryCrossEntropy(Loss):
     def __init__(self, labels, logits, name="BinaryCrossEntropy"):
-        super().__init__(labels, logits, fn=binary_cross_entropy, name=name)
+        if labels.shape[-1] != logits.shape[-1]:
+            raise ValueError(f"labels and logits shape should be the same: labels {labels.shape}!={logits.shape}")
+
+        super().__init__(labels,
+                         logits,
+                         n_units=1,
+                         shape=tf.TensorShape([logits.shape[0], 1]),
+                         fn=binary_cross_entropy,
+                         name=name)
 
 
 class CategoricalCrossEntropy(Loss):
+    """
+
+    Args:
+        labels: dense tensor with same shape as logits any other outer dim dimensions are summed over
+        logits: the logits on which we compute the cross entropy
+    """
+
     def __init__(self, labels, logits, name="CategoricalCrossEntropy"):
-        super().__init__(labels, logits, fn=categorical_cross_entropy, name=name)
+        if labels.shape[-1] != logits.shape[-1]:
+            raise ValueError(f"labels and logits shape should be the same: labels {labels.shape}!={logits.shape}")
+
+        super().__init__(labels,
+                         logits,
+                         n_units=1,
+                         shape=tf.TensorShape([logits.shape[0], 1]),
+                         fn=categorical_cross_entropy,
+                         name=name)
 
 
 class Sinkhorn(Loss):
     # TODO default values for n_iter and epsilon
     def __init__(self, y_pred, y_true, n_iter=1, epsilon=1e-1, cost_fn=None, name="Sinkhorn"):
+        if y_pred.shape[-1] != y_true.shape[-1]:
+            raise ValueError(f"y_pred and y_true shape should be the same: labels {y_pred.shape}!={y_true.shape}")
+
         super().__init__(y_pred, y_true,
-                         fn=lambda pred, true: sinkhorn_loss(pred, true, epsilon=epsilon, n_iter=n_iter,
+                         fn=lambda pred, true: sinkhorn_loss(pred,
+                                                             true,
+                                                             epsilon=epsilon,
+                                                             n_iter=n_iter,
                                                              cost_fn=cost_fn),
                          name=name)
 
 
 class MSE(Loss):
+
     def __init__(self, target, predicted, name="MSE"):
+        if target.shape[-1] != predicted.shape[-1]:
+            raise ValueError(f"target and predicted shape should be the same: labels {target.shape}!={predicted.shape}")
+
         super().__init__(target, predicted, fn=mse, name=name)
 
 

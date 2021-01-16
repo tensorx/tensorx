@@ -114,7 +114,6 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
         index_tensor = as_tensor(index_tensor, dtype)
         if len(index_tensor.shape) < 2:
             index_tensor = tf.expand_dims(index_tensor, 0)
-        # print(index_tensor)
 
         shape = tf.shape(index_tensor, out_type=dtype)
         row_indices = tf.range(0, shape[0])
@@ -135,6 +134,37 @@ def matrix_indices(index_tensor, dtype=tf.int64, sort_indices=True, name="matrix
         indices = tf.stack([row_indices, col_indices], axis=-1)
 
         return indices
+
+
+def dense_one_hot(column_indices, num_cols, dtype=tf.float32, reduce=True, name="dense_one_hot"):
+    """Transforms a batch of indices to a dense `Tensor` by adding the `one-hot` encoding for each index.
+
+    Example:
+        ```python
+        indices = [[0],[1]]
+        dense_shape = [2,2]
+
+        dense_one_hot = [[1,0],[0,1]]
+        ```
+
+    Args:
+        column_indices: a dense `Tensor` with the active indices for each sample (row).
+        num_cols: number of columns for the one-hot encoding
+        dtype: the type for the output tensor.
+        reduce (`bool`): if true applies reduce sum on last dimension,
+        name: name for this op
+
+    Returns:
+        `Tensor`: A dense `Tensor` with a `one-hot encoding` for the given indices.
+    """
+    with tf.name_scope(name=name):
+        column_indices = as_tensor(column_indices, tf.int64)
+        one_hot_dense = tf.one_hot(column_indices, depth=num_cols, dtype=dtype)
+
+        if column_indices.get_shape().ndims >= 2 and reduce:
+            one_hot_dense = tf.math.reduce_sum(one_hot_dense, axis=1)
+
+        return one_hot_dense
 
 
 def sparse_matrix_indices(column_indices, num_cols, dtype=tf.float32, name="sparse_one_hot"):
@@ -1192,6 +1222,7 @@ __all__ = [
     "sparse_overlap",
     "apply_gate",
     "sparse_indices",
+    "dense_one_hot",
     "sparse_matrix_indices",
     "dropout",
     "alpha_dropout",
