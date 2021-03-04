@@ -1,0 +1,1411 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      <link rel="shortcut icon" href="../../assets/images/tx.png">
+      <meta name="generator" content="mkdocs-1.1.2, mkdocs-material-6.2.4">
+    
+    
+      
+        <title>loss - TensorX Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.15aa0b43.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.75751829.min.css">
+        
+          
+          
+          <meta name="theme-color" content="#ffffff">
+        
+      
+    
+    
+    
+      
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700%7CRoboto+Mono&display=fallback">
+        <style>body,input{font-family:"Roboto",-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono",SFMono-Regular,Consolas,Menlo,monospace}</style>
+      
+    
+    
+    
+      <link rel="stylesheet" href="../../assets/css/extra.css">
+    
+    
+      
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="" data-md-color-primary="white" data-md-color-accent="">
+      
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-announce">
+          <div class="md-announce__inner md-grid md-typeset">
+            
+
+  <a href="https://twitter.com/davidelnunes">
+      <span style="color: white">
+        For updates follow <strong>@davidelnunes</strong> on
+      </span>
+      <span class="twemoji twitter" style="color: #00acee">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg>
+    </span>
+      <span style="color: white">
+        <strong>Twitter</strong>
+      </span>
+  </a>
+
+          </div>
+        </aside>
+      
+    </div>
+    
+      <header class="md-header" data-md-component="header">
+    <nav class="md-header-nav md-grid" aria-label="Header">
+        
+        <a href="../.." title="TensorX Documentation"
+           style="display: block;
+                  padding: 0rem;
+                  cursor: pointer;
+                  transition: opacity 150ms;">
+          <img src="../../assets/images/logo_full.svg" width="100" height="100%" alt="logo">
+        </a>
+        
+        <label class="md-header-nav__button md-icon" for="__drawer">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2z"/></svg>
+        </label>
+        <div class="md-header-nav__title" data-md-component="header-title">
+            
+            <div class="md-header-nav__ellipsis">
+          <span class="md-header-nav__topic md-ellipsis">
+             Documentation
+          </span>
+                <span class="md-header-nav__topic md-ellipsis">
+            
+              loss
+            
+          </span>
+            </div>
+            
+        </div>
+        
+        <label class="md-header-nav__button md-icon" for="__search">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16 6.5 6.5 0 013 9.5 6.5 6.5 0 019.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        </label>
+        
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" data-md-state="active" required>
+      <label class="md-search__icon md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16 6.5 6.5 0 013 9.5 6.5 6.5 0 019.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
+      </label>
+      <button type="reset" class="md-search__icon md-icon" aria-label="Clear" data-md-component="search-reset" tabindex="-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+        
+        
+        <div class="md-header-nav__source">
+            
+<a href="https://github.com/davidenunes/tensorx" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05L244 40.45a28.87 28.87 0 00-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 01-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 000 40.81l195.61 195.6a28.86 28.86 0 0040.8 0l194.69-194.69a28.86 28.86 0 000-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    davidenunes/tensorx
+  </div>
+</a>
+        </div>
+        
+    </nav>
+</header>
+
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+
+
+  <li class="md-tabs__item">
+    <a href="../.." class="md-tabs__link">
+      Home
+    </a>
+  </li>
+
+      
+        
+  
+  
+
+
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../start/install/" class="md-tabs__link">
+        Getting Started
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+    
+  
+
+
+  
+  
+  
+    
+
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../layers/" class="md-tabs__link md-tabs__link--active">
+        API
+      </a>
+    </li>
+  
+
+  
+
+      
+        
+  
+  
+
+
+  <li class="md-tabs__item">
+    <a href="../../contributing/" class="md-tabs__link">
+      Contributing
+    </a>
+  </li>
+
+      
+    </ul>
+  </div>
+</nav>
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TensorX Documentation" class="md-nav__button md-logo" aria-label="TensorX Documentation">
+      
+  <img src="../../assets/images/logo_full.svg" alt="logo">
+
+    </a>
+    TensorX Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+<a href="https://github.com/davidenunes/tensorx" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05L244 40.45a28.87 28.87 0 00-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 01-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 000 40.81l195.61 195.6a28.86 28.86 0 0040.8 0l194.69-194.69a28.86 28.86 0 000-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    davidenunes/tensorx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+
+  <li class="md-nav__item">
+    <a href="../.." class="md-nav__link">
+      Home
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-2" type="checkbox" id="nav-2" >
+    
+    <label class="md-nav__link" for="nav-2">
+      Getting Started
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Getting Started" data-md-level="1">
+      <label class="md-nav__title" for="nav-2">
+        <span class="md-nav__icon md-icon"></span>
+        Getting Started
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../start/install/" class="md-nav__link">
+      Installation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../start/tutorial/" class="md-nav__link">
+      Tutorial
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  
+
+
+  
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3" type="checkbox" id="nav-3" checked>
+    
+    <label class="md-nav__link" for="nav-3">
+      API
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="API" data-md-level="1">
+      <label class="md-nav__title" for="nav-3">
+        <span class="md-nav__icon md-icon"></span>
+        API
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1" type="checkbox" id="nav-3-1" >
+    
+    <label class="md-nav__link" for="nav-3-1">
+      layers
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="layers" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-1">
+        <span class="md-nav__icon md-icon"></span>
+        layers
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/" class="md-nav__link">
+      Overview
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Layer/" class="md-nav__link">
+      Layer
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Lambda/" class="md-nav__link">
+      Lambda
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Input/" class="md-nav__link">
+      Input
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Linear/" class="md-nav__link">
+      Linear
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Lookup/" class="md-nav__link">
+      Lookup
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Activation/" class="md-nav__link">
+      Activation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Module/" class="md-nav__link">
+      Module
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/MHAttention/" class="md-nav__link">
+      MHAttention
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1-10" type="checkbox" id="nav-3-1-10" >
+    
+    <label class="md-nav__link" for="nav-3-1-10">
+      Recurrent Layers
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Recurrent Layers" data-md-level="3">
+      <label class="md-nav__title" for="nav-3-1-10">
+        <span class="md-nav__icon md-icon"></span>
+        Recurrent Layers
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/RNN/" class="md-nav__link">
+      RNN
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/BaseRNNCell/" class="md-nav__link">
+      RNNBaseCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/RNNCell/" class="md-nav__link">
+      RNNCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/GRUCell/" class="md-nav__link">
+      GRUCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/LSTMCell/" class="md-nav__link">
+      LSTMCell
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1-11" type="checkbox" id="nav-3-1-11" >
+    
+    <label class="md-nav__link" for="nav-3-1-11">
+      Utils
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Utils" data-md-level="3">
+      <label class="md-nav__title" for="nav-3-1-11">
+        <span class="md-nav__icon md-icon"></span>
+        Utils
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/utils/LayerState/" class="md-nav__link">
+      LayerState
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/utils/LayerConfig/" class="md-nav__link">
+      LayerConfig
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../ops/" class="md-nav__link">
+      ops
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../math/" class="md-nav__link">
+      math
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../init/" class="md-nav__link">
+      init
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../activation/" class="md-nav__link">
+      activation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-nav__toggle md-toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        loss
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+    
+    <a href="./" class="md-nav__link md-nav__link--active">
+      loss
+    </a>
+    
+      
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#binary_cross_entropy" class="md-nav__link">
+    binary_cross_entropy
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#categorical_cross_entropy" class="md-nav__link">
+    categorical_cross_entropy
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mse" class="md-nav__link">
+    mse
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kld" class="md-nav__link">
+    kld
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sinkhorn_loss" class="md-nav__link">
+    sinkhorn_loss
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sparsemax_loss" class="md-nav__link">
+    sparsemax_loss
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#binary_hinge" class="md-nav__link">
+    binary_hinge
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../metrics/" class="md-nav__link">
+      metrics
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-8" type="checkbox" id="nav-3-8" >
+    
+    <label class="md-nav__link" for="nav-3-8">
+      utils
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="utils" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-8">
+        <span class="md-nav__icon md-icon"></span>
+        utils
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../utils/Graph/" class="md-nav__link">
+      Graph
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-9" type="checkbox" id="nav-3-9" >
+    
+    <label class="md-nav__link" for="nav-3-9">
+      train
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="train" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-9">
+        <span class="md-nav__icon md-icon"></span>
+        train
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../train/Model/" class="md-nav__link">
+      Model
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../train/Callback/" class="md-nav__link">
+      Callback
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+
+  <li class="md-nav__item">
+    <a href="../../contributing/" class="md-nav__link">
+      Contributing
+    </a>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#binary_cross_entropy" class="md-nav__link">
+    binary_cross_entropy
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#categorical_cross_entropy" class="md-nav__link">
+    categorical_cross_entropy
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mse" class="md-nav__link">
+    mse
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kld" class="md-nav__link">
+    kld
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sinkhorn_loss" class="md-nav__link">
+    sinkhorn_loss
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sparsemax_loss" class="md-nav__link">
+    sparsemax_loss
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#binary_hinge" class="md-nav__link">
+    binary_hinge
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                
+                <h1 id="_1"></h1>
+<h3 id="binary_cross_entropy">binary_cross_entropy</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L6">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">binary_cross_entropy</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">labels</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">logits</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;binary_cross_entropy&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Binary Cross Entropy</p>
+<p>Measures the probability error in discrete binary classification tasks in which each class is independent and
+not mutually exclusive.</p>
+<div class="admonition note">
+<p class="admonition-title">On Entropy and Cross-Entropy</p>
+<p>Entropy refers to the number of bits required to transmit a randomly selected event from a probability
+distribution. A skewed distribution has a low entropy, whereas a distribution where events have equal
+probability has a larger entropy.</p>
+<p>The entropy of a random variable with a set <span><span class="MathJax_Preview">x \in X</span><script type="math/tex">x \in X</script></span> discrete states and their
+probability <span><span class="MathJax_Preview">P(x)</span><script type="math/tex">P(x)</script></span>, can be computed as:</p>
+<div>
+<div class="MathJax_Preview">
+    H(X) = –\sum_{x \in X} P(x) * log(P(x))
+</div>
+<script type="math/tex; mode=display">
+    H(X) = –\sum_{x \in X} P(x) * log(P(x))
+</script>
+</div>
+<p>Cross-entropy builds upon this idea to compute the number of bits required to represent or
+transmit an average event from one distribution compared to another distribution. if we consider a target
+distribution <span><span class="MathJax_Preview">P</span><script type="math/tex">P</script></span> and an approximation of the target distribution <span><span class="MathJax_Preview">Q</span><script type="math/tex">Q</script></span>, the cross-entropy of <span><span class="MathJax_Preview">Q</span><script type="math/tex">Q</script></span> from <span><span class="MathJax_Preview">P</span><script type="math/tex">P</script></span>
+is the number of additional bits to represent an event using Q instead of P:</p>
+<div>
+<div class="MathJax_Preview">
+    H(P, Q) = –\sum_{x \in X} P(x) * log(Q(x))
+</div>
+<script type="math/tex; mode=display">
+    H(P, Q) = –\sum_{x \in X} P(x) * log(Q(x))
+</script>
+</div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This is to be used on the <strong>logits</strong> of a model, not on the predicted labels.
+See also <a href="https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits">from TensorFlow</a>.</p>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>labels</strong> (<code>Tensor</code>) : empiric probability values (labels that occurred for a given sample)</li>
+<li><strong>logits</strong> (<code>Tensor</code>) : unscaled log probabilities used to predict the labels with <code>sigmoid(logits)</code></li>
+<li><strong>name</strong> (str) : op name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : binary (sigmoid) cross-entropy loss.</li>
+</ul>
+<hr />
+<h3 id="categorical_cross_entropy">categorical_cross_entropy</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L52">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">categorical_cross_entropy</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">labels</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">logits</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">axis</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #ce5c00; font-weight: bold">-</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;categorical_cross_entropy&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Categorical Cross entropy</p>
+<p>Measures the probability error in discrete classification tasks in which the classes are mutually exclusive.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This is to be used on the <strong>logits</strong> of a model, not on the predicted labels. Do not call this loss with the
+ output of softmax.
+ See also <a href="https://www.tensorflow.org/api_docs/python/tf/nn/softmax_cross_entropy_with_logits">from TensorFlow</a>.</p>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>labels</strong> (Tensor) : empiric probability distribution. Each row labels[i] must be a valid probability distribution</li>
+<li><strong>logits</strong> (Tensor) : unscaled log probabilities used to predict the labels with <code>softmax(logits)</code></li>
+<li><strong>axis</strong> (int) : The class dimension. Defaulted to -1 which is the last dimension.</li>
+<li><strong>name</strong> (str) : op name
+(integrate to 1).</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : categorical (softmax) cross-entropy loss.</li>
+</ul>
+<hr />
+<h3 id="mse">mse</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L100">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">mse</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">target</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">predicted</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Mean Squared Error (MSE) Loss</p>
+<p>Measures the average of the squares of the errors - the difference between an estimator and what is estimated.
+This is a risk function, corresponding to the expected value of the quadratic loss:</p>
+<div>
+<div class="MathJax_Preview">
+MSE =\frac{1}{N}​\sum^{N}_{i=0}​(y-\hat{y})^2
+</div>
+<script type="math/tex; mode=display">
+MSE =\frac{1}{N}​\sum^{N}_{i=0}​(y-\hat{y})^2
+</script>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>MSE is sensitive towards outliers and given several examples with the same input feature values,
+the optimal prediction will be their mean target value. This should be compared with <em>Mean Absolute
+Error</em>, where the optimal prediction is the median. MSE is thus good to use if you believe that your
+target data, conditioned on the input, is normally distributed around a mean value --and when it's
+important to penalize outliers.</p>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>predicted</strong> (<code>Tensor</code>) : estimated target values</li>
+<li><strong>target</strong> (<code>Tensor</code>) : ground truth, correct values</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : mean squared error value</li>
+</ul>
+<hr />
+<h3 id="kld">kld</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L168">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">kld</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">target</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">predicted</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Kullback–Leibler Divergence Loss</p>
+<p>Kullback–Leibler divergence (also called relative entropy) is a measure of how one probability distribution is
+different from a second, reference probability distribution.</p>
+<div>
+<div class="MathJax_Preview">
+D_{KL}(P || Q) = - \sum_{x \in X}P(x) log\left(\frac{Q(x)}{P(x)}\right)
+</div>
+<script type="math/tex; mode=display">
+D_{KL}(P || Q) = - \sum_{x \in X}P(x) log\left(\frac{Q(x)}{P(x)}\right)
+</script>
+</div>
+<p>it is the expectation of the logarithmic difference between the probabilities <span><span class="MathJax_Preview">P</span><script type="math/tex">P</script></span> and <span><span class="MathJax_Preview">Q</span><script type="math/tex">Q</script></span>, where the
+expectation is taken using the probabilities <span><span class="MathJax_Preview">P</span><script type="math/tex">P</script></span>.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>target</strong> (<code>Tensor</code>) : target probability distribution</li>
+<li><strong>predicted</strong> (<code>Tensor</code>) : distribution predicted by the model</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>kld</strong> (<code>Tensor</code>) : LK divergence between the target and predicted distributions</li>
+</ul>
+<hr />
+<h3 id="sinkhorn_loss">sinkhorn_loss</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L191">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sinkhorn_loss</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">target</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">predicted</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">epsilon</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">n_iter</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">cost_fn</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Sinkhorn Loss</p>
+<p>Alias:
+* <code>tx.metrics.sinkhorn</code></p>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>Optimal Transport (OT) provides a framework from which one can define a more powerful geometry to compare
+probability distributions. This power comes, however, with a heavy computational price. The cost of computing OT
+distances scales at least in <span><span class="MathJax_Preview">O(d^3 log(d))</span><script type="math/tex">O(d^3 log(d))</script></span> when comparing two histograms of dimension <span><span class="MathJax_Preview">d</span><script type="math/tex">d</script></span>. Sinkhorn algorithm
+alleviate this problem by solving an regularized OT in linear time.</p>
+</div>
+<p>Given two measures with n points each with locations x and y
+outputs an approximation of the Optimal Transport (OT) cost with regularization
+parameter epsilon, niter is the maximum number of steps in sinkhorn loop</p>
+<div class="admonition cite">
+<p class="admonition-title">References</p>
+<ol>
+<li><a href="https://msp.org/pjm/1967/21-2/p14.xhtml">Concerning nonnegative matrices and doubly stochastic matrices</a></li>
+<li><a href="https://papers.nips.cc/paper/4927-sinkhorn-distances-lightspeed-computation-of-optimal-transport.pdf">Sinkhorn Distances:Lightspeed Computation of Optimal Transport</a></li>
+</ol>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>predicted</strong> (<code>Tensor</code>) : model distribution</li>
+<li><strong>target</strong> (<code>Tensor</code>) : ground_truth, empirical distribution</li>
+<li><strong>epsilon</strong> (float) : regularization term &gt;0</li>
+<li><strong>n_iter</strong> (int) : number of sinkhorn iterations</li>
+<li><strong>cost_fn</strong> (Callable) : function that returns the cost matrix between y_pred and y_true, defaults to <span><span class="MathJax_Preview">|x_i-y_j|^p</span><script type="math/tex">|x_i-y_j|^p</script></span>.</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>cost</strong> (<code>Tensor</code>) : sinkhorn cost of moving from the mass from the model distribution <code>y_pred</code> to the empirical
+distribution <code>y_true</code>.</li>
+</ul>
+<hr />
+<h3 id="sparsemax_loss">sparsemax_loss</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L128">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparsemax_loss</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">logits</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">labels</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparsemax_loss&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Sparsemax Loss</p>
+<p>A loss function for the sparsemax activation function. This is similar to <code>tf.nn.softmax</code>, but able to output s
+parse probabilities.</p>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>Applicable to multi-label classification problems and attention-based neural networks
+(e.g. for natural language inference)</p>
+</div>
+<div class="admonition cite">
+<p class="admonition-title">References</p>
+<ol>
+<li><a href="https://arxiv.org/abs/1602.02068">From Softmax to Sparsemax: A Sparse Model of Attention and Multi-Label Classification</a></li>
+</ol>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>labels</strong> (<code>Tensor</code>) : the target dense labels (one hot encoded)</li>
+<li><strong>logits</strong> (<code>Tensor</code>) : unnormalized log probabilities</li>
+<li><strong>name</strong> (str) : op name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>loss</strong> (<code>Tensor</code>) : sparsemax loss</li>
+</ul>
+<hr />
+<h3 id="binary_hinge">binary_hinge</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/loss.py/#L76">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">binary_hinge</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">labels</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">logits</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Binary Hinge Loss</p>
+<p>Measures the classification error for maximum-margin classification. Margin classifiers like
+Support Vector Machines (SVM) maximise the distance between the closest examples and the decision boundary
+separating the binary classes. The hinge loss is defined as:</p>
+<div>
+<div class="MathJax_Preview">
+\ell(y) = \max(0, 1-t \cdot y),
+</div>
+<script type="math/tex; mode=display">
+\ell(y) = \max(0, 1-t \cdot y),
+</script>
+</div>
+<p>where <span><span class="MathJax_Preview">t</span><script type="math/tex">t</script></span> is the intended output (labels) and <span><span class="MathJax_Preview">y</span><script type="math/tex">y</script></span> are the output logits from the
+classification decision function, not the predicted class label.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>labels</strong> (<code>Tensor</code>) : tensor with values -1 or 1. Binary (0 or 1) labels are converted to -1 or 1.</li>
+<li><strong>logits</strong> (<code>Tensor</code>) : unscaled log probabilities.</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : hinge loss float tensor</li>
+</ul>
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+      </main>
+      
+        <br>
+<br>
+
+<footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="../activation/" title="activation" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                activation
+              </span>
+            </div>
+          </a>
+        
+        
+          <a href="../metrics/" title="metrics" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                metrics
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
+        
+      </nav>
+    </div>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+          <div class="md-footer-copyright__highlight">
+            Copyright &copy; 2016 - 2020 Davide Nunes
+          </div>
+        
+        Made with
+        <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+          Material for MkDocs</a>
+        and
+        <a href="https://github.com/davidenunes/mkgendocs" target="_blank" rel="noopener">
+          mkgendocs</a>
+
+      </div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="../../assets/javascripts/vendor.93c04032.min.js"></script>
+      <script src="../../assets/javascripts/bundle.83e5331e.min.js"></script><script id="__lang" type="application/json">{"clipboard.copy": "Copy to clipboard", "clipboard.copied": "Copied to clipboard", "search.config.lang": "en", "search.config.pipeline": "trimmer, stopWordFilter", "search.config.separator": "[\\s\\-]+", "search.placeholder": "Search", "search.result.placeholder": "Type to start searching", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.term.missing": "Missing"}</script>
+      
+      <script>
+        app = initialize({
+          base: "../..",
+          features: ['navigation.tabs', 'navigation.tabs.sticky', 'instant'],
+          search: Object.assign({
+            worker: "../../assets/javascripts/worker/search.8c7e0a7e.min.js"
+          }, typeof search !== "undefined" && search)
+        })
+      </script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+      
+    
+  </body>
+</html>

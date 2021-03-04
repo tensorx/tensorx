@@ -1,0 +1,1538 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      <link rel="shortcut icon" href="../../assets/images/tx.png">
+      <meta name="generator" content="mkdocs-1.1.2, mkdocs-material-6.2.4">
+    
+    
+      
+        <title>Tutorial - TensorX Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.15aa0b43.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.75751829.min.css">
+        
+          
+          
+          <meta name="theme-color" content="#ffffff">
+        
+      
+    
+    
+    
+      
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700%7CRoboto+Mono&display=fallback">
+        <style>body,input{font-family:"Roboto",-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono",SFMono-Regular,Consolas,Menlo,monospace}</style>
+      
+    
+    
+    
+      <link rel="stylesheet" href="../../assets/css/extra.css">
+    
+    
+      
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="" data-md-color-primary="white" data-md-color-accent="">
+      
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tutorial" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-announce">
+          <div class="md-announce__inner md-grid md-typeset">
+            
+
+  <a href="https://twitter.com/davidelnunes">
+      <span style="color: white">
+        For updates follow <strong>@davidelnunes</strong> on
+      </span>
+      <span class="twemoji twitter" style="color: #00acee">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg>
+    </span>
+      <span style="color: white">
+        <strong>Twitter</strong>
+      </span>
+  </a>
+
+          </div>
+        </aside>
+      
+    </div>
+    
+      <header class="md-header" data-md-component="header">
+    <nav class="md-header-nav md-grid" aria-label="Header">
+        
+        <a href="../.." title="TensorX Documentation"
+           style="display: block;
+                  padding: 0rem;
+                  cursor: pointer;
+                  transition: opacity 150ms;">
+          <img src="../../assets/images/logo_full.svg" width="100" height="100%" alt="logo">
+        </a>
+        
+        <label class="md-header-nav__button md-icon" for="__drawer">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2z"/></svg>
+        </label>
+        <div class="md-header-nav__title" data-md-component="header-title">
+            
+            <div class="md-header-nav__ellipsis">
+          <span class="md-header-nav__topic md-ellipsis">
+             Documentation
+          </span>
+                <span class="md-header-nav__topic md-ellipsis">
+            
+              Tutorial
+            
+          </span>
+            </div>
+            
+        </div>
+        
+        <label class="md-header-nav__button md-icon" for="__search">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16 6.5 6.5 0 013 9.5 6.5 6.5 0 019.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        </label>
+        
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" data-md-state="active" required>
+      <label class="md-search__icon md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16 6.5 6.5 0 013 9.5 6.5 6.5 0 019.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
+      </label>
+      <button type="reset" class="md-search__icon md-icon" aria-label="Clear" data-md-component="search-reset" tabindex="-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+        
+        
+        <div class="md-header-nav__source">
+            
+<a href="https://github.com/davidenunes/tensorx" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05L244 40.45a28.87 28.87 0 00-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 01-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 000 40.81l195.61 195.6a28.86 28.86 0 0040.8 0l194.69-194.69a28.86 28.86 0 000-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    davidenunes/tensorx
+  </div>
+</a>
+        </div>
+        
+    </nav>
+</header>
+
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+
+
+  <li class="md-tabs__item">
+    <a href="../.." class="md-tabs__link">
+      Home
+    </a>
+  </li>
+
+      
+        
+  
+  
+    
+  
+
+
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../install/" class="md-tabs__link md-tabs__link--active">
+        Getting Started
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+
+
+  
+  
+  
+    
+
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../api/layers/" class="md-tabs__link">
+        API
+      </a>
+    </li>
+  
+
+  
+
+      
+        
+  
+  
+
+
+  <li class="md-tabs__item">
+    <a href="../../contributing/" class="md-tabs__link">
+      Contributing
+    </a>
+  </li>
+
+      
+    </ul>
+  </div>
+</nav>
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TensorX Documentation" class="md-nav__button md-logo" aria-label="TensorX Documentation">
+      
+  <img src="../../assets/images/logo_full.svg" alt="logo">
+
+    </a>
+    TensorX Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+<a href="https://github.com/davidenunes/tensorx" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05L244 40.45a28.87 28.87 0 00-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 01-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 000 40.81l195.61 195.6a28.86 28.86 0 0040.8 0l194.69-194.69a28.86 28.86 0 000-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    davidenunes/tensorx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+
+  <li class="md-nav__item">
+    <a href="../.." class="md-nav__link">
+      Home
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  
+
+
+  
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-2" type="checkbox" id="nav-2" checked>
+    
+    <label class="md-nav__link" for="nav-2">
+      Getting Started
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Getting Started" data-md-level="1">
+      <label class="md-nav__title" for="nav-2">
+        <span class="md-nav__icon md-icon"></span>
+        Getting Started
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../install/" class="md-nav__link">
+      Installation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-nav__toggle md-toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        Tutorial
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+    
+    <a href="./" class="md-nav__link md-nav__link--active">
+      Tutorial
+    </a>
+    
+      
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    Prerequisites
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    Installation
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layers" class="md-nav__link">
+    Layers
+  </a>
+  
+    <nav class="md-nav" aria-label="Layers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#layer-properties-and-methods" class="md-nav__link">
+    Layer properties and methods
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-existing-layers" class="md-nav__link">
+    Using existing Layers
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dynamic-stateful-input" class="md-nav__link">
+    Dynamic stateful Input
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-using-layers" class="md-nav__link">
+    Re-Using Layers
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-using-modules" class="md-nav__link">
+    Re-Using Modules
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gradients-and-autodiff" class="md-nav__link">
+    Gradients and Autodiff
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graph-compilation" class="md-nav__link">
+    Graph Compilation
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models" class="md-nav__link">
+    Models
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#callbacks" class="md-nav__link">
+    Callbacks
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    Serialization
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3" type="checkbox" id="nav-3" >
+    
+    <label class="md-nav__link" for="nav-3">
+      API
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="API" data-md-level="1">
+      <label class="md-nav__title" for="nav-3">
+        <span class="md-nav__icon md-icon"></span>
+        API
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1" type="checkbox" id="nav-3-1" >
+    
+    <label class="md-nav__link" for="nav-3-1">
+      layers
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="layers" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-1">
+        <span class="md-nav__icon md-icon"></span>
+        layers
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/" class="md-nav__link">
+      Overview
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Layer/" class="md-nav__link">
+      Layer
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Lambda/" class="md-nav__link">
+      Lambda
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Input/" class="md-nav__link">
+      Input
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Linear/" class="md-nav__link">
+      Linear
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Lookup/" class="md-nav__link">
+      Lookup
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Activation/" class="md-nav__link">
+      Activation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/Module/" class="md-nav__link">
+      Module
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/MHAttention/" class="md-nav__link">
+      MHAttention
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1-10" type="checkbox" id="nav-3-1-10" >
+    
+    <label class="md-nav__link" for="nav-3-1-10">
+      Recurrent Layers
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Recurrent Layers" data-md-level="3">
+      <label class="md-nav__title" for="nav-3-1-10">
+        <span class="md-nav__icon md-icon"></span>
+        Recurrent Layers
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/rnn/RNN/" class="md-nav__link">
+      RNN
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/rnn/BaseRNNCell/" class="md-nav__link">
+      RNNBaseCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/rnn/RNNCell/" class="md-nav__link">
+      RNNCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/rnn/GRUCell/" class="md-nav__link">
+      GRUCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/rnn/LSTMCell/" class="md-nav__link">
+      LSTMCell
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1-11" type="checkbox" id="nav-3-1-11" >
+    
+    <label class="md-nav__link" for="nav-3-1-11">
+      Utils
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Utils" data-md-level="3">
+      <label class="md-nav__title" for="nav-3-1-11">
+        <span class="md-nav__icon md-icon"></span>
+        Utils
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/utils/LayerState/" class="md-nav__link">
+      LayerState
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/layers/utils/LayerConfig/" class="md-nav__link">
+      LayerConfig
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/ops/" class="md-nav__link">
+      ops
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/math/" class="md-nav__link">
+      math
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/init/" class="md-nav__link">
+      init
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/activation/" class="md-nav__link">
+      activation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/loss/" class="md-nav__link">
+      loss
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/metrics/" class="md-nav__link">
+      metrics
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-8" type="checkbox" id="nav-3-8" >
+    
+    <label class="md-nav__link" for="nav-3-8">
+      utils
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="utils" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-8">
+        <span class="md-nav__icon md-icon"></span>
+        utils
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/utils/Graph/" class="md-nav__link">
+      Graph
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-9" type="checkbox" id="nav-3-9" >
+    
+    <label class="md-nav__link" for="nav-3-9">
+      train
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="train" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-9">
+        <span class="md-nav__icon md-icon"></span>
+        train
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/train/Model/" class="md-nav__link">
+      Model
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../api/train/Callback/" class="md-nav__link">
+      Callback
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+
+  <li class="md-nav__item">
+    <a href="../../contributing/" class="md-nav__link">
+      Contributing
+    </a>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    Prerequisites
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    Installation
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layers" class="md-nav__link">
+    Layers
+  </a>
+  
+    <nav class="md-nav" aria-label="Layers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#layer-properties-and-methods" class="md-nav__link">
+    Layer properties and methods
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-existing-layers" class="md-nav__link">
+    Using existing Layers
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dynamic-stateful-input" class="md-nav__link">
+    Dynamic stateful Input
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-using-layers" class="md-nav__link">
+    Re-Using Layers
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-using-modules" class="md-nav__link">
+    Re-Using Modules
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gradients-and-autodiff" class="md-nav__link">
+    Gradients and Autodiff
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graph-compilation" class="md-nav__link">
+    Graph Compilation
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models" class="md-nav__link">
+    Models
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#callbacks" class="md-nav__link">
+    Callbacks
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    Serialization
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                
+                <h1 id="tutorial">Tutorial</h1>
+<p>This tutorial introduces basic TensorX concepts.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>TensorX is a machine learning library to build neural network models written in Python and it works as a complement to 
+<a href="https://tensorflow.org">Tensorflow</a>, therefore, to make the most out of this tutorial (and this library), 
+readers should be familiarized with the following:</p>
+<ul>
+<li><strong>Python 3</strong>: if you're new to the Python language or need to refresh some concepts check out the
+<a href="https://docs.python.org/3/tutorial/">Python Tutorial</a>.</li>
+<li>
+<p><strong>Tensorflow</strong>: <a href="https://tensorflow.org">Tensorflow</a> is a high-performance machine learning library that allows 
+numerical computation on GPUs and <a href="https://en.wikipedia.org/wiki/Tensor_processing_unit">TPUs</a>. It was originally 
+designed to build auto-differentiable dataflow graphs. Although it has adopted an eager execution model in version 2, 
+<a href="https://www.tensorflow.org/guide/function">computation graphs</a> are still an integral concept of high performance 
+tensorflow program definition and deployment. Unfortunately most tensorflow tutorials and guides, focus on Keras, a high
+level interface similar to TensorX. For a primer on Tensorflow, I recommend taking a look at 
+<a href="https://www.tensorflow.org/guide/eager">Tensorflow basics</a> guide section instead.</p>
+</li>
+<li>
+<p><strong>NumPy</strong>: similarly to the core of Tensorflow, <a href="https://numpy.org">Numpy</a> is a numerical computation library with 
+a focus in multi-dimensional array transformations. Given that Tensorflow tensors are converted to and from NumPy 
+arrays, and TensorX also depends on NumPy (mostly for testing), it is recommended that the reader is familiarized with<br />
+<a href="https://numpy.org/doc/stable/user/quickstart.html">NumPy basics</a>. For more details, check the 
+<a href="https://numpy.org/doc/stable/">NumPy documentation</a>.</p>
+</li>
+</ul>
+<h2 id="installation">Installation</h2>
+<p>You can install <code>tensorx</code> with <code>pip</code> as follows:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>pip install tensorflow
+pip install tensorx
+</code></pre></div>
+
+<p>for more details see the <a href="https://tensorx.org/start/install/">installation documentation</a>.</p>
+<h2 id="layers">Layers</h2>
+<p><img align="right" width="20%" src="/img/layer_graph.png"> </p>
+<p>In TensorX, a <a href="/api/layers/Layer/">Layer</a> is the basic building block of a <strong>neural network</strong>. Semantically speaking, a 
+layer is an object that can have multiple inputs, an inner state, and a computation function applied to its inputs (that 
+depends on the current state). Each layer has a single output. In essence,we can say that a Layer instance is a stateful 
+function. Connecting a series of layers results in a <strong>layer graph</strong>. In TensorX, each layer is the end-node of a 
+subgraph, and executing it will result in the execution of all layers in the subgraph with the current layer as output.
+Layer subclasses can range from simple linear transformations (e.g. <a href="/api/layers/Linear/">Layer</a>) to more complex 
+layers used to build recurrent neural networks such as long short-term memory (LSTM) cells 
+(e.g. <a href="/api/layers/rnn/LSTMCell/">LSTMCell</a>) or attention mechanisms such as <a href="/api/layers/MHAttention/">MHAttention</a>.</p>
+<h3 id="layer-properties-and-methods">Layer properties and methods</h3>
+<ul>
+<li><strong><code>inputs</code></strong>: list of input layers for the current layer;</li>
+<li><strong><code>input</code></strong>: syntax sugar for <code>inputs[0]</code>;</li>
+<li><strong><code>n_units</code></strong>: number of output units or neurons, this is the last dimension of the output tensor resulting from this 
+  layer's computation;</li>
+<li><strong><code>shape</code></strong>: the inferred shape for the layer output;</li>
+<li><strong><code>compute(*tensors)</code></strong>: layer computation applied to its input layers or input tensors if any is given. </li>
+<li><strong><code>__call__</code></strong>: all layers are <a href="https://docs.python.org/3/reference/datamodel.html#object.__call__">Callable</a> and the 
+  result is the computation of the entire layer graph taking the current layer as the terminal node.</li>
+<li><strong><code>reuse_with</code></strong>: create a new layer object that <strong>shares the state</strong> with the current layer but is connected to 
+  different inputs. The new layer is the end-point node of a new layer graph.</li>
+<li><strong><code>variables</code></strong>: a <code>list</code> of <code>tf.Variable</code> objects that handled by the current layer</li>
+<li><strong><code>trainable_variables</code></strong>: a <code>list</code> of <code>tf.Variable</code> objects that are <em>trainable</em>, this is, that are changed by an 
+  optimizer during training.*</li>
+<li><strong><code>config</code></strong>: a layer configuration (<a href="/api/layers/utils/LayerConfig/">LayerConfig</a>) with the arguments used in the 
+  current layer instance constructor.</li>
+</ul>
+<h3 id="using-existing-layers">Using existing Layers</h3>
+<p>TensorX ships with a number of built in Layers that you can easily use to compose layer graphs that perform various 
+computations. All layers are accessible from the global namespace <code>tensorx.Linear</code> or from the <code>tensorx.layers</code> module.
+The following example shows how to use a simple <a href="/api/layers/Linear"><code>Linear</code></a> layer that performs the computation 
+<span><span class="MathJax_Preview">y=Wx+b</span><script type="math/tex">y=Wx+b</script></span>:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorflow</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tf</span>
+<span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorx</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tx</span>
+
+<span style="color: #000000">x</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">random</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">uniform</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">],</span> <span style="color: #000000">dtype</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #8f5902; font-style: italic"># y = Wx + b</span>
+<span style="color: #000000">y</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">result</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">y</span><span style="color: #000000; font-weight: bold">()</span>
+
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">tensor_equal</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">shape</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">result</span><span style="color: #000000; font-weight: bold">),</span> <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">])</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #204a87">len</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">inputs</span><span style="color: #000000; font-weight: bold">)</span> <span style="color: #ce5c00; font-weight: bold">==</span> <span style="color: #0000cf; font-weight: bold">1</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #204a87">isinstance</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">input</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Constant</span><span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<p>Note that we can pass a <code>Tensor</code> object to <code>Linear</code> (or any other layer), and it will be automatically converted to a
+<code>Layer</code>, to a <code>Constant</code> layer to be more precise. The layer <code>y</code> has exactly 1 input layer and <code>__call__</code> will return 
+the result of its computation on this input.</p>
+<h3 id="dynamic-stateful-input">Dynamic stateful Input</h3>
+<p>The <code>Input</code> layer allows us to add a dynamic input to a layer graph:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">value</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">random</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">uniform</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">],</span> <span style="color: #000000">dtype</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">x</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Input</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">init_value</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">value</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #8f5902; font-style: italic"># y = Wx + b</span>
+<span style="color: #000000">y</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #000000">result1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">y</span><span style="color: #000000; font-weight: bold">()</span>
+<span style="color: #8f5902; font-style: italic"># x is stateful and its value can be changed e.g. to a new random value</span>
+<span style="color: #000000">x</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">value</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">random</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">uniform</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">],</span> <span style="color: #000000">dtype</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">result2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">y</span><span style="color: #000000; font-weight: bold">()</span>
+<span style="color: #000000">result3</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">compute</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">value</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #204a87; font-weight: bold">not</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">tensor_equal</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">result1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">result2</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #204a87; font-weight: bold">not</span> <span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">input</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">constant</span>
+<span style="color: #8f5902; font-style: italic"># compute returns the layer computation independently from its current graph</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">tensor_equal</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">result1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">result3</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #204a87">print</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">result1</span><span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>tf.Tensor<span style="color: #ce5c00; font-weight: bold">(</span>
+    <span style="color: #ce5c00; font-weight: bold">[[</span> <span style="color: #0000cf; font-weight: bold">0</span>.8232075   <span style="color: #0000cf; font-weight: bold">0</span>.2716378  -0.33215973<span style="color: #ce5c00; font-weight: bold">]</span>
+     <span style="color: #ce5c00; font-weight: bold">[</span> <span style="color: #0000cf; font-weight: bold">0</span>.34996247 -0.02594224 -0.05033442<span style="color: #ce5c00; font-weight: bold">]]</span>, 
+    <span style="color: #000000">shape</span><span style="color: #ce5c00; font-weight: bold">=(</span><span style="color: #0000cf; font-weight: bold">2</span>, <span style="color: #0000cf; font-weight: bold">3</span><span style="color: #ce5c00; font-weight: bold">)</span>, 
+    <span style="color: #000000">dtype</span><span style="color: #ce5c00; font-weight: bold">=</span>float32<span style="color: #ce5c00; font-weight: bold">)</span>
+</code></pre></div>
+
+<p><code>Input</code> allows the creation of dynamic input layers with a value property that 
+can be changed, we can see that the value at the end-point of this graph changes as well. Moreover, 
+the <code>compute</code> method is distinct from <code>__call__</code> as it only depends on the layer current state and 
+not on the current graph.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>if <code>n_units</code> is not set to <code>None</code> on a dynamic <code>Input</code> layer, it will take the last dimension of the initial value, 
+henceforth, any tensor assigned to <code>value</code> must match the <code>n_units</code> in its last dimension. This means that the batch
+dimension can be variable for example.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>You <strong>can't</strong> switch the number of dimension in a dynamic <code>Input</code>. Without an initial value or shape, it
+defaults to a shape <code>(0, 0)</code> (an empty tensor with 2 dimensions). An error is thrown if you try to assign a tensor 
+with a mismatching number of dimensions. For example, if you create an input as follows 
+<code>Input(shape=[None,None,None])</code>, an error is thrown if you assign a tensor with a mismatching number of dimensions 
+like <code>input.value = tf.ones([2,2])</code>.</p>
+</div>
+<h3 id="re-using-layers">Re-Using Layers</h3>
+<p>When you create a new <code>Layer</code> object, usually you will pass it its input layers which will then make it the end-node of
+a graph connected to those input layers. This will also call the <code>init_state</code> method which initializes any <code>tf.Variable</code>
+objects that might be part of the layers' state. If you want to re-use this layer with a different set of input layers, 
+you can use the <code>reuse_with</code> method. This creates a new layer with all the same parameters, additionally
+this new layer will share it's state with the previous one.</p>
+<div style="width:100%;">
+  <div style="width:49%; float:left;">
+
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorflow</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tf</span>
+<span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorx</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tx</span>
+
+<span style="color: #8f5902; font-style: italic"># stateful input placeholder</span>
+<span style="color: #000000">x1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Input</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">x1</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">value</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">random</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">uniform</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">])</span>
+<span style="color: #8f5902; font-style: italic">#y = Wx + b</span>
+<span style="color: #000000">l1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">a1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Activation</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">l1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">relu</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">l2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">a1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #000000">d1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Dropout</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">a1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">probability</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">0.4</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">l3</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">l2</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">reuse_with</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">d1</span><span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+
+  </div>
+  <div style="width:49%;padding-top:50px; float:right;">
+    <img width="80%;" src="/img/reuse_with.svg"> 
+  </div>
+</div>
+<div style="clear: both;"></div>
+
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Any changes to the state of one layer will affect the state of the second.</p>
+</div>
+<h3 id="re-using-modules">Re-Using Modules</h3>
+<p>A <code>Module</code> is a special layer which creates a single <code>Layer</code> from a given <em>layer graph</em>. A <em>layer graph</em> is a 
+set of layers connected to each other. For example: </p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">x</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Input</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">ones</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">]))</span>
+<span style="color: #000000">y1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">y2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">y1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #000000">m</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Module</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">inputs</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">x</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">output</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">y2</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">tensor_equal</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">m</span><span style="color: #000000; font-weight: bold">(),</span><span style="color: #000000">y2</span><span style="color: #000000; font-weight: bold">())</span>
+</code></pre></div>
+
+<p>You can take the two <code>Linear</code> layers and create a single module with a state shared with both layers. Like with any 
+other layer you can also call <code>reuse_with</code> on a module and in this case, the entire state of the two <code>Linear</code> layers 
+will again be shared with the newly created <code>Module</code>.</p>
+<h2 id="gradients-and-autodiff">Gradients and Autodiff</h2>
+<p>Automatic differentiation is a cornerstone of most deep learning frameworks. TensorFlow remembers what operations 
+happen and in what order during the forward pass, then, during the backpropagation pass, TensorFlow traverses this list 
+of operations in reverse order to compute gradients --usually with respect to some input like a <code>tf.Variable</code>. 
+Automatic differentiation can be accessed in Tensorflow using the <a href="https://www.tensorflow.org/guide/autodiff"><code>tf.GradientTape</code></a>
+context. Whatever is executed inside the <code>GradientTape</code> context, gets tracked so that the gradients with respect to some 
+variables can be computed:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorflow</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tf</span>
+<span style="color: #000000">x</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Variable</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #0000cf; font-weight: bold">3.0</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #204a87; font-weight: bold">with</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">GradientTape</span><span style="color: #000000; font-weight: bold">()</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tape</span><span style="color: #000000; font-weight: bold">:</span>
+  <span style="color: #000000">y</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">x</span><span style="color: #ce5c00; font-weight: bold">**</span><span style="color: #0000cf; font-weight: bold">2</span>
+
+<span style="color: #8f5902; font-style: italic"># dy = 2x * dx</span>
+<span style="color: #000000">dy_dx</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tape</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">gradient</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">y</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">x</span><span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<p>TensorX Layers describe operations over tensors in terms of tensorflow operations, and store their state in <code>tf.Variable</code>
+objects, so layers executed inside the <code>tf.GradientTape</code> context are tracked just like any other Tensorflow operation. 
+With this in mind, we can then compute the gradients of a particular value with respect to the <code>trainable_variables</code> 
+used in the computation. For example: </p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorflow</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tf</span>
+<span style="color: #204a87; font-weight: bold">import</span> <span style="color: #000000">tensorx</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tx</span>
+
+<span style="color: #000000">x</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Input</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #8f5902; font-style: italic"># y = Wx + b</span>
+<span style="color: #000000">y</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">add_bias</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #204a87; font-weight: bold">True</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">loss</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">Lambda</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">y</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">fn</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #204a87; font-weight: bold">lambda</span> <span style="color: #000000">v</span><span style="color: #000000; font-weight: bold">:</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">reduce_mean</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">v</span> <span style="color: #ce5c00; font-weight: bold">**</span> <span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">))</span>
+<span style="color: #000000">x</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">value</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">1.</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">2.</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">3.</span><span style="color: #000000; font-weight: bold">]]</span>
+
+<span style="color: #204a87; font-weight: bold">with</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">GradientTape</span><span style="color: #000000; font-weight: bold">()</span> <span style="color: #204a87; font-weight: bold">as</span> <span style="color: #000000">tape</span><span style="color: #000000; font-weight: bold">:</span>  
+    <span style="color: #000000">loss_value</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">loss</span><span style="color: #000000; font-weight: bold">()</span>
+
+    <span style="color: #8f5902; font-style: italic"># we could have done this as well</span>
+    <span style="color: #8f5902; font-style: italic"># v = y()</span>
+    <span style="color: #8f5902; font-style: italic"># loss_value = tf.reduce_mean(v ** 2)</span>
+
+<span style="color: #000000">grads</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tape</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">gradient</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">loss_value</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">trainable_variables</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #204a87">len</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">trainable_variables</span><span style="color: #000000; font-weight: bold">)</span> <span style="color: #ce5c00; font-weight: bold">==</span> <span style="color: #0000cf; font-weight: bold">2</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #204a87">len</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">grads</span><span style="color: #000000; font-weight: bold">)</span> <span style="color: #ce5c00; font-weight: bold">==</span> <span style="color: #0000cf; font-weight: bold">2</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #000000">grads</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">shape</span> <span style="color: #ce5c00; font-weight: bold">==</span> <span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">weights</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">shape</span>
+<span style="color: #204a87; font-weight: bold">assert</span> <span style="color: #000000">grads</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">shape</span> <span style="color: #ce5c00; font-weight: bold">==</span> <span style="color: #000000">y</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">bias</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">shape</span>
+</code></pre></div>
+
+<p>In this case, only the <code>weights</code>, and <code>bias</code> of the <code>Linear</code> layer are trainable variables, so we can take the gradient 
+of <code>loss_value</code> with respect to these variables, the result is a list of tensors with the same shape as the variables 
+used as targets.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>In these examples we're still using an eager execution model from Tensorflow, as we will see, this is good for 
+debugging, but not very efficient. Next in this tutorial, we will show how we can compile TensorX layer graphs 
+into Tensorflow graphs using the <a href="https://www.tensorflow.org/api_docs/python/tf/function"><code>tf.function</code></a>.  </p>
+</div>
+<h2 id="graph-compilation">Graph Compilation</h2>
+<p>TensorX builds layer graphs automatically from layer objects are connected to each other. These graphs are, in effect, 
+directed acyclic graphs (DAG) defining a given computation over inputs. To aid with validation and execution
+of neural network layer graphs, TensorX has a <a href="/api/utils/Graph/">Graph</a> utility class. The <code>Graph</code> class allows for 
+automatic graph construction from output nodes (by recursively visiting each node's inputs). It also facilitates 
+transversal by dependency ordering along with conversion of arbitrary graphs to functions and Tensorflow static graphs. </p>
+<p>TensorX takes advantage of Tensorflow's graph optimization system to simplify and optimize <code>Layer</code> computations. It does
+this by converting layer graphs into functions that are then trace-compiled into an optimized TensorFlow static graphs.</p>
+<div style="width:100%;">
+  <div style="width:42%; padding-top: 20px; float:left;">
+
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">x1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Input</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">x2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Input</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">n_units</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">l1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">l2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Add</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">l1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">x2</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">l3</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Linear</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">l2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">)</span>
+
+<span style="color: #000000">g</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Graph</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">build</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">outputs</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">l3</span><span style="color: #000000; font-weight: bold">,</span>
+                <span style="color: #000000">inputs</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #000000">x1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">x2</span><span style="color: #000000; font-weight: bold">])</span>
+<span style="color: #000000">fn</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">g</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">as_function</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #204a87">compile</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #204a87; font-weight: bold">True</span><span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+
+  </div>
+
+  <div style="width:49%; float:right;">
+
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #8f5902; font-style: italic"># fn is holding the following function</span>
+<span style="color: #5c35cc; font-weight: bold">@tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">function</span> 
+<span style="color: #204a87; font-weight: bold">def</span> <span style="color: #000000">compiled_graph</span><span style="color: #000000; font-weight: bold">():</span>
+    <span style="color: #000000">x1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">layers</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #4e9a06">&quot;x1&quot;</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">compute</span><span style="color: #000000; font-weight: bold">()</span>
+    <span style="color: #000000">x2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">layers</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #4e9a06">&quot;x2&quot;</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">compute</span><span style="color: #000000; font-weight: bold">()</span>
+    <span style="color: #000000">l1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">layers</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #4e9a06">&quot;l1&quot;</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">compute</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">x1</span><span style="color: #000000; font-weight: bold">)</span>
+    <span style="color: #000000">l2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">layers</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #4e9a06">&quot;l2&quot;</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">compute</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">l1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">x2</span><span style="color: #000000; font-weight: bold">)</span>
+    <span style="color: #000000">l3</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">layers</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #4e9a06">&quot;l3&quot;</span><span style="color: #000000; font-weight: bold">]</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">compute</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">l2</span><span style="color: #000000; font-weight: bold">)</span>
+    <span style="color: #204a87; font-weight: bold">return</span> <span style="color: #000000">l3</span>
+</code></pre></div>
+
+
+  </div>
+</div>
+<div style="clear: both;"></div>
+<p>If no <code>ord_inputs</code> are given to <code>as_function</code>, the resulting function doesn't define input parameters.
+To feed values to such a function we would need to change the values of the inputs with <code>x1.value = ...</code> before 
+calling <code>fn()</code>. If <code>ord_inputs</code> are passed (e.g. <code>g.as_function(ord_inputs=[x1,x2])</code>), these will map the parameters to the corresponding layers that <strong>must</strong>
+be inputs of the current graph, if so, the resulting function can be called with arguments as <code>fn(value1,value2)</code>.</p>
+<p>Just as <code>Layer</code> objects define implicit subgraphs, we can also build <code>Callable</code> functions and TensorFlow static graphs
+from any layer by calling <code>layer.as_function()</code>. Much like in the previous example, doing this will return a function
+without parameters. This is just syntax sugar for:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">...</span>
+<span style="color: #000000">graph</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">Graph</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">build</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">inputs</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">outputs</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #3465a4">self</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #204a87; font-weight: bold">return</span> <span style="color: #000000">graph</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">as_function</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">name</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000">name</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #204a87">compile</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #204a87">compile</span><span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<div class="admonition bug">
+<p class="admonition-title">Dev Notes</p>
+<p>A function conversion procedure which uses parameters with optional values for <code>Input</code> layers is in development.</p>
+</div>
+<h2 id="models">Models</h2>
+<p>TensorX uses the <a href="/api/train/Model">Model</a> class to group together multiple layer graphs and simplify the 
+configuration of a training loop with multiple callbacks. This part of the API might suffer some changes but at its core
+it's just intended as a way to group together layer graphs, 
+<a href="https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Optimizer">optimizers</a>, and a configurable training loop
+with <a href="/api/train/Callback">Callbacks</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Docs in progress</p>
+<p>Finish this documentation with examples</p>
+</div>
+<h2 id="callbacks">Callbacks</h2>
+<div class="admonition warning">
+<p class="admonition-title">Docs in progress</p>
+<p>Finish this documentation with examples</p>
+</div>
+<h2 id="serialization">Serialization</h2>
+<div class="admonition warning">
+<p class="admonition-title">Docs in progress</p>
+<p>Finish this documentation with examples</p>
+</div>
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+      </main>
+      
+        <br>
+<br>
+
+<footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="../install/" title="Installation" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                Installation
+              </span>
+            </div>
+          </a>
+        
+        
+          <a href="../../api/layers/" title="Overview" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                Overview
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
+        
+      </nav>
+    </div>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+          <div class="md-footer-copyright__highlight">
+            Copyright &copy; 2016 - 2020 Davide Nunes
+          </div>
+        
+        Made with
+        <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+          Material for MkDocs</a>
+        and
+        <a href="https://github.com/davidenunes/mkgendocs" target="_blank" rel="noopener">
+          mkgendocs</a>
+
+      </div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="../../assets/javascripts/vendor.93c04032.min.js"></script>
+      <script src="../../assets/javascripts/bundle.83e5331e.min.js"></script><script id="__lang" type="application/json">{"clipboard.copy": "Copy to clipboard", "clipboard.copied": "Copied to clipboard", "search.config.lang": "en", "search.config.pipeline": "trimmer, stopWordFilter", "search.config.separator": "[\\s\\-]+", "search.placeholder": "Search", "search.result.placeholder": "Type to start searching", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.term.missing": "Missing"}</script>
+      
+      <script>
+        app = initialize({
+          base: "../..",
+          features: ['navigation.tabs', 'navigation.tabs.sticky', 'instant'],
+          search: Object.assign({
+            worker: "../../assets/javascripts/worker/search.8c7e0a7e.min.js"
+          }, typeof search !== "undefined" && search)
+        })
+      </script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+      
+    
+  </body>
+</html>

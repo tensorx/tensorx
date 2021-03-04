@@ -1,0 +1,2113 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      <link rel="shortcut icon" href="../../assets/images/tx.png">
+      <meta name="generator" content="mkdocs-1.1.2, mkdocs-material-6.2.4">
+    
+    
+      
+        <title>ops - TensorX Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.15aa0b43.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.75751829.min.css">
+        
+          
+          
+          <meta name="theme-color" content="#ffffff">
+        
+      
+    
+    
+    
+      
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700%7CRoboto+Mono&display=fallback">
+        <style>body,input{font-family:"Roboto",-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono",SFMono-Regular,Consolas,Menlo,monospace}</style>
+      
+    
+    
+    
+      <link rel="stylesheet" href="../../assets/css/extra.css">
+    
+    
+      
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="" data-md-color-primary="white" data-md-color-accent="">
+      
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-announce">
+          <div class="md-announce__inner md-grid md-typeset">
+            
+
+  <a href="https://twitter.com/davidelnunes">
+      <span style="color: white">
+        For updates follow <strong>@davidelnunes</strong> on
+      </span>
+      <span class="twemoji twitter" style="color: #00acee">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg>
+    </span>
+      <span style="color: white">
+        <strong>Twitter</strong>
+      </span>
+  </a>
+
+          </div>
+        </aside>
+      
+    </div>
+    
+      <header class="md-header" data-md-component="header">
+    <nav class="md-header-nav md-grid" aria-label="Header">
+        
+        <a href="../.." title="TensorX Documentation"
+           style="display: block;
+                  padding: 0rem;
+                  cursor: pointer;
+                  transition: opacity 150ms;">
+          <img src="../../assets/images/logo_full.svg" width="100" height="100%" alt="logo">
+        </a>
+        
+        <label class="md-header-nav__button md-icon" for="__drawer">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2z"/></svg>
+        </label>
+        <div class="md-header-nav__title" data-md-component="header-title">
+            
+            <div class="md-header-nav__ellipsis">
+          <span class="md-header-nav__topic md-ellipsis">
+             Documentation
+          </span>
+                <span class="md-header-nav__topic md-ellipsis">
+            
+              ops
+            
+          </span>
+            </div>
+            
+        </div>
+        
+        <label class="md-header-nav__button md-icon" for="__search">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16 6.5 6.5 0 013 9.5 6.5 6.5 0 019.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        </label>
+        
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" data-md-state="active" required>
+      <label class="md-search__icon md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16 6.5 6.5 0 013 9.5 6.5 6.5 0 019.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
+      </label>
+      <button type="reset" class="md-search__icon md-icon" aria-label="Clear" data-md-component="search-reset" tabindex="-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+        
+        
+        <div class="md-header-nav__source">
+            
+<a href="https://github.com/davidenunes/tensorx" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05L244 40.45a28.87 28.87 0 00-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 01-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 000 40.81l195.61 195.6a28.86 28.86 0 0040.8 0l194.69-194.69a28.86 28.86 0 000-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    davidenunes/tensorx
+  </div>
+</a>
+        </div>
+        
+    </nav>
+</header>
+
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+
+
+  <li class="md-tabs__item">
+    <a href="../.." class="md-tabs__link">
+      Home
+    </a>
+  </li>
+
+      
+        
+  
+  
+
+
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../start/install/" class="md-tabs__link">
+        Getting Started
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+    
+  
+
+
+  
+  
+  
+    
+
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../layers/" class="md-tabs__link md-tabs__link--active">
+        API
+      </a>
+    </li>
+  
+
+  
+
+      
+        
+  
+  
+
+
+  <li class="md-tabs__item">
+    <a href="../../contributing/" class="md-tabs__link">
+      Contributing
+    </a>
+  </li>
+
+      
+    </ul>
+  </div>
+</nav>
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TensorX Documentation" class="md-nav__button md-logo" aria-label="TensorX Documentation">
+      
+  <img src="../../assets/images/logo_full.svg" alt="logo">
+
+    </a>
+    TensorX Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+<a href="https://github.com/davidenunes/tensorx" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05L244 40.45a28.87 28.87 0 00-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 01-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 000 40.81l195.61 195.6a28.86 28.86 0 0040.8 0l194.69-194.69a28.86 28.86 0 000-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    davidenunes/tensorx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+
+  <li class="md-nav__item">
+    <a href="../.." class="md-nav__link">
+      Home
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-2" type="checkbox" id="nav-2" >
+    
+    <label class="md-nav__link" for="nav-2">
+      Getting Started
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Getting Started" data-md-level="1">
+      <label class="md-nav__title" for="nav-2">
+        <span class="md-nav__icon md-icon"></span>
+        Getting Started
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../start/install/" class="md-nav__link">
+      Installation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../../start/tutorial/" class="md-nav__link">
+      Tutorial
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  
+
+
+  
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3" type="checkbox" id="nav-3" checked>
+    
+    <label class="md-nav__link" for="nav-3">
+      API
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="API" data-md-level="1">
+      <label class="md-nav__title" for="nav-3">
+        <span class="md-nav__icon md-icon"></span>
+        API
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1" type="checkbox" id="nav-3-1" >
+    
+    <label class="md-nav__link" for="nav-3-1">
+      layers
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="layers" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-1">
+        <span class="md-nav__icon md-icon"></span>
+        layers
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/" class="md-nav__link">
+      Overview
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Layer/" class="md-nav__link">
+      Layer
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Lambda/" class="md-nav__link">
+      Lambda
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Input/" class="md-nav__link">
+      Input
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Linear/" class="md-nav__link">
+      Linear
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Lookup/" class="md-nav__link">
+      Lookup
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Activation/" class="md-nav__link">
+      Activation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/Module/" class="md-nav__link">
+      Module
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/MHAttention/" class="md-nav__link">
+      MHAttention
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1-10" type="checkbox" id="nav-3-1-10" >
+    
+    <label class="md-nav__link" for="nav-3-1-10">
+      Recurrent Layers
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Recurrent Layers" data-md-level="3">
+      <label class="md-nav__title" for="nav-3-1-10">
+        <span class="md-nav__icon md-icon"></span>
+        Recurrent Layers
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/RNN/" class="md-nav__link">
+      RNN
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/BaseRNNCell/" class="md-nav__link">
+      RNNBaseCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/RNNCell/" class="md-nav__link">
+      RNNCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/GRUCell/" class="md-nav__link">
+      GRUCell
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/rnn/LSTMCell/" class="md-nav__link">
+      LSTMCell
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-1-11" type="checkbox" id="nav-3-1-11" >
+    
+    <label class="md-nav__link" for="nav-3-1-11">
+      Utils
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="Utils" data-md-level="3">
+      <label class="md-nav__title" for="nav-3-1-11">
+        <span class="md-nav__icon md-icon"></span>
+        Utils
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/utils/LayerState/" class="md-nav__link">
+      LayerState
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../layers/utils/LayerConfig/" class="md-nav__link">
+      LayerConfig
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-nav__toggle md-toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        ops
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+    
+    <a href="./" class="md-nav__link md-nav__link--active">
+      ops
+    </a>
+    
+      
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#txops" class="md-nav__link">
+    tx.ops
+  </a>
+  
+    <nav class="md-nav" aria-label="tx.ops">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matrix_indices" class="md-nav__link">
+    matrix_indices
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#empty_sparse_tensor" class="md-nav__link">
+    empty_sparse_tensor
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_ones" class="md-nav__link">
+    sparse_ones
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_zeros" class="md-nav__link">
+    sparse_zeros
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_overlap" class="md-nav__link">
+    sparse_overlap
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply_gate" class="md-nav__link">
+    apply_gate
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_indices" class="md-nav__link">
+    sparse_indices
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_matrix_indices" class="md-nav__link">
+    sparse_matrix_indices
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dropout" class="md-nav__link">
+    dropout
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alpha_dropout" class="md-nav__link">
+    alpha_dropout
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_dropout" class="md-nav__link">
+    sparse_dropout
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#binary_random_mask" class="md-nav__link">
+    binary_random_mask
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#to_sparse" class="md-nav__link">
+    to_sparse
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#embedding_lookup_sparse" class="md-nav__link">
+    embedding_lookup_sparse
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_overlap_1" class="md-nav__link">
+    sparse_overlap
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sort_by_first" class="md-nav__link">
+    sort_by_first
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ranges" class="md-nav__link">
+    ranges
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grid_2d" class="md-nav__link">
+    grid_2d
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gather_sparse" class="md-nav__link">
+    gather_sparse
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_tile" class="md-nav__link">
+    sparse_tile
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pairs" class="md-nav__link">
+    pairs
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_put" class="md-nav__link">
+    sparse_put
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#put" class="md-nav__link">
+    put
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#filter_nd" class="md-nav__link">
+    filter_nd
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../math/" class="md-nav__link">
+      math
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../init/" class="md-nav__link">
+      init
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../activation/" class="md-nav__link">
+      activation
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../loss/" class="md-nav__link">
+      loss
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../metrics/" class="md-nav__link">
+      metrics
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-8" type="checkbox" id="nav-3-8" >
+    
+    <label class="md-nav__link" for="nav-3-8">
+      utils
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="utils" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-8">
+        <span class="md-nav__icon md-icon"></span>
+        utils
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../utils/Graph/" class="md-nav__link">
+      Graph
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  
+  <li class="md-nav__item md-nav__item--nested">
+    
+    
+      <input class="md-nav__toggle md-toggle" data-md-toggle="nav-3-9" type="checkbox" id="nav-3-9" >
+    
+    <label class="md-nav__link" for="nav-3-9">
+      train
+      <span class="md-nav__icon md-icon"></span>
+    </label>
+    <nav class="md-nav" aria-label="train" data-md-level="2">
+      <label class="md-nav__title" for="nav-3-9">
+        <span class="md-nav__icon md-icon"></span>
+        train
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../train/Model/" class="md-nav__link">
+      Model
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+
+  <li class="md-nav__item">
+    <a href="../train/Callback/" class="md-nav__link">
+      Callback
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+
+  <li class="md-nav__item">
+    <a href="../../contributing/" class="md-nav__link">
+      Contributing
+    </a>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#txops" class="md-nav__link">
+    tx.ops
+  </a>
+  
+    <nav class="md-nav" aria-label="tx.ops">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matrix_indices" class="md-nav__link">
+    matrix_indices
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#empty_sparse_tensor" class="md-nav__link">
+    empty_sparse_tensor
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_ones" class="md-nav__link">
+    sparse_ones
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_zeros" class="md-nav__link">
+    sparse_zeros
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_overlap" class="md-nav__link">
+    sparse_overlap
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply_gate" class="md-nav__link">
+    apply_gate
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_indices" class="md-nav__link">
+    sparse_indices
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_matrix_indices" class="md-nav__link">
+    sparse_matrix_indices
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dropout" class="md-nav__link">
+    dropout
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alpha_dropout" class="md-nav__link">
+    alpha_dropout
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_dropout" class="md-nav__link">
+    sparse_dropout
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#binary_random_mask" class="md-nav__link">
+    binary_random_mask
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#to_sparse" class="md-nav__link">
+    to_sparse
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#embedding_lookup_sparse" class="md-nav__link">
+    embedding_lookup_sparse
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_overlap_1" class="md-nav__link">
+    sparse_overlap
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sort_by_first" class="md-nav__link">
+    sort_by_first
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ranges" class="md-nav__link">
+    ranges
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grid_2d" class="md-nav__link">
+    grid_2d
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gather_sparse" class="md-nav__link">
+    gather_sparse
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_tile" class="md-nav__link">
+    sparse_tile
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pairs" class="md-nav__link">
+    pairs
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sparse_put" class="md-nav__link">
+    sparse_put
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#put" class="md-nav__link">
+    put
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#filter_nd" class="md-nav__link">
+    filter_nd
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                
+                <h1 id="_1"></h1>
+<h2 id="txops">tx.ops</h2>
+<h3 id="matrix_indices">matrix_indices</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L100">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">matrix_indices</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">index_tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dtype</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">int64</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">sort_indices</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">True</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;matrix_indices&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Transforms a batch of column indices into a batch of matrix indices</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>index_tensor</strong> (<code>Tensor</code>) : a tensor with shape <code>(b,n)</code> with a batch of <code>n</code> column indices.</li>
+<li><strong>dtype</strong> (<code>DType</code>) : the output dtype for the indices. Defaults to <code>int64</code>.</li>
+<li><strong>sort_indices</strong> (<code>bool</code>) : if <code>True</code>, output indices are sorted in canonical row-major order.</li>
+<li><strong>name</strong> (<code>str</code>) : name for this op.</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : tensor with shape <code>[b,2]</code> for each index in the input tensor with the corresponding matrix
+indices</li>
+</ul>
+<hr />
+<h3 id="empty_sparse_tensor">empty_sparse_tensor</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L571">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">empty_sparse_tensor</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">dense_shape</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dtype</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;empty_sp_tensor&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Creates an empty <code>SparseTensor</code></p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>dense_shape</strong> (<code>TensorShape</code>) : a 1-D tensor, python list, or numpy array with the output shape for the sparse tensor</li>
+<li><strong>dtype</strong> (<code>DType</code>) : the dtype of the values for the empty tf.SparseTensor</li>
+<li><strong>name</strong> (<code>str</code>) : a name for this operation</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : an empty sparse tensor with a given shape</li>
+</ul>
+<hr />
+<h3 id="sparse_ones">sparse_ones</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L9">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_ones</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">indices</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dense_shape</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dtype</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_ones&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Creates a new <code>SparseTensor</code> with the given indices having value 1</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>indices</strong> (<code>Tensor</code>) : a rank 2 tensor with the <code>(row,column)</code> indices for the resulting sparse tensor</li>
+<li><strong>dense_shape</strong> (<code>Tensor</code> or <code>TensorShape</code>) : the output dense shape</li>
+<li><strong>dtype</strong> (<code>tf.DType</code>) : the tensor type for the values</li>
+<li><strong>name</strong> (<code>str</code>) : sparse_ones op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a new sparse tensor with values set to 1</li>
+</ul>
+<hr />
+<h3 id="sparse_zeros">sparse_zeros</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L29">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_zeros</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">indices</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dense_shape</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dtype</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_zeros&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Creates a new <code>SparseTensor</code> with the given indices having value 0</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>indices</strong> (<code>Tensor</code>) : a rank 2 tensor with the <code>(row,column)</code> indices for the resulting sparse tensor</li>
+<li><strong>dense_shape</strong> (<code>Tensor</code> or <code>TensorShape</code>) : the output dense shape</li>
+<li><strong>dtype</strong> (<code>tf.DType</code>) : the tensor type for the values</li>
+<li><strong>name</strong> (<code>str</code>) : sparse_ones op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a new sparse tensor with values set to 0</li>
+</ul>
+<hr />
+<h3 id="sparse_overlap">sparse_overlap</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L809">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_overlap</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_tensor1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">sp_tensor2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_overlap&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>sparse overlap</p>
+<p>Returns a <code>SparseTensor</code> where the indices of the overlapping indices in the two
+sparse tensors with the values of the first one.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_tensor1</strong> (<code>SparseTensor</code>) : a sparse tensor</li>
+<li><strong>sp_tensor2</strong> (<code>SparseTensor</code>) : another sparse tensor</li>
+<li><strong>name</strong> (<code>str</code>) : name for sparse_overlap op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : sparse tensor with the overlapping indices and the values of <code>sp_tensor1</code></li>
+</ul>
+<hr />
+<h3 id="apply_gate">apply_gate</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L527">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">apply_gate</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">gate</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Applies a gate tensor to the given input</p>
+<p>if input tensor outer dimension is a multiple of gate outer dimension we use broadcasting to apply the gate evenly
+across the input tensor.</p>
+<p><strong>Example</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">apply_gate</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">ones</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">]),[</span><span style="color: #0000cf; font-weight: bold">1.</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0.</span><span style="color: #000000; font-weight: bold">])</span>
+
+<span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">1.</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">1.</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">0.</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #0000cf; font-weight: bold">0.</span><span style="color: #000000; font-weight: bold">]]</span>
+</code></pre></div>
+
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : an input tensor</li>
+<li><strong>gate</strong> (<code>Tensor</code>) : float tensor that is multiplied by the input tensor. The outer dimension of the input tensor
+    should either match the gate tensor or be a multiple of gate tensor.</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>gated</strong> (<code>Tensor</code>) : input tensor gated using the given gate weights</li>
+</ul>
+<hr />
+<h3 id="sparse_indices">sparse_indices</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L49">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_indices</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_values</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_indices&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Returns a <code>SparseTensor</code> with the values containing column indices for the active values on a
+given <code>SparseTensor</code>.</p>
+<div class="admonition example">
+<p class="admonition-title">Use Case</p>
+<p>To be used with <code>embedding_lookup_sparse</code> when we need two <code>SparseTensor</code> objects with the indices and
+values</p>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_values</strong> (<code>SparseTensor</code>) : a sparse tensor for which we extract the active indices.</li>
+<li><strong>name</strong> (<code>str</code>) : name for sparse_indices op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_indices</strong> (<code>SparseTensor</code>) : a sparse tensor with the column indices</li>
+</ul>
+<hr />
+<h3 id="sparse_matrix_indices">sparse_matrix_indices</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L170">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_matrix_indices</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">column_indices</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">num_cols</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">dtype</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">float32</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_one_hot&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Transforms a batch of column indices to a one-hot encoding <code>SparseTensor</code>.</p>
+<p><strong>Example</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">indices</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">],</span>
+           <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">6</span><span style="color: #000000; font-weight: bold">]]</span>
+<span style="color: #000000">dense_shape</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">10</span><span style="color: #000000; font-weight: bold">]</span>
+<span style="color: #000000">sp_one_hot</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">sparse_one_hot</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">indices</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">dense_shape</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">expected</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">SparseTensor</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">indices</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">],</span>
+                                    <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">],</span>
+                                    <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">],</span>
+                                    <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">],</span>
+                                    <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">],</span>
+                                    <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">6</span><span style="color: #000000; font-weight: bold">]],</span>
+                        <span style="color: #000000">values</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">],</span>
+                        <span style="color: #000000">dense_shape</span><span style="color: #ce5c00; font-weight: bold">=</span><span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">10</span><span style="color: #000000; font-weight: bold">])</span>
+</code></pre></div>
+
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>column_indices</strong> (<code>Tensor</code>) : a dense tensor with the indices to be active for each sample (row)</li>
+<li><strong>num_cols</strong> (<code>int</code>) : number of columns for the one-hot encoding</li>
+<li><strong>dtype</strong> (<code>tf.DType</code>) : the type for the output values.</li>
+<li><strong>name</strong> (<code>str</code>) : name for this op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a sparse tensor with the one hot encoding for the given indices</li>
+</ul>
+<hr />
+<h3 id="dropout">dropout</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L229">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">dropout</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">noise_shape</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">random_mask</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">probability</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #0000cf; font-weight: bold">0.1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">scale</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">True</span><span style="color: #000000; font-weight: bold">,</span>
+   <span style="color: #000000">seed</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">return_mask</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">False</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;dropout&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>With probability <code>probability</code>, outputs <code>0</code>  otherwise outputs the input element. If <code>scale</code> is True, the
+input elements are scaled up by <code>1 / (1-probability)</code> so that the expected sum of the activations is unchanged.</p>
+<p>By default, each element is kept or dropped independently.  If <code>noise_shape</code>
+is specified, it must be <a href="http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html">broadcastable</a>
+to the shape of <code>x</code>, and only dimensions with <code>noise_shape[i] == shape(x)[i]</code>
+will make independent decisions.  For example, if <code>shape(x) = [k, l, m, n]</code>
+and <code>noise_shape = [k, 1, 1, n]</code>, each batch and channel component will be
+kept independently and each row and column will be kept or not kept together.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : an input tensor</li>
+<li><strong>noise_shape</strong> (<code>Tensor</code>) : A 1-D <code>Tensor</code> of type <code>int32</code>, representing the shape for randomly generated drop flags</li>
+<li><strong>return_mask</strong> (<code>bool</code>) : if <code>True</code>, returns the random mask used</li>
+<li><strong>random_mask</strong> (<code>Tensor</code>) : a tensor used to create the random bernoulli mask</li>
+<li><strong>probability</strong> (<code>float</code> or <code>Tensor</code>) : A scalar <code>Tensor</code> with the same type as x. The probability that each element
+    is kept.</li>
+<li><strong>scale</strong> (<code>bool</code>) : if true rescales the non-zero elements to 1 / (1-drop_probability)</li>
+<li><strong>seed</strong> (<code>int</code>) : A Python integer with the random number generator seed</li>
+<li><strong>name</strong> (<code>str</code>) : a name for this operation</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : output tensor with the same <code>DType</code> as the input</li>
+</ul>
+<p><strong>Raises</strong></p>
+<ul>
+<li><strong>ValueError</strong>  : if <code>probability</code> is not in <code>[0, 1]</code> or if <code>x</code> is not a floating point tensor.</li>
+</ul>
+<hr />
+<h3 id="alpha_dropout">alpha_dropout</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L333">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">alpha_dropout</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">noise_shape</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">random_mask</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">probability</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #0000cf; font-weight: bold">0.1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">seed</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span>
+   <span style="color: #000000">return_mask</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">False</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;dropout&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Alpha Dropout keeps mean and variance of inputs in order to ensure the self-normalization after dropout.
+Alpha dropout is proposed for Scaled Exponential Linear Units (SELUs) because it randomly sets activations to the
+negative saturation value rather than 0.</p>
+<p>The multiplicative noise will have standard deviation $\sqrt{\frac{probability}{(1-probability)}}</p>
+<div class="admonition cite">
+<p class="admonition-title">References</p>
+<ol>
+<li><a href="https://arxiv.org/pdf/1706.02515.pdf">Self-Normalizing Neural Networks</a></li>
+</ol>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : A floating point tensor.</li>
+<li><strong>noise_shape</strong> (<code>Tensor</code>) : A 1-D <code>Tensor</code> of type <code>int32</code>, representing the shape for randomly generated drop flags</li>
+<li><strong>return_mask</strong> (<code>bool</code>) : if true, returns the random mask used</li>
+<li><strong>random_mask</strong> (<code>Tensor</code>) : a tensor used to create the random bernoulli mask</li>
+<li><strong>probability</strong> (<code>float</code> or <code>Tensor</code>) : A scalar <code>Tensor</code> with the same type as x. The probability that each element
+    is kept.</li>
+<li><strong>seed</strong> (<code>int</code>) : A Python integer with the random number generator seed</li>
+<li><strong>name</strong> (<code>str</code>) : a name for this operation (optional)</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>result</strong> (<code>Tensor</code>) : a tensor with the same shape as the input with the dropped units set to negative values</li>
+</ul>
+<hr />
+<h3 id="sparse_dropout">sparse_dropout</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L458">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_dropout</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">probability</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #0000cf; font-weight: bold">0.2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">scale</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">True</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">seed</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">mask</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span>
+   <span style="color: #000000">return_mask</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">False</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">alpha</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">False</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_dropout&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Performs a dropout on a <code>SparseTensor</code>.</p>
+<p>With probability <code>keep_prob</code>, outputs the input element scaled up by
+<code>1 / keep_prob</code>, otherwise outputs <code>0</code>.  The scaling is so that the expected
+sum is unchanged.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a sparse tensor on which the dropout is performed.</li>
+<li><strong>mask</strong> (<code>Tensor</code>) : a binary random mask to be applied to the values of this tensor</li>
+<li><strong>return_mask</strong> (<code>bool</code>) : if true returns the random_mask used to perform dropout (result,random_mask)</li>
+<li><strong>probability</strong> (<code>float</code>, <code>Tensor</code>) : A scalar tensor with the same type as x. The probability
+    that each element is kept.</li>
+<li><strong>scale</strong> (<code>bool</code>) : if True rescales the input to 1 / keep_prob else simply drops without rescaling</li>
+<li><strong>seed</strong> (<code>int) : A Python integer used as seed. (See</code>TensorFlow` documentation
+    for <code>tf.set_random_seed</code> for behavior.)</li>
+<li><strong>alpha</strong> (<code>bool</code>) : if True uses <code>alpha_dropout</code> instead of <code>dropout</code> in the inputs</li>
+<li><strong>name</strong> (<code>str</code>) : A name for this operation (optional).</li>
+</ul>
+<hr />
+<h3 id="binary_random_mask">binary_random_mask</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L434">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">binary_random_mask</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">mask_probability</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #0000cf; font-weight: bold">0.0</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">seed</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Creates a binary mask with the same shape as the given tensor, randomly generated from
+the given mask probability.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : tensor for which we would like to create a mask</li>
+<li><strong>mask_probability</strong> (<code>float</code>, <code>Tensor</code>) : scalar tensor or float with probability of masking a given value</li>
+<li><strong>seed</strong> (<code>int</code>) : seed for random number generator</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>binary_mask</strong> (<code>Tensor</code>) : a tensor with values <code>0</code> or <code>1</code> with the same shape as the input tensor</li>
+</ul>
+<hr />
+<h3 id="to_sparse">to_sparse</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L650">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">to_sparse</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;to_sparse&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Converts a given <code>Tensor</code> in a <code>SparseTensor</code></p>
+<p><strong>Example</strong></p>
+<p>For a dense <code>Tensor</code> such as:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">tensor</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">],</span>
+          <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">]]</span>
+</code></pre></div>
+
+<p>this returns an op that creates the following two <code>SparseTensor</code>:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">SparseTensor</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">indices</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">],</span>
+                           <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">],</span>
+                           <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">]],</span>
+                <span style="color: #000000">values</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">],</span>
+                <span style="color: #000000">dense_shape</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">])</span>
+</code></pre></div>
+
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : a dense tensor</li>
+<li><strong>name</strong> (<code>str</code>) : name for to_sparse op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a sparse tensor with sparse index and value tensors
+with the non-zero entries of the given input.</li>
+</ul>
+<hr />
+<h3 id="embedding_lookup_sparse">embedding_lookup_sparse</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L688">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">embedding_lookup_sparse</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">params</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">sp_tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">combiner</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">max_norm</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">None</span><span style="color: #000000; font-weight: bold">,</span>
+   <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;embedding_lookup_sparse&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Computes embeddings for the given ids and weights.</p>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>assumes that there is at least one id for each row in the dense tensor
+represented by sp_ids (i.e. there are no rows with empty features), and that
+all the indices of sp_ids are in canonical row-major order.
+It also assumes that all id values lie in the range [0, p0), where p0
+is the sum of the size of params along dimension 0.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>in tensorflow's implementation, sparse gradients do not propagate through gather.</p>
+</div>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>params</strong>  : A single tensor representing the complete embedding tensor, or a</li>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) :  N x M <code>SparseTensor</code> with the ids and weights
+    where N is typically batch size and M is arbitrary.</li>
+<li><strong>combiner</strong>  : A string specifying the reduction op. Currently "mean", "sqrtn"</li>
+<li><strong>max_norm</strong>  : If not <code>None</code>, each embedding is clipped if its l2-norm is larger</li>
+<li><strong>name</strong> (<code>str</code>) : op name
+sp_tensor:
+list of P tensors all of same shape except for the first dimension,
+representing sharded embedding tensors.  Alternatively, a
+<code>PartitionedVariable</code>, created by partitioning along dimension 0. Each
+element must be appropriately sized for the given <code>partition_strategy</code>.</li>
+</ul>
+<p>and "sum" are supported. "sum" computes the weighted sum of the embedding
+results for each row. "mean" is the weighted sum divided by the total
+weight. "sqrtn" is the weighted sum divided by the square root of the sum
+of the squares of the weights.</p>
+<p>than this value, before combining.</p>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : dense tensor representing the combined embeddings for the
+    sparse ids. For each row in the dense tensor represented by <code>sp_ids</code>, the op
+    looks up the embeddings for all ids in that row, multiplies them by the
+    corresponding weight, and combines these embeddings as specified.</li>
+</ul>
+<p><strong>Raises</strong></p>
+<ul>
+<li><strong>TypeError</strong>  : If <code>sp_ids</code> is not a <code>SparseTensor</code>, or if <code>sp_weights</code> is</li>
+<li><strong>ValueError</strong>  : If <code>combiner</code> is not one of {"mean", "sqrtn", "sum"}.
+neither <code>None</code> nor <code>SparseTensor</code>.</li>
+</ul>
+<hr />
+<h3 id="sparse_overlap_1">sparse_overlap</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L809">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_overlap</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_tensor1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">sp_tensor2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_overlap&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>sparse overlap</p>
+<p>Returns a <code>SparseTensor</code> where the indices of the overlapping indices in the two
+sparse tensors with the values of the first one.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_tensor1</strong> (<code>SparseTensor</code>) : a sparse tensor</li>
+<li><strong>sp_tensor2</strong> (<code>SparseTensor</code>) : another sparse tensor</li>
+<li><strong>name</strong> (<code>str</code>) : name for sparse_overlap op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : sparse tensor with the overlapping indices and the values of <code>sp_tensor1</code></li>
+</ul>
+<hr />
+<h3 id="sort_by_first">sort_by_first</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L838">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sort_by_first</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">tensor2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">ascending</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #204a87; font-weight: bold">True</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sort_by_first&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>sort_by_first</p>
+<p>Sorts two tensors. Sorts the second by the changes in the first sort</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor1</strong> (<code>Tensor</code>) : tensor to determine the oder by which the second is sorted</li>
+<li><strong>tensor2</strong> (<code>Tensor</code>) : tensor to be sorted according to the sorting of the first</li>
+<li><strong>ascending</strong> (<code>Bool</code>) : if True sorts by ascending order of value</li>
+<li><strong>name</strong> (<code>str</code>) : name of the op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor2</strong> (<code>Tensor</code>,<code>Tensor</code>) : sorted first tensor, second tensor sorted according to the indices of the
+first tensor sorting</li>
+</ul>
+<hr />
+<h3 id="ranges">ranges</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L876">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">ranges</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">range_sizes</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;ranges&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>ranges</p>
+<p>similar to concatenating multiple <code>tf.range</code> calls applied
+to each element of a given 1D tensor with range sizes.</p>
+<p><strong>Example</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">ranges</span><span style="color: #000000; font-weight: bold">([</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">])</span>
+
+<span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">]</span>
+</code></pre></div>
+
+<p>the enums are <code>[0]</code>, <code>[0,1]</code>, <code>[0,1,2,3]</code></p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>range_sizes</strong> (<code>Tensor</code>) : 1D tensor with range sizes</li>
+<li><strong>name</strong> (<code>str</code>) : ranges op name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>ranges</strong> (<code>Tensor</code>) : a 1D <code>Tensor</code> with <code>tf.reduce_sum(range_sizes)</code> dimensions</li>
+</ul>
+<hr />
+<h3 id="grid_2d">grid_2d</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L990">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">grid_2d</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">shape</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;grid_2d&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>creates a tensor with a grid 2d coordinates</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>shape</strong> (<code>Tensor</code>) : an Tensor of tf.int32 with a 2D shape for the grid</li>
+<li><strong>name</strong> (<code>str</code>) : grid_2d op name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>grid_coordinates</strong> (<code>Tensor</code>) : 2D tensor with grid coordinates</li>
+</ul>
+<hr />
+<h3 id="gather_sparse">gather_sparse</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L926">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">gather_sparse</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">ids</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;gather_sparse&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>gather_sparse</p>
+<p>gather rows from a sparse tensor by the given ids and returns a sparse tensor</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>gathering from a <code>SparseTensor</code> is inefficient</p>
+</div>
+<p><strong>Example</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">gather_sparse</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">sp_tensor</span><span style="color: #000000; font-weight: bold">,[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">])</span>
+</code></pre></div>
+
+<p>returns a <code>[3,sp_tensor.dense_shape[-1]]</code> <code>SparseTensor</code></p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : sparse tensor</li>
+<li><strong>ids</strong> (<code>Tensor</code>) : an int tensor with the ids of the rows to be returned</li>
+<li><strong>name</strong> (<code>str</code>) : on name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_gathered</strong> (<code>SparseTensor</code>) : a sparse tensor with the gathered rows.</li>
+</ul>
+<hr />
+<h3 id="sparse_tile">sparse_tile</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L1012">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_tile</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">num</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_tile&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Constructs a <code>SparseTensor</code> by replicating the input sparse tensor <code>num</code> times</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a sparse input tensor to be tiled</li>
+<li><strong>num</strong> (<code>int</code>) : number of repetitions</li>
+<li><strong>name</strong> (<code>str</code>) : name for the op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tile</strong> (<code>SparseTensor</code>) : result sparse tensor</li>
+</ul>
+<hr />
+<h3 id="pairs">pairs</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L1052">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">pairs</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor1</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">tensor2</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;pairs&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>Pairwise combination of elements from the two tensors.</p>
+<p><strong>Example</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #000000">t1</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">],[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">]]</span>
+<span style="color: #000000">t2</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">]</span>
+<span style="color: #000000">t12</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000; font-weight: bold">[[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">],[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">2</span><span style="color: #000000; font-weight: bold">],[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">],[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">3</span><span style="color: #000000; font-weight: bold">],[</span><span style="color: #0000cf; font-weight: bold">0</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">],[</span><span style="color: #0000cf; font-weight: bold">1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #0000cf; font-weight: bold">4</span><span style="color: #000000; font-weight: bold">]]</span>
+
+<span style="color: #000000">p12</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #000000">tx</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">pairs</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">t1</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">t2</span><span style="color: #000000; font-weight: bold">)</span>
+<span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">reduce_all</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">tf</span><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">equal</span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">p12</span><span style="color: #000000; font-weight: bold">,</span><span style="color: #000000">t12</span><span style="color: #000000; font-weight: bold">))</span>
+</code></pre></div>
+
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor1</strong> (<code>Tensor</code>) : a tensor, python list, or numpy array</li>
+<li><strong>tensor2</strong> (<code>Tensor</code>) : a tensor, python list, or numpy array</li>
+<li><strong>name</strong> (<code>str</code>) : name for pairs op)</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : a tensor with the pairwise combination of input tensors</li>
+</ul>
+<hr />
+<h3 id="sparse_put">sparse_put</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L1083">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">sparse_put</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">sp_tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">sp_updates</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;sparse_put&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>sparse_put</p>
+<p>Changes a given tf.SparseTensor according to the updates specified in a tf.SparseTensor.</p>
+<p>Creates a new tensor where the values of the updates override the
+values in the original tensor. The input tensors must have the same
+<code>dense_shape</code>.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a sparse tensor we which to set some indices to given values</li>
+<li><strong>sp_updates</strong> (`SparseTensor) : a <code>SparseTensor</code> with the indices to be changed and the respective values</li>
+<li><strong>name</strong> (<code>str</code>) : sparse_put op name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sparse_tensor</strong> (<code>SparseTensor</code>) : a sparse tensor with the updated values.</li>
+</ul>
+<hr />
+<h3 id="put">put</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L1135">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">put</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">tensor</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">sp_updates</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;put&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>put</p>
+<p>Changes a given dense <code>Tensor</code> according to the updates specified in a <code>SparseTensor</code>.</p>
+<p>Creates a new <code>Tensor</code> where the values of the updates override the
+values in the original tensor. The tensor <code>shape</code> must be the same as the updates <code>dense_shape</code>.</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : tensor to be updated</li>
+<li><strong>sp_updates</strong> (<code>SparseTensor</code>) : sparse tensor with the indices to be changed and the respective values.</li>
+<li><strong>name</strong> (<code>str</code>) : put op name</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>tensor</strong> (<code>Tensor</code>) : a tensor with the updated values.</li>
+</ul>
+<hr />
+<h3 id="filter_nd">filter_nd</h3>
+<p><a href="https://github.com/davidenunes/tensorx/blob/master/tensorx/ops.py/#L1170">
+<img height="16px" width="16px" src="/img/GitHub-Mark-32px.png">
+source
+</a></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #ce5c00; font-weight: bold">.</span><span style="color: #000000">filter_nd</span><span style="color: #000000; font-weight: bold">(</span>
+   <span style="color: #000000">condition</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">params</span><span style="color: #000000; font-weight: bold">,</span> <span style="color: #000000">name</span> <span style="color: #ce5c00; font-weight: bold">=</span> <span style="color: #4e9a06">&#39;filter_nd&#39;</span>
+<span style="color: #000000; font-weight: bold">)</span>
+</code></pre></div>
+
+<hr />
+<p>filter_nd
+Filters a given tensor based on a condition tensor
+condition and params must have the same shape</p>
+<p><strong>Args</strong></p>
+<ul>
+<li><strong>condition</strong> (<code>Tensor</code>) : a <code>bool</code> tensor used to filter params</li>
+<li><strong>params</strong> (<code>Tensor</code>) : the tensor to be filtered</li>
+<li><strong>name</strong> (<code>str</code>) : name for filter_nd op</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li><strong>sp_tensor</strong> (<code>SparseTensor</code>) : a sparse tensor with the values in params filtered according to condition</li>
+</ul>
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+      </main>
+      
+        <br>
+<br>
+
+<footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="../layers/utils/LayerConfig/" title="LayerConfig" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                LayerConfig
+              </span>
+            </div>
+          </a>
+        
+        
+          <a href="../math/" title="math" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                math
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
+        
+      </nav>
+    </div>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+          <div class="md-footer-copyright__highlight">
+            Copyright &copy; 2016 - 2020 Davide Nunes
+          </div>
+        
+        Made with
+        <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+          Material for MkDocs</a>
+        and
+        <a href="https://github.com/davidenunes/mkgendocs" target="_blank" rel="noopener">
+          mkgendocs</a>
+
+      </div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="../../assets/javascripts/vendor.93c04032.min.js"></script>
+      <script src="../../assets/javascripts/bundle.83e5331e.min.js"></script><script id="__lang" type="application/json">{"clipboard.copy": "Copy to clipboard", "clipboard.copied": "Copied to clipboard", "search.config.lang": "en", "search.config.pipeline": "trimmer, stopWordFilter", "search.config.separator": "[\\s\\-]+", "search.placeholder": "Search", "search.result.placeholder": "Type to start searching", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.term.missing": "Missing"}</script>
+      
+      <script>
+        app = initialize({
+          base: "../..",
+          features: ['navigation.tabs', 'navigation.tabs.sticky', 'instant'],
+          search: Object.assign({
+            worker: "../../assets/javascripts/worker/search.8c7e0a7e.min.js"
+          }, typeof search !== "undefined" && search)
+        })
+      </script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+      
+    
+  </body>
+</html>
